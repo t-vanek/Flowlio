@@ -74,6 +74,10 @@
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleAsync(a.Id))">
                             @(_expanded == a.Id ? "Skrýt" : "Spravovat")
                         </FluentButton>
+                        @if (_canManageAccounts)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ArchiveAsync(a.Id))">Archivovat</FluentButton>
+                        }
                     </div>
                 </div>
 
@@ -213,10 +217,32 @@
             }
         }
     </FluentCard>
+
+    @if (_canManageAccounts && _archived is { Count: > 0 })
+    {
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Archivované účty</h2>
+            <p class="muted">Archivované účty jsou skryté z přehledů a transakcí, ale jejich historie zůstává zachována.</p>
+            @foreach (var a in _archived)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">@a.Name</div>
+                        <div class="muted">
+                            @BankLabel(a.Bank)@(string.IsNullOrWhiteSpace(a.AccountNumber) ? "" : $" · {a.AccountNumber}")
+                            · archivováno @a.ArchivedAt.ToLocalTime().ToString("d.M.yyyy")
+                        </div>
+                    </div>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreAsync(a.Id))">Obnovit</FluentButton>
+                </div>
+            }
+        </FluentCard>
+    }
 </div>
 
 @code {
     private IReadOnlyList<BankAccountDto>? _accounts;
+    private IReadOnlyList<ArchivedAccountDto>? _archived;
     private IReadOnlyList<FamilyMemberDto>? _members;
 
     private string _name = "";
@@ -259,7 +285,26 @@
         await LoadAsync();
     }
 
-    private async Task LoadAsync() => _accounts = await Api.GetAccountsAsync();
+    private async Task LoadAsync()
+    {
+        _accounts = await Api.GetAccountsAsync();
+        if (_canManageAccounts)
+            _archived = await Api.GetArchivedAccountsAsync();
+    }
+
+    private async Task ArchiveAsync(Guid accountId)
+    {
+        await Api.ArchiveAccountAsync(accountId);
+        if (_expanded == accountId)
+            _expanded = null;
+        await LoadAsync();
+    }
+
+    private async Task RestoreAsync(Guid accountId)
+    {
+        await Api.RestoreAccountAsync(accountId);
+        await LoadAsync();
+    }
 
     private async Task CreateAsync()
     {

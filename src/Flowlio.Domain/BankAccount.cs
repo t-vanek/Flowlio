@@ -3,7 +3,7 @@ using Flowlio.Domain.Common;
 namespace Flowlio.Domain;
 
 /// <summary>A bank account belonging to a family. Transactions are imported into it from statements.</summary>
-public class BankAccount : AuditableEntity
+public class BankAccount : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
     public Family? Family { get; set; }
@@ -33,4 +33,7 @@ public class BankAccount : AuditableEntity
 
     /// <summary>Payment cards issued on this account.</summary>
     public ICollection<BankCard> Cards { get; set; } = [];
+
+    /// <summary>When set, the account is archived: hidden from listings and financial views but kept for history.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

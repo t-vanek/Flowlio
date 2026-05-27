@@ -267,7 +267,8 @@ public static class FamilyEndpoints
             return Results.BadRequest("Člen je opatrovníkem dětského účtu. Nejprve přiřaďte dítě jinému opatrovníkovi.");
 
         var name = member.DisplayName;
-        db.FamilyMembers.Remove(member);
+        member.DeletedAt = DateTimeOffset.UtcNow;
+        member.IsActive = false;
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("member.delete", "Member", memberId.ToString(), name, me.FamilyId, "Odebrán člen", ct);
         return Results.NoContent();
@@ -584,7 +585,7 @@ public static class FamilyEndpoints
             return Forbidden();
 
         var cardholderName = card.CardholderName;
-        db.BankCards.Remove(card);
+        card.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("card.delete", "BankCard", cardId.ToString(), cardholderName, me.FamilyId,
             "Smazána karta", ct);

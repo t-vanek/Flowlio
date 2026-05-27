@@ -36,8 +36,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
-        // Soft-deleted accounts are hidden from all queries (sign-in, lookups, listings); the admin
-        // "deleted users" view and restore/purge use IgnoreQueryFilters explicitly.
+        // Soft-deleted rows are hidden from all queries (sign-in, lookups, listings); views that need
+        // them (the admin "deleted users" list, account restore) use IgnoreQueryFilters explicitly.
         builder.Entity<ApplicationUser>().HasQueryFilter(u => u.DeletedAt == null);
+        builder.Entity<BankAccount>().HasQueryFilter(a => a.DeletedAt == null);
+        builder.Entity<FamilyMember>().HasQueryFilter(m => m.DeletedAt == null);
+        builder.Entity<BankCard>().HasQueryFilter(c => c.DeletedAt == null);
     }
 }

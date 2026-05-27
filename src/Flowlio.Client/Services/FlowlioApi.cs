@@ -24,6 +24,15 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
+    public async Task<IReadOnlyList<ArchivedAccountDto>> GetArchivedAccountsAsync() =>
+        await http.GetFromJsonAsync<List<ArchivedAccountDto>>("api/accounts/archived") ?? [];
+
+    public async Task<bool> ArchiveAccountAsync(Guid accountId) =>
+        (await http.DeleteAsync($"api/accounts/{accountId}")).IsSuccessStatusCode;
+
+    public async Task<bool> RestoreAccountAsync(Guid accountId) =>
+        (await http.PostAsync($"api/accounts/{accountId}/restore", null)).IsSuccessStatusCode;
+
     public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() =>
         await http.GetFromJsonAsync<List<CategoryDto>>("api/categories") ?? [];
 

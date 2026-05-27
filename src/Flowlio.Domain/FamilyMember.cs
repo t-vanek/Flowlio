@@ -6,7 +6,7 @@ namespace Flowlio.Domain;
 /// A person within a family. May be linked to an authenticated user (ASP.NET Identity) once they
 /// accept an invitation, or exist as a guardian-managed profile (e.g. a young child) with no login.
 /// </summary>
-public class FamilyMember : AuditableEntity
+public class FamilyMember : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
     public Family? Family { get; set; }
@@ -39,4 +39,7 @@ public class FamilyMember : AuditableEntity
 
     /// <summary>Per-account access grants (disponent / viewer) held by this member.</summary>
     public ICollection<AccountAccess> AccountAccesses { get; set; } = [];
+
+    /// <summary>When set, the member is removed: hidden everywhere but kept so history and references survive.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

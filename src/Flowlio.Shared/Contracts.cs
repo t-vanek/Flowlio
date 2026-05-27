@@ -18,6 +18,17 @@ public sealed record BankAccountDto
     public int DisponentCount { get; init; }
 }
 
+/// <summary>An archived (soft-deleted) bank account, listed so it can be restored.</summary>
+public sealed record ArchivedAccountDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public BankProvider Bank { get; init; }
+    public string? AccountNumber { get; init; }
+    public string Currency { get; init; } = "CZK";
+    public DateTimeOffset ArchivedAt { get; init; }
+}
+
 public sealed record CreateBankAccountRequest
 {
     public string Name { get; init; } = "";

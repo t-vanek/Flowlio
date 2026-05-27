@@ -25,7 +25,8 @@ public class FamilyMemberConfiguration : IEntityTypeConfiguration<FamilyMember>
         b.Property(x => x.Email).HasMaxLength(256);
         b.HasIndex(x => x.UserId);
         // Postgres treats NULLs as distinct, so multiple pending/managed members (UserId == null) per family are allowed.
-        b.HasIndex(x => new { x.FamilyId, x.UserId }).IsUnique();
+        // Scoped to live rows so a soft-deleted member does not block the same user rejoining the family.
+        b.HasIndex(x => new { x.FamilyId, x.UserId }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
 
         b.HasOne(x => x.Guardian)
             .WithMany(x => x.Dependents)
