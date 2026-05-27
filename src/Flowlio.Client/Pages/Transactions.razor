@@ -34,7 +34,7 @@
     <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
     <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
 
-    <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Filtrovat</FluentButton>
+    <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
     <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
 </div>
 
@@ -75,7 +75,18 @@ else
             </tbody>
         </table>
     </FluentCard>
-    <p class="muted">Zobrazeno @_page.Items.Count z @_page.TotalCount transakcí.</p>
+    <div class="toolbar" style="justify-content:space-between;">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber <= 1)" OnClick="@(() => ChangePageAsync(-1))">Předchozí</FluentButton>
+            <span class="muted">Strana @_page.Page z @TotalPages · celkem @_page.TotalCount</span>
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber >= TotalPages)" OnClick="@(() => ChangePageAsync(1))">Další</FluentButton>
+        </FluentStack>
+        <FluentSelect TOption="string" @bind-Value="_pageSizeValue" @bind-Value:after="PageSizeChangedAsync" Label="Na stránku">
+            <FluentOption TOption="string" Value="25">25</FluentOption>
+            <FluentOption TOption="string" Value="50">50</FluentOption>
+            <FluentOption TOption="string" Value="100">100</FluentOption>
+        </FluentSelect>
+    </div>
 }
 
 @code {
@@ -90,14 +101,21 @@ else
     private DateTime? _dateFrom;
     private DateTime? _dateTo;
 
+    private int _pageNumber = 1;
+    private string _pageSizeValue = "50";
+
+    private int TotalPages => _page is null || _page.PageSize == 0
+        ? 1
+        : Math.Max(1, (int)Math.Ceiling((double)_page.TotalCount / _page.PageSize));
+
     protected override async Task OnInitializedAsync()
     {
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
-        await ReloadAsync();
+        await LoadAsync();
     }
 
-    private async Task ReloadAsync()
+    private async Task LoadAsync()
     {
         _page = null;
         _page = await Api.GetTransactionsAsync(
@@ -106,10 +124,31 @@ else
             dateFrom: _dateFrom is { } from ? DateOnly.FromDateTime(from) : null,
             dateTo: _dateTo is { } to ? DateOnly.FromDateTime(to) : null,
             direction: string.IsNullOrEmpty(_typeValue) ? null : (TransactionDirection)int.Parse(_typeValue),
-            search: _search);
+            search: _search,
+            page: _pageNumber,
+            pageSize: int.Parse(_pageSizeValue));
     }
 
-    private async Task ClearFiltersAsync()
+    // Changing filters or page size always returns to the first page.
+    private Task ApplyFiltersAsync()
+    {
+        _pageNumber = 1;
+        return LoadAsync();
+    }
+
+    private Task PageSizeChangedAsync()
+    {
+        _pageNumber = 1;
+        return LoadAsync();
+    }
+
+    private Task ChangePageAsync(int delta)
+    {
+        _pageNumber = Math.Clamp(_pageNumber + delta, 1, TotalPages);
+        return LoadAsync();
+    }
+
+    private Task ClearFiltersAsync()
     {
         _search = "";
         _accountValue = "";
@@ -117,7 +156,7 @@ else
         _typeValue = "";
         _dateFrom = null;
         _dateTo = null;
-        await ReloadAsync();
+        return ApplyFiltersAsync();
     }
 
     private static string Money(decimal value) =>

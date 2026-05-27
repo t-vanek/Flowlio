@@ -38,9 +38,9 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<TransactionPageDto?> GetTransactionsAsync(
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
-        TransactionDirection? direction = null, string? search = null, int page = 1)
+        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
     {
-        var url = $"api/transactions?page={page}";
+        var url = $"api/transactions?page={page}&pageSize={pageSize}";
         if (accountId is { } id)
             url += $"&accountId={id}";
         if (categoryId is { } cid)
