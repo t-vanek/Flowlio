@@ -13,6 +13,9 @@ public sealed class LiveNotificationService(NavigationManager navigation, IAcces
 
     public event Action<ImportCompletedNotification>? ImportCompleted;
 
+    /// <summary>Raised when the server signals that the current user's effective access changed.</summary>
+    public event Action? AccessChanged;
+
     public async Task StartAsync()
     {
         if (_connection is not null)
@@ -31,6 +34,7 @@ public sealed class LiveNotificationService(NavigationManager navigation, IAcces
             .Build();
 
         _connection.On<ImportCompletedNotification>("ImportCompleted", notification => ImportCompleted?.Invoke(notification));
+        _connection.On("AccessChanged", () => AccessChanged?.Invoke());
 
         await _connection.StartAsync();
     }

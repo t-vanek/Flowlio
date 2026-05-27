@@ -1,6 +1,8 @@
 using Flowlio.Application.Abstractions;
 using Flowlio.Domain;
+using Flowlio.Server.Realtime;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using static Flowlio.Server.Auth.MemberAuthorization;
 
@@ -45,7 +47,8 @@ public static class RolesEndpoints
     }
 
     private static async Task<IResult> UpdateRole(
-        string role, UpdateRolePermissionsRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        string role, UpdateRolePermissionsRequest request, IAppDbContext db, ICurrentFamily family,
+        IHubContext<NotificationsHub> hub, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageRoles, ct))
@@ -69,6 +72,7 @@ public static class RolesEndpoints
             db.FamilyRolePermissions.Add(new FamilyRolePermission { FamilyId = me.FamilyId, Role = parsed, Permission = added });
 
         await db.SaveChangesAsync(ct);
+        await hub.NotifyFamilyAsync(me.FamilyId, ct);
         return Results.NoContent();
     }
 }

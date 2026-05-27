@@ -5,38 +5,39 @@ namespace Flowlio.Client.Services;
 
 /// <summary>
 /// Loads the signed-in member (and the permissions their role grants) once and caches it for the
-/// session, so components can hide actions the user is not allowed to perform. A background poll
-/// re-fetches periodically and, together with the explicit <see cref="RefreshAsync"/>, raises
-/// <see cref="Changed"/> whenever the user's effective access changes — so an admin grant or role
-/// change made elsewhere shows up in the running session without a reload.
+/// session, so components can hide actions the user is not allowed to perform. Live push (via the
+/// notifications hub) calls <see cref="RefreshAsync"/> for instant updates; a background poll at the
+/// server-provided interval is a fallback for when the socket is down. Either way <see cref="Changed"/>
+/// fires when the effective access changes so the UI re-renders.
 /// </summary>
 public sealed class CurrentUserState(FlowlioApi api) : IDisposable
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+    private const int MinPollSeconds = 10;
+    private const int DefaultPollSeconds = 60;
 
     private CurrentUserDto? _me;
     private bool _loaded;
     private PeriodicTimer? _timer;
     private readonly CancellationTokenSource _cts = new();
 
-    /// <summary>Raised when the cached current user changes, so the UI can update gating.</summary>
+    /// <summary>Raised when the cached current user changes, so the UI can update its gating.</summary>
     public event Action? Changed;
 
     public async Task<CurrentUserDto?> GetAsync()
     {
         if (!_loaded)
         {
-            _me = await api.GetMeAsync();
+            _me = await FetchAsync();
             _loaded = true;
             StartPolling();
         }
         return _me;
     }
 
-    /// <summary>Re-fetches the current user from the server and notifies subscribers.</summary>
+    /// <summary>Re-fetches the current user and notifies subscribers (used on an explicit live signal).</summary>
     public async Task<CurrentUserDto?> RefreshAsync()
     {
-        _me = await api.GetMeAsync();
+        _me = await FetchAsync();
         _loaded = true;
         Changed?.Invoke();
         return _me;
@@ -45,11 +46,24 @@ public sealed class CurrentUserState(FlowlioApi api) : IDisposable
     public async Task<bool> CanAsync(Permission permission) =>
         (await GetAsync())?.Can(permission) ?? false;
 
+    private async Task<CurrentUserDto?> FetchAsync()
+    {
+        try
+        {
+            return await api.GetMeAsync();
+        }
+        catch
+        {
+            return null; // unauthenticated, deactivated (403) or a transient failure
+        }
+    }
+
     private void StartPolling()
     {
         if (_timer is not null)
             return;
-        _timer = new PeriodicTimer(PollInterval);
+        var seconds = Math.Max(_me?.PollIntervalSeconds ?? DefaultPollSeconds, MinPollSeconds);
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(seconds));
         _ = PollLoopAsync();
     }
 
@@ -59,17 +73,10 @@ public sealed class CurrentUserState(FlowlioApi api) : IDisposable
         {
             while (await _timer!.WaitForNextTickAsync(_cts.Token))
             {
-                CurrentUserDto? latest;
-                try
-                {
-                    latest = await api.GetMeAsync();
-                }
-                catch
-                {
-                    continue; // transient (e.g. a token refresh in flight); retry on the next tick
-                }
-
-                if (!SameAccess(_me, latest))
+                var latest = await FetchAsync();
+                // Ignore a failed poll (null) so a transient error never wipes the cached access;
+                // genuine removals arrive via the explicit live push -> RefreshAsync.
+                if (latest is not null && !SameAccess(_me, latest))
                 {
                     _me = latest;
                     Changed?.Invoke();

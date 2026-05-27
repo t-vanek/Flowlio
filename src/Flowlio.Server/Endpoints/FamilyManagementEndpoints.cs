@@ -1,6 +1,8 @@
 using Flowlio.Application.Abstractions;
 using Flowlio.Domain;
+using Flowlio.Server.Realtime;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using static Flowlio.Server.Auth.MemberAuthorization;
 
@@ -61,7 +63,8 @@ public static class FamilyManagementEndpoints
     }
 
     private static async Task<IResult> TransferOwnership(
-        TransferOwnershipRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        TransferOwnershipRequest request, IAppDbContext db, ICurrentFamily family,
+        IHubContext<NotificationsHub> hub, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         // Ownership transfer is reserved for the current owner regardless of granted permissions.
@@ -86,6 +89,7 @@ public static class FamilyManagementEndpoints
         target.GuardianMemberId = null;
         me.UpdatedAt = target.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await hub.NotifyFamilyAsync(me.FamilyId, ct);
         return Results.NoContent();
     }
 

@@ -34,7 +34,8 @@ public static class ApiEndpoints
     }
 
     private static async Task<CurrentUserDto> GetMe(
-        ICurrentUser currentUser, UserManager<ApplicationUser> userManager, ICurrentFamily family, CancellationToken ct)
+        ICurrentUser currentUser, UserManager<ApplicationUser> userManager, ICurrentFamily family,
+        IConfiguration config, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var permissions = await family.GetPermissionsAsync(ct);
@@ -53,6 +54,7 @@ public static class ApiEndpoints
             Role = me.Role,
             IsAdmin = isAdmin,
             Permissions = permissions.ToList(),
+            PollIntervalSeconds = config.GetValue("Auth:PollIntervalSeconds", 60),
         };
     }
 

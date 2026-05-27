@@ -30,6 +30,9 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 var rabbitConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
     ?? throw new InvalidOperationException("Connection string 'RabbitMq' is not configured.");
 
+var accessTokenLifetime = TimeSpan.FromMinutes(builder.Configuration.GetValue("Auth:AccessTokenMinutes", 15));
+var refreshTokenLifetime = TimeSpan.FromDays(builder.Configuration.GetValue("Auth:RefreshTokenDays", 14));
+
 var redis = ConnectionMultiplexer.Connect(redisConnectionString);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
@@ -89,6 +92,11 @@ builder.Services.AddOpenIddict()
                .RequireProofKeyForCodeExchange();
 
         options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, DbInitializer.ApiScope, DbInitializer.SmtpScope);
+
+        // Short-lived access tokens keep a lock/delete from lingering; refresh tokens are validated
+        // against the user (lockout) on every renewal, so revoked access propagates within the window.
+        options.SetAccessTokenLifetime(accessTokenLifetime);
+        options.SetRefreshTokenLifetime(refreshTokenLifetime);
 
         // Development certificates; replace with managed certificates in production.
         options.AddDevelopmentEncryptionCertificate().AddDevelopmentSigningCertificate();

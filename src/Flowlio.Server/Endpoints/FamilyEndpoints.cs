@@ -2,7 +2,9 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Domain;
 using Flowlio.Server.Auth;
+using Flowlio.Server.Realtime;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using static Flowlio.Server.Auth.MemberAuthorization;
 
@@ -130,7 +132,8 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> UpdateMember(
-        Guid memberId, UpdateMemberRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid memberId, UpdateMemberRequest request, IAppDbContext db, ICurrentFamily family,
+        IHubContext<NotificationsHub> hub, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -173,20 +176,21 @@ public static class FamilyEndpoints
         member.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         member.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await hub.NotifyFamilyAsync(me.FamilyId, ct);
 
         return Results.Ok(await BuildMemberDtoAsync(db, member, me.Id, ct));
     }
 
     private static Task<IResult> DeactivateMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct) =>
-        SetMemberActiveAsync(memberId, active: false, db, family, ct);
+        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: false, db, family, hub, ct);
 
     private static Task<IResult> ActivateMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct) =>
-        SetMemberActiveAsync(memberId, active: true, db, family, ct);
+        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: true, db, family, hub, ct);
 
     private static async Task<IResult> SetMemberActiveAsync(
-        Guid memberId, bool active, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid memberId, bool active, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -204,6 +208,7 @@ public static class FamilyEndpoints
         member.IsActive = active;
         member.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await hub.NotifyFamilyAsync(me.FamilyId, ct);
         return Results.NoContent();
     }
 

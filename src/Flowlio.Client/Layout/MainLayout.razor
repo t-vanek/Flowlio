@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject LiveNotificationService Live
+@inject CurrentUserState CurrentUser
 @inject IToastService Toasts
 
 <FluentDesignTheme Mode="DesignThemeModes.System" StorageName="flowlio-theme" />
@@ -42,6 +43,7 @@
             return;
 
         Live.ImportCompleted += OnImportCompleted;
+        Live.AccessChanged += OnAccessChanged;
         try
         {
             await Live.StartAsync();
@@ -58,11 +60,14 @@
             Toasts.ShowSuccess($"Import dokončen: {notification.ImportedCount} nových, {notification.DuplicateCount} duplicit."));
     }
 
+    private void OnAccessChanged() => _ = InvokeAsync(CurrentUser.RefreshAsync);
+
     private void BeginLogout() => Navigation.NavigateToLogout("authentication/logout");
 
     public async ValueTask DisposeAsync()
     {
         Live.ImportCompleted -= OnImportCompleted;
+        Live.AccessChanged -= OnAccessChanged;
         await Live.DisposeAsync();
     }
 }

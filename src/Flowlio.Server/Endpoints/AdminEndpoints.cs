@@ -1,8 +1,10 @@
 using Flowlio.Application.Abstractions;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Server.Auth;
+using Flowlio.Server.Realtime;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Flowlio.Server.Endpoints;
@@ -52,7 +54,8 @@ public static class AdminEndpoints
 
     private static async Task<IResult> SetAdmin(
         Guid userId, SetUserAdminRequest request,
-        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager, ICurrentUser current)
+        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager, ICurrentUser current,
+        IHubContext<NotificationsHub> hub, CancellationToken ct)
     {
         if (userId == current.UserId && !request.IsAdmin)
             return Results.BadRequest("Vlastní administrátorská práva nelze odebrat.");
@@ -70,6 +73,7 @@ public static class AdminEndpoints
         else if (!request.IsAdmin && inRole)
             await userManager.RemoveFromRoleAsync(user, AdminRoles.Administrator);
 
+        await hub.NotifyUserAsync(userId, ct);
         return Results.NoContent();
     }
 

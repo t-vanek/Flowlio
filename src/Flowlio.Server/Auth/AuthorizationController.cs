@@ -93,7 +93,7 @@ public sealed class AuthorizationController(
         var result = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         var user = result.Principal is null ? null : await userManager.FindByIdAsync(result.Principal.GetClaim(Claims.Subject) ?? "");
 
-        if (user is null)
+        if (user is null || await userManager.IsLockedOutAsync(user))
         {
             return Forbid(
                 authenticationSchemes: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,

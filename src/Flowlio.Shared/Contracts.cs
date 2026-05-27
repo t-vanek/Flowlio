@@ -135,6 +135,9 @@ public sealed record CurrentUserDto
 
     public IReadOnlyList<Permission> Permissions { get; init; } = [];
 
+    /// <summary>How often the client should re-poll for access changes as a fallback to live push (seconds).</summary>
+    public int PollIntervalSeconds { get; init; } = 60;
+
     public bool Can(Permission permission) => Permissions.Contains(permission);
 }
 
