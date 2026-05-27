@@ -7,8 +7,35 @@
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:280px" />
-    <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Hledat</FluentButton>
+    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:240px" />
+
+    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet">
+        <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
+        @foreach (var a in _accounts)
+        {
+            <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+        }
+    </FluentSelect>
+
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie">
+        <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
+        @foreach (var c in _categories)
+        {
+            <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+        }
+    </FluentSelect>
+
+    <FluentSelect TOption="string" @bind-Value="_typeValue" Label="Typ">
+        <FluentOption TOption="string" Value="">Vše</FluentOption>
+        <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
+        <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
+    </FluentSelect>
+
+    <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
+    <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
+
+    <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Filtrovat</FluentButton>
+    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
 </div>
 
 @if (_page is null)
@@ -27,6 +54,7 @@ else
                 <tr>
                     <th>Datum</th>
                     <th>Protistrana</th>
+                    <th>Kategorie</th>
                     <th>Popis</th>
                     <th>VS</th>
                     <th class="num">Částka</th>
@@ -38,6 +66,7 @@ else
                     <tr>
                         <td>@t.BookingDate.ToString("d.M.yyyy")</td>
                         <td>@t.CounterpartyName</td>
+                        <td class="muted">@t.CategoryName</td>
                         <td class="muted">@t.Description</td>
                         <td>@t.VariableSymbol</td>
                         <td class="num @(t.Amount < 0 ? "expense" : "income")">@Money(t.Amount)</td>
@@ -51,14 +80,44 @@ else
 
 @code {
     private TransactionPageDto? _page;
-    private string _search = "";
+    private IReadOnlyList<BankAccountDto> _accounts = [];
+    private IReadOnlyList<CategoryDto> _categories = [];
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    private string _search = "";
+    private string _accountValue = "";
+    private string _categoryValue = "";
+    private string _typeValue = "";
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _accounts = await Api.GetAccountsAsync();
+        _categories = await Api.GetCategoriesAsync();
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
         _page = null;
-        _page = await Api.GetTransactionsAsync(search: _search);
+        _page = await Api.GetTransactionsAsync(
+            accountId: Guid.TryParse(_accountValue, out var a) ? a : null,
+            categoryId: Guid.TryParse(_categoryValue, out var c) ? c : null,
+            dateFrom: _dateFrom is { } from ? DateOnly.FromDateTime(from) : null,
+            dateTo: _dateTo is { } to ? DateOnly.FromDateTime(to) : null,
+            direction: string.IsNullOrEmpty(_typeValue) ? null : (TransactionDirection)int.Parse(_typeValue),
+            search: _search);
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _search = "";
+        _accountValue = "";
+        _categoryValue = "";
+        _typeValue = "";
+        _dateFrom = null;
+        _dateTo = null;
+        await ReloadAsync();
     }
 
     private static string Money(decimal value) =>

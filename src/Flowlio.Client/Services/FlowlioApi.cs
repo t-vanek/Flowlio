@@ -36,11 +36,21 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() =>
         await http.GetFromJsonAsync<List<CategoryDto>>("api/categories") ?? [];
 
-    public async Task<TransactionPageDto?> GetTransactionsAsync(Guid? accountId = null, string? search = null, int page = 1)
+    public async Task<TransactionPageDto?> GetTransactionsAsync(
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, string? search = null, int page = 1)
     {
         var url = $"api/transactions?page={page}";
         if (accountId is { } id)
             url += $"&accountId={id}";
+        if (categoryId is { } cid)
+            url += $"&categoryId={cid}";
+        if (dateFrom is { } from)
+            url += $"&dateFrom={from:yyyy-MM-dd}";
+        if (dateTo is { } to)
+            url += $"&dateTo={to:yyyy-MM-dd}";
+        if (direction is { } dir)
+            url += $"&direction={dir}";
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search)}";
         return await http.GetFromJsonAsync<TransactionPageDto>(url);

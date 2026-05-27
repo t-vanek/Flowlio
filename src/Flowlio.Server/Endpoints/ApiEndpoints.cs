@@ -222,7 +222,8 @@ public static class ApiEndpoints
 
     private static async Task<TransactionPageDto> GetTransactions(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct,
-        Guid? accountId = null, string? search = null, int page = 1, int pageSize = 50)
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
     {
         var familyId = await family.RequireAsync(ct);
         page = Math.Max(1, page);
@@ -234,6 +235,21 @@ public static class ApiEndpoints
 
         if (accountId is { } acc)
             query = query.Where(t => t.BankAccountId == acc);
+
+        if (categoryId is { } cat)
+            query = query.Where(t => t.CategoryId == cat);
+
+        if (dateFrom is { } from)
+            query = query.Where(t => t.BookingDate >= from);
+
+        if (dateTo is { } to)
+            query = query.Where(t => t.BookingDate <= to);
+
+        // Income vs. expense is read from the amount sign, matching the dashboard's classification.
+        if (direction is { } dir)
+            query = dir == TransactionDirection.Incoming
+                ? query.Where(t => t.Amount > 0)
+                : query.Where(t => t.Amount < 0);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
