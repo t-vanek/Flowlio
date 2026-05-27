@@ -45,16 +45,20 @@ public sealed record TransactionDto
     public Guid Id { get; init; }
     public Guid BankAccountId { get; init; }
     public DateOnly BookingDate { get; init; }
+    public DateOnly? ValueDate { get; init; }
     public decimal Amount { get; init; }
     public string Currency { get; init; } = "CZK";
     public TransactionDirection Direction { get; init; }
     public string? CounterpartyName { get; init; }
     public string? CounterpartyAccount { get; init; }
     public string? VariableSymbol { get; init; }
+    public string? ConstantSymbol { get; init; }
+    public string? SpecificSymbol { get; init; }
     public string? Description { get; init; }
     public string? Note { get; init; }
     public Guid? CategoryId { get; init; }
     public string? CategoryName { get; init; }
+    public Guid? ImportBatchId { get; init; }
 }
 
 public sealed record TransactionPageDto
@@ -63,6 +67,75 @@ public sealed record TransactionPageDto
     public int TotalCount { get; init; }
     public int Page { get; init; }
     public int PageSize { get; init; }
+}
+
+/// <summary>Editable fields shared by single-transaction create/edit and manual batch rows.</summary>
+public sealed record TransactionFields
+{
+    public DateOnly BookingDate { get; init; }
+    public DateOnly? ValueDate { get; init; }
+    public decimal Amount { get; init; }
+    public string Currency { get; init; } = "CZK";
+    public string? CounterpartyName { get; init; }
+    public string? CounterpartyAccount { get; init; }
+    public string? VariableSymbol { get; init; }
+    public string? ConstantSymbol { get; init; }
+    public string? SpecificSymbol { get; init; }
+    public string? Description { get; init; }
+    public string? Note { get; init; }
+    public Guid? CategoryId { get; init; }
+}
+
+/// <summary>Hand-entered transaction added directly to an account (no import file).</summary>
+public sealed record CreateTransactionRequest
+{
+    public Guid BankAccountId { get; init; }
+    public TransactionFields Fields { get; init; } = new();
+}
+
+/// <summary>Edits an existing transaction (manual or imported). The owning account is not changed.</summary>
+public sealed record UpdateTransactionRequest
+{
+    public TransactionFields Fields { get; init; } = new();
+}
+
+/// <summary>Creates a manually entered batch ("pohyby") of movements on one account.</summary>
+public sealed record CreateMovementBatchRequest
+{
+    public Guid BankAccountId { get; init; }
+    public string? Label { get; init; }
+    public IReadOnlyList<TransactionFields> Movements { get; init; } = [];
+}
+
+public sealed record MovementBatchResultDto
+{
+    public Guid BatchId { get; init; }
+    public int CreatedCount { get; init; }
+}
+
+/// <summary>A batch of transactions on an account — either an imported file or a hand-entered set of movements.</summary>
+public sealed record ImportBatchDto
+{
+    public Guid Id { get; init; }
+    public BatchOrigin Origin { get; init; }
+    public Guid BankAccountId { get; init; }
+    public string? AccountName { get; init; }
+
+    /// <summary>File name for imports; the user-given label for manual batches.</summary>
+    public string? Name { get; init; }
+    public BankProvider Bank { get; init; }
+    public ImportFormat Format { get; init; }
+    public ImportStatus Status { get; init; }
+    public int ImportedCount { get; init; }
+    public int DuplicateCount { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public string? Error { get; init; }
+}
+
+/// <summary>Renames a manual movement batch.</summary>
+public sealed record UpdateBatchRequest
+{
+    public string? Label { get; init; }
 }
 
 public sealed record RecurringPaymentDto

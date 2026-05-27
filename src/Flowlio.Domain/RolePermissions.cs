@@ -21,6 +21,7 @@ public static class RolePermissions
         Permission.ViewFinances,
         Permission.ManageAccounts,
         Permission.ImportStatements,
+        Permission.ManageTransactions,
         Permission.ManageAccountAccess,
         Permission.ManageCards,
     };

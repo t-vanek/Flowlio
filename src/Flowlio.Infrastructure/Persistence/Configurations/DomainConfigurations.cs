@@ -211,7 +211,8 @@ public class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
     public void Configure(EntityTypeBuilder<ImportBatch> b)
     {
-        b.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+        b.Property(x => x.FileName).HasMaxLength(260);
+        b.Property(x => x.Label).HasMaxLength(200);
         b.Property(x => x.Error).HasMaxLength(2000);
         b.HasOne(x => x.BankAccount).WithMany().HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);

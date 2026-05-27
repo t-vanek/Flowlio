@@ -1,0 +1,271 @@
+@page "/pohyby"
+@attribute [Authorize]
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+
+<PageTitle>Pohyby – Flowlio</PageTitle>
+
+<h1 class="page-title">Pohyby</h1>
+
+@if (!_canManage)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Na ruční úpravu pohybů nemáte oprávnění.</FluentMessageBar>
+    </FluentCard>
+}
+else if (_accounts is null)
+{
+    <FluentProgressRing />
+}
+else if (_accounts.Count == 0)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nejdřív si vytvořte účet na stránce „Účty".</FluentMessageBar>
+    </FluentCard>
+}
+else
+{
+    <div class="panel-grid">
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Nové pohyby</h2>
+            <p class="muted">Zadejte ručně skupinu pohybů na účet, stejně jako by vznikly importem výpisu – jen bez souboru.</p>
+
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentSelect TOption="string" @bind-Value="_account" Label="Účet" Style="width:100%">
+                    @foreach (var a in _accounts)
+                    {
+                        <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentTextField @bind-Value="_label" Label="Název dávky (volitelné)" Style="width:100%" Placeholder="např. Hotovostní pohyby – květen" />
+
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Datum</th>
+                            <th class="num">Částka</th>
+                            <th>Protistrana</th>
+                            <th>VS</th>
+                            <th>Popis</th>
+                            <th>Kategorie</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _rows)
+                        {
+                            <tr>
+                                <td><input type="date" style="height:30px;" @bind="row.Booking" /></td>
+                                <td class="num"><FluentNumberField @bind-Value="row.Amount" Style="width:130px" /></td>
+                                <td><FluentTextField @bind-Value="row.Counterparty" Style="width:160px" /></td>
+                                <td><FluentTextField @bind-Value="row.Vs" Style="width:90px" /></td>
+                                <td><FluentTextField @bind-Value="row.Description" Style="width:160px" /></td>
+                                <td>
+                                    <FluentSelect TOption="string" @bind-Value="row.Category" Style="width:150px">
+                                        <FluentOption TOption="string" Value="">(žádná)</FluentOption>
+                                        @foreach (var c in _categories ?? [])
+                                        {
+                                            <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                                        }
+                                    </FluentSelect>
+                                </td>
+                                <td>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RemoveRow(row))" Disabled="_rows.Count == 1">×</FluentButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <FluentButton Appearance="Appearance.Stealth" OnClick="AddRow">+ Přidat řádek</FluentButton>
+
+                @if (_error is not null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+                }
+                @if (_success is not null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Success">@_success</FluentMessageBar>
+                }
+
+                <FluentButton Appearance="Appearance.Accent" OnClick="SubmitAsync" Loading="_saving">Vytvořit pohyby</FluentButton>
+            </FluentStack>
+        </FluentCard>
+
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Dávky</h2>
+            @if (_batches is null)
+            {
+                <FluentProgressRing />
+            }
+            else if (_batches.Count == 0)
+            {
+                <p class="muted">Zatím žádné importy ani ruční dávky.</p>
+            }
+            else
+            {
+                @foreach (var b in _batches)
+                {
+                    <div class="account-row">
+                        <div>
+                            @if (_renamingId == b.Id)
+                            {
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentTextField @bind-Value="_renameLabel" Placeholder="Název dávky" />
+                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveRenameAsync(b.Id))">Uložit</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _renamingId = null)">Zrušit</FluentButton>
+                                </FluentStack>
+                            }
+                            else
+                            {
+                                <div class="account-name">@(string.IsNullOrWhiteSpace(b.Name) ? "(bez názvu)" : b.Name)</div>
+                                <div class="muted">
+                                    @OriginLabel(b.Origin) · @b.AccountName · @b.CreatedAt.LocalDateTime.ToString("d.M.yyyy") · @b.ImportedCount pohybů
+                                </div>
+                            }
+                        </div>
+                        @if (_renamingId != b.Id)
+                        {
+                            <div>
+                                @if (b.Origin == BatchOrigin.Manual)
+                                {
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => StartRename(b))">Přejmenovat</FluentButton>
+                                }
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteBatchAsync(b.Id))">Smazat</FluentButton>
+                            </div>
+                        }
+                    </div>
+                }
+                <p class="muted">Smazání dávky odstraní i všechny její pohyby.</p>
+            }
+        </FluentCard>
+    </div>
+}
+
+@code {
+    private sealed class MovementRow
+    {
+        public DateOnly Booking { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public decimal Amount { get; set; }
+        public string Counterparty { get; set; } = "";
+        public string Vs { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Category { get; set; } = "";
+    }
+
+    private bool _canManage;
+    private IReadOnlyList<BankAccountDto>? _accounts;
+    private IReadOnlyList<CategoryDto>? _categories;
+    private IReadOnlyList<ImportBatchDto>? _batches;
+
+    private string _account = "";
+    private string _label = "";
+    private readonly List<MovementRow> _rows = [new MovementRow()];
+    private string? _error;
+    private string? _success;
+    private bool _saving;
+
+    private Guid? _renamingId;
+    private string _renameLabel = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
+        if (!_canManage)
+            return;
+
+        _accounts = await Api.GetAccountsAsync();
+        _categories = await Api.GetCategoriesAsync();
+        if (_accounts.Count > 0)
+            _account = _accounts[0].Id.ToString();
+        await LoadBatchesAsync();
+    }
+
+    private async Task LoadBatchesAsync() => _batches = await Api.GetMovementBatchesAsync();
+
+    private void AddRow() => _rows.Add(new MovementRow());
+
+    private void RemoveRow(MovementRow row)
+    {
+        if (_rows.Count > 1)
+            _rows.Remove(row);
+    }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        _success = null;
+
+        if (!Guid.TryParse(_account, out var accountId))
+        {
+            _error = "Vyberte účet.";
+            return;
+        }
+        if (_rows.Any(r => r.Amount == 0))
+        {
+            _error = "Každý řádek musí mít nenulovou částku.";
+            return;
+        }
+
+        var movements = _rows.Select(r => new TransactionFields
+        {
+            BookingDate = r.Booking,
+            Amount = r.Amount,
+            Currency = "CZK",
+            CounterpartyName = r.Counterparty,
+            VariableSymbol = r.Vs,
+            Description = r.Description,
+            CategoryId = Guid.TryParse(r.Category, out var cid) ? cid : null,
+        }).ToList();
+
+        _saving = true;
+        try
+        {
+            var result = await Api.CreateMovementBatchAsync(new CreateMovementBatchRequest
+            {
+                BankAccountId = accountId,
+                Label = string.IsNullOrWhiteSpace(_label) ? null : _label,
+                Movements = movements,
+            });
+            if (result is null)
+            {
+                _error = "Pohyby se nepodařilo vytvořit.";
+                return;
+            }
+            _success = $"Vytvořeno {result.CreatedCount} pohybů.";
+            _label = "";
+            _rows.Clear();
+            _rows.Add(new MovementRow());
+            await LoadBatchesAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void StartRename(ImportBatchDto b)
+    {
+        _renamingId = b.Id;
+        _renameLabel = b.Name ?? "";
+    }
+
+    private async Task SaveRenameAsync(Guid id)
+    {
+        await Api.UpdateMovementBatchAsync(id, string.IsNullOrWhiteSpace(_renameLabel) ? null : _renameLabel);
+        _renamingId = null;
+        await LoadBatchesAsync();
+    }
+
+    private async Task DeleteBatchAsync(Guid id)
+    {
+        if (await Api.DeleteMovementBatchAsync(id))
+            await LoadBatchesAsync();
+    }
+
+    private static string OriginLabel(BatchOrigin origin) => origin switch
+    {
+        BatchOrigin.Manual => "Ruční pohyby",
+        _ => "Import výpisu",
+    };
+}

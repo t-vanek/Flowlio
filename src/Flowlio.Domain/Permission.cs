@@ -13,6 +13,8 @@ public enum Permission
     ManageAccounts = 1,
     /// <summary>Import bank statements.</summary>
     ImportStatements = 2,
+    /// <summary>Create, edit and delete transactions and manual movement batches by hand.</summary>
+    ManageTransactions = 8,
     /// <summary>Grant or revoke per-account access (disponents / shared viewers).</summary>
     ManageAccountAccess = 3,
     /// <summary>Create, edit or remove payment cards.</summary>
