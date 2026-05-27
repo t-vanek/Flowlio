@@ -7,7 +7,9 @@ using Flowlio.Infrastructure.Persistence;
 using Flowlio.Server;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Endpoints;
+using Flowlio.Server.Observability;
 using Flowlio.Server.Realtime;
+using Serilog;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -22,6 +24,8 @@ using Wolverine.RabbitMQ;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddFlowlioObservability();
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' is not configured.");
@@ -173,6 +177,8 @@ builder.Host.UseWolverine(opts =>
 builder.Services.AddResourceSetupOnStartup();
 
 var app = builder.Build();
+
+app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {
