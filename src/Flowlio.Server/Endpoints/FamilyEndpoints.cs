@@ -58,7 +58,8 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> CreateMember(
-        CreateMemberRequest request, IAppDbContext db, ICurrentFamily family, HttpRequest http, CancellationToken ct)
+        CreateMemberRequest request, IAppDbContext db, ICurrentFamily family, InvitationService invitations,
+        HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (me.Role != MemberRole.Owner)
@@ -90,14 +91,22 @@ public static class FamilyEndpoints
         db.FamilyMembers.Add(member);
 
         InvitationDto? inviteDto = null;
+        string? inviteUrl = null;
         if (member.Email is not null)
         {
             var (invitation, url) = NewInvitation(member, http);
             db.FamilyInvitations.Add(invitation);
             inviteDto = ToInvitationDto(invitation, member.DisplayName, member.Role, url);
+            inviteUrl = url;
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (inviteUrl is not null && member.Email is not null)
+        {
+            var familyName = await FamilyNameAsync(db, me.FamilyId, ct);
+            await invitations.SendInvitationEmailAsync(member.Email, member.DisplayName, familyName, inviteUrl, ct);
+        }
 
         var status = inviteDto is not null ? MemberStatus.Pending : MemberStatus.Managed;
         return Results.Ok(new CreateMemberResultDto
@@ -141,7 +150,8 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> ReinviteMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, HttpRequest http, CancellationToken ct)
+        Guid memberId, IAppDbContext db, ICurrentFamily family, InvitationService invitations,
+        HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (me.Role != MemberRole.Owner)
@@ -165,6 +175,9 @@ public static class FamilyEndpoints
         var (invitation, url) = NewInvitation(member, http);
         db.FamilyInvitations.Add(invitation);
         await db.SaveChangesAsync(ct);
+
+        var familyName = await FamilyNameAsync(db, me.FamilyId, ct);
+        await invitations.SendInvitationEmailAsync(member.Email!, member.DisplayName, familyName, url, ct);
 
         return Results.Ok(ToInvitationDto(invitation, member.DisplayName, member.Role, url));
     }
@@ -452,6 +465,9 @@ public static class FamilyEndpoints
             IsCurrentUser = m.Id == currentMemberId,
         };
     }
+
+    private static async Task<string> FamilyNameAsync(IAppDbContext db, Guid familyId, CancellationToken ct) =>
+        await db.Families.Where(f => f.Id == familyId).Select(f => f.Name).FirstAsync(ct);
 
     private static (FamilyInvitation Invitation, string Url) NewInvitation(FamilyMember member, HttpRequest http)
     {

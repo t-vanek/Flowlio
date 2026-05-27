@@ -1,5 +1,6 @@
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Statements;
+using Flowlio.Infrastructure.Email;
 using Flowlio.Infrastructure.Persistence;
 using Flowlio.Infrastructure.Statements;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,13 @@ public static class InfrastructureModule
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<ICurrentFamily, CurrentFamilyResolver>();
         services.AddSingleton<IStatementParserFactory, StatementParserFactory>();
+
+        // SMTP e-mail (invitations, account notifications). The client authorizes via an OAuth2
+        // bearer token (XOAUTH2) obtained from OpenIddict through the client-credentials grant.
+        services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
+        services.AddHttpClient(OpenIddictSmtpTokenProvider.HttpClientName);
+        services.AddSingleton<ISmtpTokenProvider, OpenIddictSmtpTokenProvider>();
+        services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
         return services;
     }

@@ -70,6 +70,23 @@ public sealed class AuthorizationController(
         var request = HttpContext.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("The OpenID Connect request cannot be retrieved.");
 
+        // Machine-to-machine grant (e.g. the SMTP mailer): the client itself is the subject.
+        if (request.IsClientCredentialsGrantType())
+        {
+            var clientIdentity = new ClaimsIdentity(
+                authenticationType: TokenValidationDefaults.AuthenticationType,
+                nameType: Claims.Name,
+                roleType: Claims.Role);
+
+            clientIdentity.SetClaim(Claims.Subject, request.ClientId);
+            clientIdentity.SetClaim(Claims.Name, request.ClientId);
+            clientIdentity.SetScopes(request.GetScopes());
+            clientIdentity.SetResources(await scopeManager.ListResourcesAsync(clientIdentity.GetScopes()).ToListAsync());
+            clientIdentity.SetDestinations(GetDestinations);
+
+            return SignIn(new ClaimsPrincipal(clientIdentity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        }
+
         if (!request.IsAuthorizationCodeGrantType() && !request.IsRefreshTokenGrantType())
             throw new InvalidOperationException("The specified grant type is not supported.");
 
