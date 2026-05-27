@@ -31,20 +31,23 @@ public static class ApiEndpoints
         api.MapRolesEndpoints();
         api.MapFamilyManagementEndpoints();
         app.MapAdminEndpoints();
+        app.MapSystemRolesEndpoints();
+        app.MapAuditEndpoints();
     }
 
     private static async Task<CurrentUserDto> GetMe(
         ICurrentUser currentUser, UserManager<ApplicationUser> userManager, ICurrentFamily family,
-        IConfiguration config, CancellationToken ct)
+        ICurrentSystemAccess systemAccess, IConfiguration config, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var permissions = await family.GetPermissionsAsync(ct);
+        var systemPermissions = await systemAccess.GetPermissionsAsync(ct);
 
         var isAdmin = false;
         if (currentUser.UserId is { } userId)
         {
             var user = await userManager.FindByIdAsync(userId.ToString());
-            isAdmin = user is not null && await userManager.IsInRoleAsync(user, AdminRoles.Administrator);
+            isAdmin = user is not null && await userManager.IsInRoleAsync(user, SystemRoles.Administrator);
         }
 
         return new CurrentUserDto
@@ -54,6 +57,7 @@ public static class ApiEndpoints
             Role = me.Role,
             IsAdmin = isAdmin,
             Permissions = permissions.ToList(),
+            SystemPermissions = systemPermissions.ToList(),
             PollIntervalSeconds = config.GetValue("Auth:PollIntervalSeconds", 60),
         };
     }

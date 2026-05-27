@@ -25,6 +25,7 @@
             <AuthorizeView>
                 <Authorized>
                     <span class="topbar-user">@context.User.Identity?.Name</span>
+                    <a class="topbar-link" href="/Account/TwoFactor">Zabezpečení</a>
                     <FluentButton Appearance="Appearance.Stealth" OnClick="BeginLogout">Odhlásit</FluentButton>
                 </Authorized>
             </AuthorizeView>

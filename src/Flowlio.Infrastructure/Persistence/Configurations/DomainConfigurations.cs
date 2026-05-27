@@ -1,4 +1,5 @@
 using Flowlio.Domain;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -41,6 +42,32 @@ public class FamilyRolePermissionConfiguration : IEntityTypeConfiguration<Family
 
         // Each (family, role, permission) grant is stored at most once.
         b.HasIndex(x => new { x.FamilyId, x.Role, x.Permission }).IsUnique();
+    }
+}
+
+public class SystemRolePermissionConfiguration : IEntityTypeConfiguration<SystemRolePermission>
+{
+    public void Configure(EntityTypeBuilder<SystemRolePermission> b)
+    {
+        b.HasOne<IdentityRole<Guid>>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Cascade);
+        b.HasIndex(x => new { x.RoleId, x.Permission }).IsUnique();
+    }
+}
+
+public class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEntry>
+{
+    public void Configure(EntityTypeBuilder<AuditEntry> b)
+    {
+        b.Property(x => x.Action).HasMaxLength(80).IsRequired();
+        b.Property(x => x.ActorName).HasMaxLength(256);
+        b.Property(x => x.TargetType).HasMaxLength(80);
+        b.Property(x => x.TargetId).HasMaxLength(64);
+        b.Property(x => x.TargetName).HasMaxLength(256);
+        b.Property(x => x.Details).HasMaxLength(1000);
+        b.HasIndex(x => x.OccurredAt);
+        b.HasIndex(x => x.Action);
+        b.HasIndex(x => x.ActorUserId);
+        b.HasIndex(x => x.FamilyId);
     }
 }
 

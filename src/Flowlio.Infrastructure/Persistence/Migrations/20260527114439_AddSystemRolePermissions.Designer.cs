@@ -3,6 +3,7 @@ using System;
 using Flowlio.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Flowlio.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260527114439_AddSystemRolePermissions")]
+    partial class AddSystemRolePermissions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -51,59 +54,6 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("AccountAccesses");
-                });
-
-            modelBuilder.Entity("Flowlio.Domain.AuditEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("ActorName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<Guid?>("ActorUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Details")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid?>("FamilyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TargetId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TargetName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("TargetType")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Action");
-
-                    b.HasIndex("ActorUserId");
-
-                    b.HasIndex("FamilyId");
-
-                    b.HasIndex("OccurredAt");
-
-                    b.ToTable("AuditEntries");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.BankAccount", b =>

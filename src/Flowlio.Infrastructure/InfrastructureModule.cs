@@ -25,6 +25,8 @@ public static class InfrastructureModule
 
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<ICurrentFamily, CurrentFamilyResolver>();
+        services.AddScoped<ICurrentSystemAccess, CurrentSystemAccess>();
+        services.AddScoped<IAuditLog, AuditLog>();
         services.AddSingleton<IStatementParserFactory, StatementParserFactory>();
 
         // SMTP e-mail (invitations, account notifications). The client authorizes via an OAuth2
