@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
+using Serilog.Events;
 
 namespace Flowlio.Server.Observability;
 
@@ -20,8 +21,14 @@ public static class ObservabilityExtensions
         var otlpEndpoint = builder.Configuration["OpenTelemetry:OtlpEndpoint"]
             ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
         var hasOtlp = !string.IsNullOrWhiteSpace(otlpEndpoint);
+        var sentryDsn = builder.Configuration["Sentry:Dsn"];
+        var hasSentry = !string.IsNullOrWhiteSpace(sentryDsn);
         var isDevelopment = builder.Environment.IsDevelopment();
         var serviceVersion = typeof(ObservabilityExtensions).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+
+        // --- Sentry: error monitoring (initialised from the "Sentry" config section; disabled if no DSN) ---
+        if (hasSentry)
+            builder.WebHost.UseSentry();
 
         // --- Serilog: the logging backend (replaces the default providers) ---
         builder.Host.UseSerilog((context, _, configuration) =>
@@ -44,6 +51,17 @@ public static class ObservabilityExtensions
                         ["service.name"] = ServiceName,
                         ["service.version"] = serviceVersion,
                     };
+                });
+            }
+
+            // Forward errors (and lower-level breadcrumbs) to Sentry, reusing the SDK that UseSentry initialised.
+            if (hasSentry)
+            {
+                configuration.WriteTo.Sentry(options =>
+                {
+                    options.InitializeSdk = false;
+                    options.MinimumEventLevel = LogEventLevel.Error;
+                    options.MinimumBreadcrumbLevel = LogEventLevel.Information;
                 });
             }
         });

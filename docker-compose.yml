@@ -64,5 +64,57 @@ services:
       # ServerOptions__OAuth2Authority: "https://host.docker.internal:5443/"
       # ServerOptions__OAuth2Audience: "flowlio-smtp"
 
+  # --- Observability stack -------------------------------------------------
+  # The app exports OTLP to the collector (set OpenTelemetry:OtlpEndpoint or
+  # OTEL_EXPORTER_OTLP_ENDPOINT to http://localhost:4317). The collector fans
+  # traces out to Jaeger and exposes metrics for Prometheus; Grafana reads both.
+  # Jaeger UI: http://localhost:16686 · Grafana: http://localhost:3000 · Prometheus: http://localhost:9090
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: flowlio-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    container_name: flowlio-otelcol
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    depends_on:
+      - jaeger
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: flowlio-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: flowlio-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+
 volumes:
   flowlio-pgdata:
