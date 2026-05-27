@@ -218,12 +218,8 @@ else
         if (_me is null)
             return;
 
-        _isAdmin = _me.IsAdmin;
-        _canRoles = _me.Can(Permission.ManageRoles);
-        _canFamily = _me.Can(Permission.ManageFamily);
-        _isOwner = _me.Role == MemberRole.Owner;
-
-        _tab = _isAdmin ? Tab.Users : _canRoles ? Tab.Roles : Tab.Family;
+        ApplyPermissions();
+        EnsureValidTab();
 
         if (_isAdmin)
             _users = await Api.GetAdminUsersAsync();
@@ -231,6 +227,22 @@ else
             await LoadRolesAsync();
         if (_canFamily)
             await LoadFamilyAsync();
+    }
+
+    private void ApplyPermissions()
+    {
+        _isAdmin = _me?.IsAdmin ?? false;
+        _canRoles = _me?.Can(Permission.ManageRoles) ?? false;
+        _canFamily = _me?.Can(Permission.ManageFamily) ?? false;
+        _isOwner = _me?.Role == MemberRole.Owner;
+    }
+
+    private void EnsureValidTab()
+    {
+        if (_tab == Tab.Users && _isAdmin) return;
+        if (_tab == Tab.Roles && _canRoles) return;
+        if (_tab == Tab.Family && _canFamily) return;
+        _tab = _isAdmin ? Tab.Users : _canRoles ? Tab.Roles : Tab.Family;
     }
 
     private async Task LoadRolesAsync()
@@ -305,11 +317,26 @@ else
         _familyMessage = null;
         if (!Guid.TryParse(_transferValue, out var id))
             return;
+
         var ok = await Api.TransferOwnershipAsync(id);
-        _familyIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _familyMessage = ok ? "Vlastnictví převedeno." : "Převod se nezdařil.";
-        // Permissions changed for the current user; refresh on next navigation.
-        await LoadFamilyAsync();
+        if (!ok)
+        {
+            _familyIntent = MessageIntent.Error;
+            _familyMessage = "Převod se nezdařil.";
+            return;
+        }
+
+        // The current user is no longer the owner: invalidate the cached permissions so the
+        // navigation and admin tabs update immediately, then re-evaluate this page.
+        _me = await CurrentUser.RefreshAsync();
+        ApplyPermissions();
+        EnsureValidTab();
+
+        _familyIntent = MessageIntent.Success;
+        _familyMessage = "Vlastnictví převedeno. Vaše role je nyní Dospělý.";
+
+        if (_canFamily)
+            await LoadFamilyAsync();
     }
 
     private async Task DeleteFamilyAsync()

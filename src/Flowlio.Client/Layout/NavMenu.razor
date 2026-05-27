@@ -1,4 +1,5 @@
 @inject CurrentUserState CurrentUser
+@implements IDisposable
 
 <div class="nav-brand">
     <span class="nav-logo">₣</span>
@@ -42,6 +43,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        CurrentUser.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
         var me = await CurrentUser.GetAsync();
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
@@ -49,4 +56,12 @@
             || (me?.Can(Permission.ManageRoles) ?? false)
             || (me?.Can(Permission.ManageFamily) ?? false);
     }
+
+    private void OnChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => CurrentUser.Changed -= OnChanged;
 }
