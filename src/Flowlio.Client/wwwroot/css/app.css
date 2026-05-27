@@ -306,7 +306,29 @@ code { color: #c02d76; }
 /* =====================================================================
    Tables / lists
    ===================================================================== */
-.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    align-items: flex-end;
+    margin-bottom: 16px;
+}
+/* Push every "Filtrovat / Zrušit / Přidat" button group to the right
+   edge of the row when there's free space, so primary actions don't
+   get sandwiched between filter controls. */
+.toolbar .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+/* Search field grows to fill the row on wide viewports, drops to its own
+   line on narrow ones. */
+.toolbar .toolbar-search { flex: 1 1 240px; min-width: 220px; }
+/* Give Fluent date pickers a sane minimum width so they don't shrink to
+   their icon-only state. */
+.toolbar fluent-date-picker { min-width: 140px; }
+.toolbar fluent-select { min-width: 160px; }
 
 .data-table { width: 100%; border-collapse: collapse; color: var(--flowlio-text); }
 .data-table th,
@@ -368,6 +390,19 @@ code { color: #c02d76; }
 .auth-title { font-size: 24px; margin: 0 0 4px; color: var(--flowlio-text); }
 .auth-subtitle { color: var(--flowlio-text-muted); margin: 0 0 22px; }
 .auth-switch { text-align: center; font-size: 14px; color: var(--flowlio-text-muted); }
+
+/* Status block shown during in-flight auth redirects (login/logout). */
+.auth-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: #ffffff;
+    font-size: 15px;
+    text-align: center;
+}
+.auth-status p { margin: 0; }
+.auth-status a { color: #ffffff; text-decoration: underline; }
 
 /* =====================================================================
    Administration
@@ -576,3 +611,115 @@ code { color: #c02d76; }
     color: #7f1d1d;
     border-color: #fecaca;
 }
+
+/* =====================================================================
+   Topbar hamburger (visible on mobile only)
+   ===================================================================== */
+.topbar-burger {
+    display: none;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid var(--flowlio-border);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 0;
+    margin-right: 4px;
+}
+.topbar-burger:hover { background: var(--flowlio-surface-2); }
+.topbar-burger:focus-visible { outline: 2px solid var(--flowlio-accent); outline-offset: 2px; }
+.topbar-burger span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: var(--flowlio-text);
+    border-radius: 1px;
+}
+
+/* Backdrop behind the slide-over sidebar on mobile. */
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 90;
+}
+
+/* =====================================================================
+   Responsive layout
+   - desktop (>= 1200px): full sidebar (240px) with text labels
+   - tablet (768–1199px): rail sidebar (64px), icons only
+   - mobile (<768px): sidebar hidden behind hamburger, slides over content
+   ===================================================================== */
+
+/* Tablet: collapse to icon-only rail. */
+@media (max-width: 1199.98px) and (min-width: 768px) {
+    .sidebar {
+        width: 64px;
+        padding: 18px 6px;
+    }
+    .nav-brand { justify-content: center; padding: 6px 0 22px; gap: 0; }
+    .nav-brand-text { display: none; }
+    .nav-link {
+        justify-content: center;
+        padding: 10px 0;
+        gap: 0;
+    }
+    .nav-link-label { display: none; }
+    .nav-icon { font-size: 20px; }
+}
+
+/* Mobile: hide sidebar behind hamburger, slide it in over content. */
+@media (max-width: 767.98px) {
+    .topbar-burger { display: inline-flex; }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        width: 260px;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        overflow-y: auto;
+    }
+    .page.is-sidebar-open .sidebar { transform: translateX(0); }
+    .page.is-sidebar-open .sidebar-backdrop { display: block; }
+
+    .topbar { padding: 10px 14px; gap: 8px; }
+    .topbar-title { font-size: 16px; }
+    .content { padding: 16px 14px; }
+
+    /* Narrow viewports: page-title h1 a touch smaller so it doesn't wrap awkwardly. */
+    .page-title { font-size: 22px; margin-bottom: 16px; }
+
+    /* Profile popover: align to viewport edges with a small gutter so it
+       can never overflow off the right side. */
+    .profile-popover {
+        right: 0;
+        left: auto;
+        min-width: min(280px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+    }
+}
+
+/* Tablet AND desktop: ensure the sidebar is always visible regardless of
+   the mobile slide-over state (in case the user resized while open). */
+@media (min-width: 768px) {
+    .sidebar { transform: none; position: sticky; top: 0; height: 100vh; }
+    .sidebar-backdrop { display: none !important; }
+}
+
+/* =====================================================================
+   Horizontal-scroll wrapper for wide tables on narrow viewports
+   ===================================================================== */
+.data-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.data-table-wrap > .data-table { min-width: 640px; }

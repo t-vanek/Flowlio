@@ -8,8 +8,17 @@
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:240px" />
+    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="flex:1 1 240px;min-width:220px" />
 
+    @if (_canManage && _accounts.Count > 0)
+    {
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Neutral" OnClick="OpenCreate">+ Přidat pohyb</FluentButton>
+        </div>
+    }
+</div>
+
+<div class="toolbar">
     <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet">
         <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
         @foreach (var a in _accounts)
@@ -35,12 +44,10 @@
     <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
     <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
 
-    <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
-    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
-    @if (_canManage && _accounts.Count > 0)
-    {
-        <FluentButton Appearance="Appearance.Neutral" OnClick="OpenCreate">Přidat pohyb</FluentButton>
-    }
+    <div class="toolbar-actions">
+        <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
+        <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+    </div>
 </div>
 
 @if (_showEditor)
@@ -115,6 +122,7 @@ else if (_page.Items.Count == 0)
 else
 {
     <FluentCard Class="panel no-pad">
+        <div class="data-table-wrap">
         <table class="data-table">
             <thead>
                 <tr>
@@ -151,6 +159,7 @@ else
                 }
             </tbody>
         </table>
+        </div>
     </FluentCard>
     <div class="toolbar" style="justify-content:space-between;">
         <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">

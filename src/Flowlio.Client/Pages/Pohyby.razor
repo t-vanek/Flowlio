@@ -39,6 +39,7 @@ else
                 </FluentSelect>
                 <FluentTextField @bind-Value="_label" Label="Název dávky (volitelné)" Style="width:100%" Placeholder="např. Hotovostní pohyby – květen" />
 
+                <div class="data-table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -76,6 +77,7 @@ else
                         }
                     </tbody>
                 </table>
+                </div>
 
                 <FluentButton Appearance="Appearance.Stealth" OnClick="AddRow">+ Přidat řádek</FluentButton>
 

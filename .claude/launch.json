@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flowlio",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/Flowlio.Server", "--launch-profile", "https", "--no-build"],
+      "port": 5443
+    }
+  ]
+}
