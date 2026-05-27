@@ -92,6 +92,7 @@ public enum ImportFormat
     Csv = 0,
     Pdf = 1,
     PdfOcr = 2,
+    Xlsx = 3,
 }
 
 /// <summary>Lifecycle of a statement import.</summary>

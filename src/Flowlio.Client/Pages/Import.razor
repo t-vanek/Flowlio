@@ -10,7 +10,7 @@
 <div class="panel-grid">
     <FluentCard Class="panel">
         <h2 class="panel-title">Nahrát výpis z účtu</h2>
-        <p class="muted">Vyberte účet, banku a soubor (CSV nebo PDF). Transakce se naparsují, deduplikují a roztřídí.</p>
+        <p class="muted">Vyberte účet, banku a soubor (CSV, XLSX, nebo experimentálně PDF). Transakce se naparsují, deduplikují a roztřídí.</p>
 
         @if (!_canImport)
         {
@@ -43,7 +43,8 @@
 
                 <FluentSelect TOption="string" @bind-Value="_formatValue" Label="Formát" Style="width:100%">
                     <FluentOption TOption="string" Value="0">CSV</FluentOption>
-                    <FluentOption TOption="string" Value="1">PDF</FluentOption>
+                    <FluentOption TOption="string" Value="3">XLSX (Excel)</FluentOption>
+                    <FluentOption TOption="string" Value="1">PDF (experimentální)</FluentOption>
                 </FluentSelect>
 
                 <label class="file-field">
@@ -69,9 +70,27 @@
         }
         else
         {
-            <FluentMessageBar Intent="MessageIntent.Success">
-                Naimportováno @_result.ImportedCount transakcí, přeskočeno @_result.DuplicateCount duplicit.
-            </FluentMessageBar>
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                <FluentMessageBar Intent="MessageIntent.Success">
+                    Naimportováno @_result.ImportedCount transakcí, přeskočeno @_result.DuplicateCount duplicit.
+                </FluentMessageBar>
+
+                @if (_result.SkippedCount > 0)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning">
+                        Přeskočeno @_result.SkippedCount řádků, které se nepodařilo načíst.
+                    </FluentMessageBar>
+                    @if (_result.Warnings.Count > 0)
+                    {
+                        <ul class="muted">
+                            @foreach (var warning in _result.Warnings)
+                            {
+                                <li>@warning</li>
+                            }
+                        </ul>
+                    }
+                }
+            </FluentStack>
         }
     </FluentCard>
 </div>

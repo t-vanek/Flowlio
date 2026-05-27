@@ -1,14 +1,28 @@
 using System.Text;
 using Flowlio.Application.Statements;
-using Flowlio.Domain;
 using Flowlio.Infrastructure.Statements;
 using Xunit;
 
 namespace Flowlio.Tests;
 
-public class CsvStatementParserTests
+public class StatementParsingTests
 {
-    private static Stream ToStream(string text, Encoding encoding) => new MemoryStream(encoding.GetBytes(text));
+    private static ParsedStatement Parse(string csv, string profileId)
+    {
+        var registry = new BankProfileRegistry();
+        var profile = registry.ById(profileId)!;
+        var reader = new CsvStatementReader();
+        var options = new ReaderOptions
+        {
+            // Force auto-decoding so the UTF-8 fixtures below are read regardless of the profile's encoding.
+            Encoding = null,
+            Delimiter = profile.CsvDelimiter,
+            KnownHeaderTokens = registry.KnownHeaderTokens,
+        };
+
+        var raw = reader.Read(new MemoryStream(Encoding.UTF8.GetBytes(csv)), "vypis.csv", options);
+        return new StatementMapper().Map(raw, profile);
+    }
 
     [Fact]
     public void Parses_fio_style_csv_with_comma_decimals_and_quotes()
@@ -19,8 +33,7 @@ public class CsvStatementParserTests
             "03.05.2026";"45000,00";"CZK";"";"Zamestnavatel";"";"";"";"Mzda"
             """;
 
-        var parser = new CsvStatementParser(BankCsvProfiles.Fio);
-        var result = parser.Parse(ToStream(csv, Encoding.UTF8), "vypis.csv");
+        var result = Parse(csv, "fio");
 
         Assert.Equal(2, result.Transactions.Count);
 
@@ -45,8 +58,7 @@ public class CsvStatementParserTests
             "10.05.2026";"-299,00";"CZK";"Netflix"
             """;
 
-        var parser = new CsvStatementParser(BankCsvProfiles.Fio);
-        var result = parser.Parse(ToStream(csv, Encoding.UTF8), "vypis.csv");
+        var result = Parse(csv, "fio");
 
         Assert.Single(result.Transactions);
         Assert.Equal(-299.00m, result.Transactions[0].Amount);
@@ -60,11 +72,45 @@ public class CsvStatementParserTests
             CARD_PAYMENT,Current,2026-05-02 10:00:00,2026-05-02 10:01:00,Spotify,-149.00,CZK,COMPLETED,5000.00
             """;
 
-        var parser = new CsvStatementParser(BankCsvProfiles.Revolut);
-        var result = parser.Parse(ToStream(csv, Encoding.UTF8), "revolut.csv");
+        var result = Parse(csv, "revolut");
 
         Assert.Single(result.Transactions);
         Assert.Equal(new DateOnly(2026, 5, 2), result.Transactions[0].BookingDate);
         Assert.Equal(-149.00m, result.Transactions[0].Amount);
+    }
+
+    [Fact]
+    public void Combines_separate_debit_and_credit_columns()
+    {
+        const string csv = """
+            Datum;Odepsáno;Připsáno;Měna;Protiúčet
+            05.05.2026;1 500,00;;CZK;123456789/0800
+            06.05.2026;;45000,00;CZK;
+            """;
+
+        var result = Parse(csv, "czech");
+
+        Assert.Equal(2, result.Transactions.Count);
+        Assert.Equal(-1500.00m, result.Transactions[0].Amount); // debit -> money out
+        Assert.Equal(45000.00m, result.Transactions[1].Amount);  // credit -> money in
+    }
+
+    [Fact]
+    public void Reports_skipped_rows_as_diagnostics_instead_of_dropping_them_silently()
+    {
+        const string csv = """
+            "Datum";"Objem";"Měna"
+            "01.05.2026";"-100,00";"CZK"
+            "not-a-date";"-200,00";"CZK"
+            """;
+
+        var result = Parse(csv, "fio");
+
+        Assert.Single(result.Transactions);
+        Assert.Equal(1, result.SkippedRowCount);
+
+        var warning = Assert.Single(result.Diagnostics, d => d.Severity == ParseSeverity.Warning);
+        Assert.NotNull(warning.Line);
+        Assert.Contains("datum", warning.Message);
     }
 }
