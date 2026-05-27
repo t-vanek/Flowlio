@@ -2,6 +2,7 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Domain;
 using Flowlio.Server.Realtime;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using static Flowlio.Server.Auth.MemberAuthorization;
@@ -97,7 +98,7 @@ public static class FamilyManagementEndpoints
     }
 
     private static async Task<IResult> DeleteFamily(
-        DeleteFamilyRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+        [FromBody] DeleteFamilyRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (me.Role != MemberRole.Owner)
