@@ -1,5 +1,4 @@
 @inherits LayoutComponentBase
-@inject FlowlioApi Api
 @inject NavigationManager Navigation
 
 <FluentDesignTheme Mode="DesignThemeModes.System" StorageName="flowlio-theme" />
@@ -22,7 +21,7 @@
             <AuthorizeView>
                 <Authorized>
                     <span class="topbar-user">@context.User.Identity?.Name</span>
-                    <FluentButton Appearance="Appearance.Stealth" OnClick="LogoutAsync">Odhlásit</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="BeginLogout">Odhlásit</FluentButton>
                 </Authorized>
             </AuthorizeView>
         </header>
@@ -34,9 +33,5 @@
 </div>
 
 @code {
-    private async Task LogoutAsync()
-    {
-        await Api.LogoutAsync();
-        Navigation.NavigateTo("login");
-    }
+    private void BeginLogout() => Navigation.NavigateToLogout("authentication/logout");
 }

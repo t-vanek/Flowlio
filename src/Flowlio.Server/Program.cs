@@ -21,15 +21,14 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
-builder.Services.AddIdentityCore<ApplicationUser>(options =>
+builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
     {
         options.User.RequireUniqueEmail = true;
         options.Password.RequiredLength = 8;
         options.Password.RequireNonAlphanumeric = false;
+        options.SignIn.RequireConfirmedAccount = false;
     })
-    .AddRoles<IdentityRole<Guid>>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddSignInManager()
     .AddDefaultTokenProviders();
 
 // Align Identity's claim names with the ones OpenIddict expects.
@@ -40,24 +39,40 @@ builder.Services.Configure<IdentityOptions>(options =>
     options.ClaimsIdentity.RoleClaimType = Claims.Role;
 });
 
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Account/Login";
+    options.LogoutPath = "/Account/Logout";
+    options.Cookie.SameSite = SameSiteMode.Lax;
+});
+
 builder.Services.AddOpenIddict()
     .AddCore(options => options
         .UseEntityFrameworkCore()
         .UseDbContext<ApplicationDbContext>())
     .AddServer(options =>
     {
-        options.SetTokenEndpointUris("connect/token");
-        options.AllowPasswordFlow().AllowRefreshTokenFlow();
-        options.AcceptAnonymousClients();
-        options.RegisterScopes(Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, "flowlio.api");
+        options.SetAuthorizationEndpointUris("connect/authorize")
+               .SetTokenEndpointUris("connect/token")
+               .SetEndSessionEndpointUris("connect/logout")
+               .SetUserInfoEndpointUris("connect/userinfo");
+
+        // Authorization-code flow with PKCE (mandatory) for the public SPA, plus refresh tokens.
+        options.AllowAuthorizationCodeFlow()
+               .AllowRefreshTokenFlow()
+               .RequireProofKeyForCodeExchange();
+
+        options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, DbInitializer.ApiScope);
 
         // Development certificates; replace with managed certificates in production.
         options.AddDevelopmentEncryptionCertificate().AddDevelopmentSigningCertificate();
         options.DisableAccessTokenEncryption();
 
-        var aspNetCore = options.UseAspNetCore().EnableTokenEndpointPassthrough();
-        if (builder.Environment.IsDevelopment())
-            aspNetCore.DisableTransportSecurityRequirement();
+        options.UseAspNetCore()
+               .EnableAuthorizationEndpointPassthrough()
+               .EnableTokenEndpointPassthrough()
+               .EnableEndSessionEndpointPassthrough()
+               .EnableUserInfoEndpointPassthrough();
     })
     .AddValidation(options =>
     {
@@ -65,12 +80,24 @@ builder.Services.AddOpenIddict()
         options.UseAspNetCore();
     });
 
+// Bearer (API) is the default; the interactive authorize endpoint challenges the Identity cookie explicitly.
 builder.Services.AddAuthentication(options =>
 {
-    options.DefaultScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
 });
-builder.Services.AddAuthorization();
 
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("api", policy =>
+    {
+        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+    });
+});
+
+builder.Services.AddControllers();
+builder.Services.AddRazorPages();
 builder.Services.AddSignalR();
 builder.Services.AddOpenApi();
 
@@ -89,13 +116,16 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseHttpsRedirection();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 
+app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapTokenEndpoint();
+app.MapControllers();
+app.MapRazorPages();
 app.MapApiEndpoints();
 app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapFallbackToFile("index.html");

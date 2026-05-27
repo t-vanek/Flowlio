@@ -13,7 +13,8 @@ Because Flowlio is **not** certified for direct bank-API access, transactions ar
 - **PostgreSQL** + **Entity Framework Core 10** (Npgsql)
 - **Wolverine** as the in-process command/message bus
 - **SignalR** for live updates
-- **ASP.NET Core Identity** + **OpenIddict** for authentication (OAuth2 / OIDC)
+- **ASP.NET Core Identity** + **OpenIddict** for authentication — OAuth2 **authorization-code flow
+  with PKCE** over HTTPS (no password grant)
 - **Riok.Mapperly** for entity ↔ DTO mapping
 - **PdfPig** for PDF statement text extraction (Tesseract OCR planned for scanned PDFs)
 
@@ -37,21 +38,41 @@ tests/
 **ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**, plus a heuristic PDF parser.
 Imported rows are de-duplicated (per account fingerprint) and auto-categorized via user rules.
 
+## Authentication
+
+The Blazor SPA authenticates via the **authorization-code + PKCE** flow against the OpenIddict server
+that also hosts it:
+
+1. The SPA redirects unauthenticated users to OpenIddict's `/connect/authorize`.
+2. That endpoint requires an interactive cookie login, served by the Razor page `/Account/Login`
+   (registration at `/Account/Register`).
+3. After login the SPA receives an authorization code and exchanges it (with the PKCE verifier) at
+   `/connect/token` for access + refresh tokens.
+4. API calls send the access token as a bearer; the API is validated by OpenIddict locally.
+
+The OIDC client (`flowlio-spa`, public, PKCE-required) and the `flowlio.api` scope are seeded on
+startup. Redirect URIs are configured under `Spa` in `appsettings.json`.
+
 ## Running locally
 
-1. Start PostgreSQL:
+1. Trust the ASP.NET HTTPS development certificate (once):
+   ```bash
+   dotnet dev-certs https --trust
+   ```
+2. Start PostgreSQL:
    ```bash
    docker compose up -d
    ```
-2. Run the server (applies EF migrations and seeds a demo user on first start):
+3. Run the server (applies EF migrations and seeds the OIDC client + a demo user on first start):
    ```bash
-   dotnet run --project src/Flowlio.Server
+   dotnet run --project src/Flowlio.Server --launch-profile https
    ```
-3. Open the app and sign in with the seeded demo account:
+   The app is served at **https://localhost:5443**.
+4. Sign in with the seeded demo account:
    - **E-mail:** `rodina@flowlio.local`
    - **Heslo:** `Flowlio123!`
 
-The connection string and demo credentials live in `src/Flowlio.Server/appsettings.json`.
+The connection string, redirect URIs and demo credentials live in `src/Flowlio.Server/appsettings.json`.
 
 ## Tests
 
@@ -61,7 +82,5 @@ dotnet test
 
 ## Notes / next steps
 
-- OAuth uses the password grant for the first-party SPA; hardening to authorization-code + PKCE is a
-  recommended follow-up. HTTPS transport security is only relaxed in the Development environment.
 - Tesseract OCR for scanned PDF statements is stubbed (`ImportFormat.PdfOcr`) pending the native library.
 - Bank CSV/PDF profiles are a starting point and may need tuning against specific export variants.

@@ -2,9 +2,7 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
-using Flowlio.Infrastructure.Identity;
 using Flowlio.Shared;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
@@ -15,29 +13,13 @@ public static class ApiEndpoints
 {
     public static void MapApiEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/auth/register", Register);
-
-        var api = app.MapGroup("/api").RequireAuthorization();
+        var api = app.MapGroup("/api").RequireAuthorization("api");
         api.MapGet("/accounts", GetAccounts);
         api.MapPost("/accounts", CreateAccount);
         api.MapGet("/categories", GetCategories);
         api.MapGet("/transactions", GetTransactions);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
-    }
-
-    private static async Task<IResult> Register(RegisterRequest request, UserManager<ApplicationUser> users)
-    {
-        var user = new ApplicationUser
-        {
-            UserName = request.Email,
-            Email = request.Email,
-            DisplayName = request.DisplayName,
-        };
-        var result = await users.CreateAsync(user, request.Password);
-        return result.Succeeded
-            ? Results.Ok()
-            : Results.ValidationProblem(result.Errors.ToDictionary(e => e.Code, e => new[] { e.Description }));
     }
 
     private static async Task<IReadOnlyList<BankAccountDto>> GetAccounts(

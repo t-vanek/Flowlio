@@ -1,0 +1,54 @@
+@page
+@model Flowlio.Server.Pages.Account.RegisterModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Registrace – Flowlio</title>
+    <style>
+        body { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; margin: 0; min-height: 100vh;
+               display: flex; align-items: center; justify-content: center;
+               background: linear-gradient(135deg,#1e3a8a,#2563eb); }
+        .card { background:#fff; padding:32px; border-radius:14px; width:100%; max-width:380px;
+                box-shadow:0 20px 50px rgba(0,0,0,.25); }
+        .logo { font-size:22px; font-weight:800; color:#2563eb; margin-bottom:18px; }
+        h1 { font-size:24px; margin:0 0 18px; }
+        label { display:block; font-size:13px; color:#475569; margin:12px 0 4px; }
+        input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #cbd5e1;
+                border-radius:8px; font-size:15px; }
+        button { width:100%; margin-top:20px; padding:11px; border:0; border-radius:8px;
+                 background:#2563eb; color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+        .err { background:#fee2e2; color:#b91c1c; padding:10px; border-radius:8px; margin-top:14px; font-size:14px; }
+        .switch { text-align:center; margin-top:18px; font-size:14px; color:#64748b; }
+    </style>
+</head>
+<body>
+    <form class="card" method="post">
+        <div class="logo">₣ Flowlio</div>
+        <h1>Vytvořit účet</h1>
+
+        @if (!string.IsNullOrEmpty(Model.Error))
+        {
+            <div class="err">@Model.Error</div>
+        }
+
+        <label for="DisplayName">Jméno</label>
+        <input id="DisplayName" name="DisplayName" value="@Model.DisplayName" autofocus />
+
+        <label for="Email">E-mail</label>
+        <input id="Email" name="Email" type="email" value="@Model.Email" />
+
+        <label for="Password">Heslo (min. 8 znaků)</label>
+        <input id="Password" name="Password" type="password" />
+
+        <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
+        <button type="submit">Zaregistrovat se</button>
+
+        <div class="switch">Už máte účet? <a href="/Account/Login?returnUrl=@Uri.EscapeDataString(Model.ReturnUrl ?? "/")">Přihlaste se</a></div>
+    </form>
+</body>
+</html>
