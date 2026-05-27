@@ -45,6 +45,14 @@ public sealed class AuthorizationController(
         var user = await userManager.GetUserAsync(result.Principal)
             ?? throw new InvalidOperationException("The user details cannot be retrieved.");
 
+        // Force a password change before issuing any token when an admin flagged the account.
+        if (user.MustChangePassword)
+        {
+            var target = Request.PathBase + Request.Path + QueryString.Create(
+                Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList());
+            return Redirect("/Account/ChangePassword?returnUrl=" + Uri.EscapeDataString(target));
+        }
+
         var identity = new ClaimsIdentity(
             authenticationType: TokenValidationDefaults.AuthenticationType,
             nameType: Claims.Name,
@@ -93,7 +101,7 @@ public sealed class AuthorizationController(
         var result = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         var user = result.Principal is null ? null : await userManager.FindByIdAsync(result.Principal.GetClaim(Claims.Subject) ?? "");
 
-        if (user is null || await userManager.IsLockedOutAsync(user))
+        if (user is null || await userManager.IsLockedOutAsync(user) || user.MustChangePassword)
         {
             return Forbid(
                 authenticationSchemes: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme,

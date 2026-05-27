@@ -326,9 +326,24 @@ public sealed record AdminUserDto
     public string? DisplayName { get; init; }
     public bool IsAdmin { get; init; }
     public bool IsLockedOut { get; init; }
+
+    /// <summary>When the lockout ends; <c>DateTimeOffset.MaxValue</c> indicates an indefinite block.</summary>
+    public DateTimeOffset? LockoutEndUtc { get; init; }
+    public bool MustChangePassword { get; init; }
     public bool IsCurrentUser { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public IReadOnlyList<string> Families { get; init; } = [];
+}
+
+public sealed record CreateUserRequest
+{
+    public string Email { get; init; } = "";
+    public string? DisplayName { get; init; }
+    public string Password { get; init; } = "";
+    public bool IsAdmin { get; init; }
+
+    /// <summary>Require the user to choose a new password on first sign-in.</summary>
+    public bool MustChangePassword { get; init; } = true;
 }
 
 public sealed record SetUserAdminRequest
@@ -336,7 +351,16 @@ public sealed record SetUserAdminRequest
     public bool IsAdmin { get; init; }
 }
 
-public sealed record SetUserLockedRequest
+/// <summary>Temporary lock; the account unlocks itself after the given number of minutes.</summary>
+public sealed record LockUserRequest
 {
-    public bool IsLocked { get; init; }
+    public int Minutes { get; init; } = 60;
+}
+
+public sealed record AdminSetPasswordRequest
+{
+    public string NewPassword { get; init; } = "";
+
+    /// <summary>Also require the user to change this password on next sign-in.</summary>
+    public bool MustChangePassword { get; init; } = true;
 }

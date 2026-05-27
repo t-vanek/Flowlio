@@ -177,11 +177,29 @@ public sealed class FlowlioApi(HttpClient http)
             : [];
     }
 
+    public async Task<bool> CreateUserAsync(CreateUserRequest request) =>
+        (await http.PostAsJsonAsync("api/admin/users", request)).IsSuccessStatusCode;
+
     public async Task<bool> SetUserAdminAsync(Guid userId, bool isAdmin) =>
         (await http.PostAsJsonAsync($"api/admin/users/{userId}/admin", new SetUserAdminRequest { IsAdmin = isAdmin })).IsSuccessStatusCode;
 
-    public async Task<bool> SetUserLockedAsync(Guid userId, bool isLocked) =>
-        (await http.PostAsJsonAsync($"api/admin/users/{userId}/locked", new SetUserLockedRequest { IsLocked = isLocked })).IsSuccessStatusCode;
+    public async Task<bool> LockUserAsync(Guid userId, int minutes) =>
+        (await http.PostAsJsonAsync($"api/admin/users/{userId}/lock", new LockUserRequest { Minutes = minutes })).IsSuccessStatusCode;
+
+    public async Task<bool> BlockUserAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/block", null)).IsSuccessStatusCode;
+
+    public async Task<bool> RestoreUserAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/restore", null)).IsSuccessStatusCode;
+
+    public async Task<bool> SetUserPasswordAsync(Guid userId, AdminSetPasswordRequest request) =>
+        (await http.PostAsJsonAsync($"api/admin/users/{userId}/password", request)).IsSuccessStatusCode;
+
+    public async Task<bool> ForcePasswordChangeAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/force-password-change", null)).IsSuccessStatusCode;
+
+    public async Task<bool> ForceLogoutAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/force-logout", null)).IsSuccessStatusCode;
 
     public async Task<bool> DeleteUserAsync(Guid userId) =>
         (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;

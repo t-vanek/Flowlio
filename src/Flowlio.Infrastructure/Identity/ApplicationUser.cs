@@ -7,4 +7,7 @@ public class ApplicationUser : IdentityUser<Guid>
 {
     public string? DisplayName { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>When true the user must set a new password (enforced at the authorization endpoint) before continuing.</summary>
+    public bool MustChangePassword { get; set; }
 }
