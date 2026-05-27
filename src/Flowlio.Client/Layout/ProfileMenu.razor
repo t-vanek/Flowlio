@@ -1,0 +1,121 @@
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<AuthorizeView>
+    <Authorized>
+        <div class="profile-wrap">
+            <button type="button"
+                    class="profile-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded="@(_open ? "true" : "false")"
+                    aria-label="Účet a nastavení"
+                    @onclick="Toggle">
+                <span class="profile-avatar">@GetInitials(context.User)</span>
+            </button>
+
+            @if (_open)
+            {
+                <div class="profile-backdrop" @onclick="Close"></div>
+                <div class="profile-popover" role="menu">
+                    <div class="profile-header">
+                        <div class="profile-name">@GetDisplayName(context.User)</div>
+                        <div class="profile-email">@GetEmail(context.User)</div>
+                    </div>
+
+                    <div class="profile-divider"></div>
+
+                    <div class="profile-section-label">Téma</div>
+                    @foreach (var (value, label) in ThemeOptions)
+                    {
+                        var selected = _theme == value;
+                        <button type="button"
+                                class="profile-item @(selected ? "is-active" : "")"
+                                role="menuitemradio"
+                                aria-checked="@(selected ? "true" : "false")"
+                                @onclick="@(() => SetThemeAsync(value))">
+                            <span class="profile-item-check">@(selected ? "✓" : "")</span>
+                            <span class="profile-item-label">@label</span>
+                        </button>
+                    }
+
+                    <div class="profile-divider"></div>
+
+                    <a class="profile-item" role="menuitem" href="/Account/TwoFactor" @onclick="Close" @onclick:preventDefault="false">
+                        <span class="profile-item-check">🔒</span>
+                        <span class="profile-item-label">Zabezpečení</span>
+                    </a>
+                    <button type="button" class="profile-item" role="menuitem" @onclick="BeginLogout">
+                        <span class="profile-item-check">↪</span>
+                        <span class="profile-item-label">Odhlásit</span>
+                    </button>
+                </div>
+            }
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public EventCallback<string> OnThemeChanged { get; set; }
+
+    private static readonly (string Value, string Label)[] ThemeOptions =
+    [
+        ("system", "Systém"),
+        ("light",  "Světlé"),
+        ("dark",   "Tmavé"),
+    ];
+
+    private bool _open;
+    private string _theme = "system";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _theme = await JS.InvokeAsync<string>("flowlioTheme.get") ?? "system";
+            await OnThemeChanged.InvokeAsync(_theme);
+            StateHasChanged();
+        }
+    }
+
+    private void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+
+    private async Task SetThemeAsync(string theme)
+    {
+        _theme = theme;
+        await JS.InvokeVoidAsync("flowlioTheme.set", theme);
+        await OnThemeChanged.InvokeAsync(theme);
+        _open = false;
+    }
+
+    private void BeginLogout()
+    {
+        _open = false;
+        Navigation.NavigateToLogout("authentication/logout");
+    }
+
+    private static string GetDisplayName(System.Security.Claims.ClaimsPrincipal user)
+    {
+        // After the server-side fix, `name` carries DisplayName; `preferred_username` mirrors it.
+        // Fallbacks cover older tokens still in localStorage.
+        return user.Identity?.Name
+            ?? user.FindFirst("preferred_username")?.Value
+            ?? user.FindFirst("email")?.Value
+            ?? "Účet";
+    }
+
+    private static string GetEmail(System.Security.Claims.ClaimsPrincipal user)
+        => user.FindFirst("email")?.Value ?? "";
+
+    private static string GetInitials(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var name = GetDisplayName(user);
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return $"{Letter(parts[0])}{Letter(parts[^1])}";
+        return Letter(parts[0]).ToString();
+
+        static char Letter(string s) => char.ToUpperInvariant(s[0]);
+    }
+}

@@ -60,7 +60,7 @@ public sealed class AuthorizationController(
 
         identity.SetClaim(Claims.Subject, await userManager.GetUserIdAsync(user))
                 .SetClaim(Claims.Email, await userManager.GetEmailAsync(user))
-                .SetClaim(Claims.Name, await userManager.GetUserNameAsync(user))
+                .SetClaim(Claims.Name, user.DisplayName ?? await userManager.GetUserNameAsync(user))
                 .SetClaim(Claims.PreferredUsername, user.DisplayName ?? await userManager.GetUserNameAsync(user));
 
         identity.SetScopes(request.GetScopes());
@@ -120,7 +120,7 @@ public sealed class AuthorizationController(
 
         identity.SetClaim(Claims.Subject, await userManager.GetUserIdAsync(user))
                 .SetClaim(Claims.Email, await userManager.GetEmailAsync(user))
-                .SetClaim(Claims.Name, await userManager.GetUserNameAsync(user))
+                .SetClaim(Claims.Name, user.DisplayName ?? await userManager.GetUserNameAsync(user))
                 .SetClaim(Claims.PreferredUsername, user.DisplayName ?? await userManager.GetUserNameAsync(user));
 
         identity.SetDestinations(GetDestinations);

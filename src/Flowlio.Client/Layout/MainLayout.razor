@@ -1,11 +1,10 @@
 @inherits LayoutComponentBase
 @implements IAsyncDisposable
-@inject NavigationManager Navigation
 @inject LiveNotificationService Live
 @inject CurrentUserState CurrentUser
 @inject IToastService Toasts
 
-<FluentDesignTheme Mode="DesignThemeModes.System" StorageName="flowlio-theme" />
+<FluentDesignTheme Mode="_designMode" StorageName="flowlio-theme" />
 
 <FluentToastProvider />
 <FluentDialogProvider />
@@ -22,13 +21,7 @@
         <header class="topbar">
             <span class="topbar-title">Flowlio</span>
             <span class="spacer"></span>
-            <AuthorizeView>
-                <Authorized>
-                    <span class="topbar-user">@context.User.Identity?.Name</span>
-                    <a class="topbar-link" href="/Account/TwoFactor">Zabezpečení</a>
-                    <FluentButton Appearance="Appearance.Stealth" OnClick="BeginLogout">Odhlásit</FluentButton>
-                </Authorized>
-            </AuthorizeView>
+            <ProfileMenu OnThemeChanged="HandleThemeChangedAsync" />
         </header>
 
         <article class="content">
@@ -38,6 +31,23 @@
 </div>
 
 @code {
+    private DesignThemeModes _designMode = DesignThemeModes.System;
+
+    private Task HandleThemeChangedAsync(string theme)
+    {
+        var next = theme switch
+        {
+            "light" => DesignThemeModes.Light,
+            "dark"  => DesignThemeModes.Dark,
+            _       => DesignThemeModes.System,
+        };
+        if (next == _designMode)
+            return Task.CompletedTask;
+        _designMode = next;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -74,8 +84,6 @@
             default: Toasts.ShowInfo(notice.Message); break;
         }
     });
-
-    private void BeginLogout() => Navigation.NavigateToLogout("authentication/logout");
 
     public async ValueTask DisposeAsync()
     {
