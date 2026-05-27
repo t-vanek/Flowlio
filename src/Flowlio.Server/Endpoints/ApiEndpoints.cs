@@ -1,11 +1,12 @@
-using System.Security.Claims;
 using System.Text.Json;
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
+using Flowlio.Infrastructure.Identity;
 using Flowlio.Server.Auth;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -33,16 +34,24 @@ public static class ApiEndpoints
     }
 
     private static async Task<CurrentUserDto> GetMe(
-        ClaimsPrincipal principal, ICurrentFamily family, CancellationToken ct)
+        ICurrentUser currentUser, UserManager<ApplicationUser> userManager, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var permissions = await family.GetPermissionsAsync(ct);
+
+        var isAdmin = false;
+        if (currentUser.UserId is { } userId)
+        {
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            isAdmin = user is not null && await userManager.IsInRoleAsync(user, AdminRoles.Administrator);
+        }
+
         return new CurrentUserDto
         {
             MemberId = me.Id,
             DisplayName = me.DisplayName,
             Role = me.Role,
-            IsAdmin = principal.IsSystemAdmin(),
+            IsAdmin = isAdmin,
             Permissions = permissions.ToList(),
         };
     }

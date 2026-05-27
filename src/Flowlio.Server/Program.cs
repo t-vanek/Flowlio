@@ -8,6 +8,7 @@ using Flowlio.Server;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Endpoints;
 using Flowlio.Server.Realtime;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using JasperFx.Resources;
@@ -124,9 +125,12 @@ builder.Services.AddAuthorization(options =>
     {
         policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(Claims.Role, AdminRoles.Administrator);
+        policy.AddRequirements(new AdminRequirement());
     });
 });
+
+// DB-backed admin check so role changes take effect immediately (no token refresh required).
+builder.Services.AddScoped<IAuthorizationHandler, AdminAuthorizationHandler>();
 
 builder.Services.AddControllers();
 builder.Services.AddRazorPages();
