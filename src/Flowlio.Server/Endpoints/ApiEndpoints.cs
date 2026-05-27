@@ -108,7 +108,8 @@ public static class ApiEndpoints
     }
 
     private static async Task<IResult> CreateAccount(
-        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
+        IAuditLog audit, CancellationToken ct)
     {
         var member = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageAccounts, ct))
@@ -133,6 +134,8 @@ public static class ApiEndpoints
         };
         db.BankAccounts.Add(account);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account.create", "BankAccount", account.Id.ToString(), account.Name, member.FamilyId,
+            $"Vytvořen účet ({account.Bank})", ct);
         return Results.Ok(mapper.ToDto(account) with
         {
             CurrentBalance = account.OpeningBalance,
