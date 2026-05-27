@@ -12,7 +12,7 @@
 {
     <FluentProgressRing />
 }
-else if (!_canUsers && !_canSysRoles && !_canAudit && !_canRoles && !_canFamily)
+else if (!_canUsers && !_canSysRoles && !_canAudit)
 {
     <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
 }
@@ -30,14 +30,6 @@ else
         @if (_canAudit)
         {
             <FluentButton Appearance="@TabAppearance(Tab.Audit)" OnClick="@(() => _tab = Tab.Audit)">Audit</FluentButton>
-        }
-        @if (_canRoles)
-        {
-            <FluentButton Appearance="@TabAppearance(Tab.Roles)" OnClick="@(() => _tab = Tab.Roles)">Role rodiny</FluentButton>
-        }
-        @if (_canFamily)
-        {
-            <FluentButton Appearance="@TabAppearance(Tab.Family)" OnClick="@(() => _tab = Tab.Family)">Rodina</FluentButton>
         }
     </div>
 
@@ -426,116 +418,10 @@ else
         }
     }
 
-    @if (_tab == Tab.Roles && _canRoles)
-    {
-        <FluentCard Class="panel">
-            <h2 class="panel-title">Role rodiny</h2>
-            <p class="muted">Nastavte, co smí jednotlivé role v rodině. Vlastník má vždy všechna oprávnění.</p>
-            @if (_roles is null)
-            {
-                <FluentProgressRing />
-            }
-            else
-            {
-                @foreach (var r in _roles.Roles)
-                {
-                    <div class="role-block">
-                        <h3 class="panel-title">@RoleLabel(r.Role) @(r.Editable ? "" : "(neměnné)")</h3>
-                        <div class="perm-grid">
-                            @foreach (var p in _roles.AllPermissions)
-                            {
-                                <label class="perm-item">
-                                    <input type="checkbox"
-                                           checked="@HasPerm(r.Role, p)"
-                                           disabled="@(!r.Editable)"
-                                           @onchange="@(e => TogglePerm(r.Role, p, (bool)(e.Value ?? false)))" />
-                                    <span>@PermLabel(p)</span>
-                                </label>
-                            }
-                        </div>
-                        @if (r.Editable)
-                        {
-                            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveRoleAsync(r.Role))">Uložit @RoleLabel(r.Role)</FluentButton>
-                        }
-                    </div>
-                }
-            }
-            @if (_rolesMessage is not null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Success">@_rolesMessage</FluentMessageBar>
-            }
-        </FluentCard>
-    }
-
-    @if (_tab == Tab.Family && _canFamily)
-    {
-        <FluentCard Class="panel">
-            <h2 class="panel-title">Rodina</h2>
-            @if (_family is null)
-            {
-                <FluentProgressRing />
-            }
-            else
-            {
-                <EditForm Model="_familyModel" OnValidSubmit="SaveFamilyAsync">
-                    <DataAnnotationsValidator />
-                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                        <div>
-                            <FluentTextField @bind-Value="_familyModel.Name" Label="Název rodiny" Style="width:100%" />
-                            <FluentValidationMessage For="@(() => _familyModel.Name)" />
-                        </div>
-                        <div>
-                            <FluentTextField @bind-Value="_familyModel.BaseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
-                            <FluentValidationMessage For="@(() => _familyModel.BaseCurrency)" />
-                        </div>
-                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit změny</FluentButton>
-                        <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
-                    </FluentStack>
-                </EditForm>
-
-                @if (_isOwner)
-                {
-                    <h3 class="panel-title" style="margin-top:20px;">Převod vlastnictví</h3>
-                    @if (TransferCandidates.Any())
-                    {
-                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                            <FluentSelect TOption="string" @bind-Value="_transferValue" Label="Nový vlastník">
-                                @foreach (var m in TransferCandidates)
-                                {
-                                    <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
-                                }
-                            </FluentSelect>
-                            <FluentButton Appearance="Appearance.Accent" OnClick="TransferAsync">Převést vlastnictví</FluentButton>
-                        </FluentStack>
-                        <p class="muted">Stanete se dospělým členem; nový vlastník získá plnou kontrolu.</p>
-                    }
-                    else
-                    {
-                        <p class="muted">Pro převod potřebujete dalšího aktivního dospělého člena s vlastním přihlášením.</p>
-                    }
-
-                    <h3 class="panel-title" style="margin-top:20px;">Smazat rodinu</h3>
-                    <p class="muted">Nevratně smaže rodinu i všechna data (účty, transakce, karty). Pro potvrzení opište název „@_family.Name".</p>
-                    <EditForm Model="_deleteModel" OnValidSubmit="DeleteFamilyAsync">
-                        <DataAnnotationsValidator />
-                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                            <FluentTextField @bind-Value="_deleteModel.ConfirmName" Label="Název rodiny" />
-                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Disabled="@(_deleteModel.ConfirmName != _family.Name)">Smazat rodinu</FluentButton>
-                        </FluentStack>
-                    </EditForm>
-                }
-
-                @if (_familyMessage is not null)
-                {
-                    <FluentMessageBar Intent="@_familyIntent">@_familyMessage</FluentMessageBar>
-                }
-            }
-        </FluentCard>
-    }
 }
 
 @code {
-    private enum Tab { Users, SystemRoles, Audit, Roles, Family }
+    private enum Tab { Users, SystemRoles, Audit }
 
     private CurrentUserDto? _me;
     private bool _canUsers;
@@ -547,9 +433,6 @@ else
     private bool _canDeleteUsers;
     private bool _canSysRoles;
     private bool _canAudit;
-    private bool _canRoles;
-    private bool _canFamily;
-    private bool _isOwner;
     private Tab _tab;
 
     private const int AdminPageSize = 25;
@@ -587,21 +470,6 @@ else
     private bool _auditExporting;
     private int _auditPage = 1;
 
-    private FamilyRolesDto? _roles;
-    private readonly Dictionary<MemberRole, HashSet<Permission>> _rolePerms = new();
-    private string? _rolesMessage;
-
-    private FamilyDto? _family;
-    private IReadOnlyList<FamilyMemberDto>? _members;
-    private UpdateFamilyRequest _familyModel = new();
-    private string _transferValue = "";
-    private DeleteFamilyRequest _deleteModel = new();
-    private string? _familyMessage;
-    private MessageIntent _familyIntent = MessageIntent.Success;
-
-    private IEnumerable<FamilyMemberDto> TransferCandidates =>
-        (_members ?? []).Where(m => m.Role == MemberRole.Adult && m.IsActive && m.Status == MemberStatus.Active);
-
     protected override async Task OnInitializedAsync()
     {
         _me = await CurrentUser.GetAsync();
@@ -621,27 +489,20 @@ else
             _auditActions = await Api.GetAuditActionsAsync();
             await LoadAuditAsync();
         }
-        if (_canRoles)
-            await LoadRolesAsync();
-        if (_canFamily)
-            await LoadFamilyAsync();
     }
 
     private void ApplyPermissions()
     {
         bool S(SystemPermission p) => _me?.CanSystem(p) ?? false;
-        _canUsers = S(SystemPermission.ViewUsers);
+        _canUsers       = S(SystemPermission.ViewUsers);
         _canCreateUsers = S(SystemPermission.CreateUsers);
-        _canUserRoles = S(SystemPermission.ManageUserRoles);
-        _canLockout = S(SystemPermission.ManageUserLockout);
-        _canPasswords = S(SystemPermission.ManageUserPasswords);
+        _canUserRoles   = S(SystemPermission.ManageUserRoles);
+        _canLockout     = S(SystemPermission.ManageUserLockout);
+        _canPasswords   = S(SystemPermission.ManageUserPasswords);
         _canForceLogout = S(SystemPermission.ForceUserLogout);
         _canDeleteUsers = S(SystemPermission.DeleteUsers);
-        _canSysRoles = S(SystemPermission.ManageSystemRoles);
-        _canAudit = S(SystemPermission.ViewAuditLog);
-        _canRoles = _me?.Can(Permission.ManageRoles) ?? false;
-        _canFamily = _me?.Can(Permission.ManageFamily) ?? false;
-        _isOwner = _me?.Role == MemberRole.Owner;
+        _canSysRoles    = S(SystemPermission.ManageSystemRoles);
+        _canAudit       = S(SystemPermission.ViewAuditLog);
     }
 
     private void EnsureValidTab()
@@ -649,13 +510,9 @@ else
         if (_tab == Tab.Users && _canUsers) return;
         if (_tab == Tab.SystemRoles && _canSysRoles) return;
         if (_tab == Tab.Audit && _canAudit) return;
-        if (_tab == Tab.Roles && _canRoles) return;
-        if (_tab == Tab.Family && _canFamily) return;
         _tab = _canUsers ? Tab.Users
             : _canSysRoles ? Tab.SystemRoles
-            : _canAudit ? Tab.Audit
-            : _canRoles ? Tab.Roles
-            : Tab.Family;
+            : Tab.Audit;
     }
 
     private async Task LoadSystemRolesAsync()
@@ -714,47 +571,6 @@ else
     {
         _auditPage = Math.Max(1, _auditPage + delta);
         await LoadAuditAsync();
-    }
-
-    private async Task LoadRolesAsync()
-    {
-        _roles = await Api.GetRolesAsync();
-        _rolePerms.Clear();
-        if (_roles is not null)
-            foreach (var r in _roles.Roles)
-                _rolePerms[r.Role] = r.Permissions.ToHashSet();
-    }
-
-    private async Task LoadFamilyAsync()
-    {
-        _family = await Api.GetFamilyAsync();
-        _members = await Api.GetMembersAsync();
-        if (_family is not null)
-        {
-            _familyModel = new UpdateFamilyRequest { Name = _family.Name, BaseCurrency = _family.BaseCurrency, Version = _family.Version };
-            _deleteModel = new DeleteFamilyRequest();
-        }
-        _transferValue = TransferCandidates.FirstOrDefault()?.Id.ToString() ?? "";
-    }
-
-    // ---- Family role matrix ----
-    private bool HasPerm(MemberRole role, Permission p) =>
-        _rolePerms.TryGetValue(role, out var set) && set.Contains(p);
-
-    private void TogglePerm(MemberRole role, Permission p, bool on)
-    {
-        if (!_rolePerms.TryGetValue(role, out var set))
-            _rolePerms[role] = set = new HashSet<Permission>();
-        if (on) set.Add(p); else set.Remove(p);
-    }
-
-    private async Task SaveRoleAsync(MemberRole role)
-    {
-        _rolesMessage = null;
-        var perms = _rolePerms.TryGetValue(role, out var set) ? set.ToList() : [];
-        if (await Api.UpdateRoleAsync(role, perms))
-            _rolesMessage = $"Oprávnění role {RoleLabel(role)} uložena.";
-        await LoadRolesAsync();
     }
 
     // ---- System role matrix ----
@@ -950,90 +766,7 @@ else
             ? "blokováno"
             : $"zamčeno do {u.LockoutEndUtc?.LocalDateTime:d.M.yyyy HH:mm}";
 
-    // ---- Family management ----
-    private async Task SaveFamilyAsync()
-    {
-        _familyMessage = null;
-        var result = await Api.UpdateFamilyAsync(_familyModel);
-        _familyIntent = result == SaveStatus.Success ? MessageIntent.Success : MessageIntent.Error;
-        _familyMessage = result switch
-        {
-            SaveStatus.Success => "Rodina uložena.",
-            SaveStatus.Conflict => "Rodina byla mezitím změněna jiným uživatelem. Načetl jsem aktuální verzi.",
-            _ => "Uložení se nezdařilo.",
-        };
-        await LoadFamilyAsync();
-    }
-
-    private async Task TransferAsync()
-    {
-        _familyMessage = null;
-        if (!Guid.TryParse(_transferValue, out var id))
-            return;
-
-        var ok = await Api.TransferOwnershipAsync(id);
-        if (!ok)
-        {
-            _familyIntent = MessageIntent.Error;
-            _familyMessage = "Převod se nezdařil.";
-            return;
-        }
-
-        _me = await CurrentUser.RefreshAsync();
-        ApplyPermissions();
-        EnsureValidTab();
-
-        _familyIntent = MessageIntent.Success;
-        _familyMessage = "Vlastnictví převedeno. Vaše role je nyní Dospělý.";
-
-        if (_canFamily)
-            await LoadFamilyAsync();
-    }
-
-    private async Task DeleteFamilyAsync()
-    {
-        _familyMessage = null;
-        if (_family is null || _deleteModel.ConfirmName != _family.Name)
-            return;
-        var ok = await Api.DeleteFamilyAsync(_deleteModel.ConfirmName);
-        if (ok)
-        {
-            _familyIntent = MessageIntent.Success;
-            _familyMessage = "Rodina byla smazána.";
-            _deleteModel = new();
-            await LoadFamilyAsync();
-        }
-        else
-        {
-            _familyIntent = MessageIntent.Error;
-            _familyMessage = "Smazání se nezdařilo.";
-        }
-    }
-
     private Appearance TabAppearance(Tab tab) => _tab == tab ? Appearance.Accent : Appearance.Stealth;
-
-    private static string RoleLabel(MemberRole role) => role switch
-    {
-        MemberRole.Owner => "Vlastník",
-        MemberRole.Adult => "Dospělý",
-        MemberRole.Viewer => "Pozorovatel",
-        MemberRole.Child => "Dítě",
-        _ => role.ToString(),
-    };
-
-    private static string PermLabel(Permission p) => p switch
-    {
-        Permission.ViewFinances => "Zobrazení financí",
-        Permission.ManageAccounts => "Správa účtů",
-        Permission.ImportStatements => "Import výpisů",
-        Permission.ManageTransactions => "Ruční úprava transakcí a pohybů",
-        Permission.ManageAccountAccess => "Sdílení účtů (disponenti)",
-        Permission.ManageCards => "Správa karet",
-        Permission.ManageMembers => "Správa členů",
-        Permission.ManageRoles => "Správa rolí a oprávnění",
-        Permission.ManageFamily => "Správa rodiny",
-        _ => p.ToString(),
-    };
 
     private static string SystemPermLabel(SystemPermission p) => p switch
     {

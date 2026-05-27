@@ -28,6 +28,12 @@
             <span class="nav-icon">👪</span> Rodina
         </NavLink>
     }
+    @if (_canFamilyAdmin)
+    {
+        <NavLink class="nav-link" href="family/manage">
+            <span class="nav-icon">🛡️</span> Správa rodiny
+        </NavLink>
+    }
     @if (_canImport)
     {
         <NavLink class="nav-link" href="import">
@@ -46,6 +52,7 @@
     private bool _canManageMembers;
     private bool _canManageTransactions;
     private bool _canImport;
+    private bool _canFamilyAdmin;
     private bool _canAdminister;
 
     protected override async Task OnInitializedAsync()
@@ -60,9 +67,9 @@
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canManageTransactions = me?.Can(Permission.ManageTransactions) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
-        _canAdminister = (me?.SystemPermissions.Count > 0)
-            || (me?.Can(Permission.ManageRoles) ?? false)
-            || (me?.Can(Permission.ManageFamily) ?? false);
+        _canFamilyAdmin = (me?.Can(Permission.ManageRoles) ?? false)
+                       || (me?.Can(Permission.ManageFamily) ?? false);
+        _canAdminister = me?.SystemPermissions.Count > 0;
     }
 
     private void OnChanged() => _ = InvokeAsync(async () =>
