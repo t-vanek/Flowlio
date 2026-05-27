@@ -1,5 +1,7 @@
+using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Infrastructure.Persistence;
+using Flowlio.Server.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
@@ -30,6 +32,47 @@ public static class DbInitializer
 
         await SeedOpenIddictAsync(sp);
         await SeedDemoUserAsync(sp);
+        await SeedAdminRoleAsync(sp);
+        await BackfillRolePermissionsAsync(db);
+    }
+
+    /// <summary>Ensures the system-admin role exists and promotes the configured admin (and demo) emails.</summary>
+    private static async Task SeedAdminRoleAsync(IServiceProvider sp)
+    {
+        var roles = sp.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+        if (!await roles.RoleExistsAsync(AdminRoles.Administrator))
+            await roles.CreateAsync(new IdentityRole<Guid>(AdminRoles.Administrator));
+
+        var config = sp.GetRequiredService<IConfiguration>();
+        var users = sp.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var adminEmails = (config.GetSection("Admin:Emails").Get<string[]>() ?? [])
+            .Append(config["Seed:DemoEmail"] ?? "")
+            .Where(e => !string.IsNullOrWhiteSpace(e))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var email in adminEmails)
+        {
+            var user = await users.FindByEmailAsync(email);
+            if (user is not null && !await users.IsInRoleAsync(user, AdminRoles.Administrator))
+                await users.AddToRoleAsync(user, AdminRoles.Administrator);
+        }
+    }
+
+    /// <summary>Seeds default per-family role permissions for families created before this feature.</summary>
+    private static async Task BackfillRolePermissionsAsync(ApplicationDbContext db)
+    {
+        var familyIds = await db.Families.Select(f => f.Id).ToListAsync();
+        var seeded = false;
+        foreach (var familyId in familyIds)
+        {
+            if (await db.FamilyRolePermissions.AnyAsync(r => r.FamilyId == familyId))
+                continue;
+            db.FamilyRolePermissions.AddRange(FamilyRolePermission.CreateDefaults(familyId));
+            seeded = true;
+        }
+        if (seeded)
+            await db.SaveChangesAsync();
     }
 
     private static async Task SeedOpenIddictAsync(IServiceProvider sp)

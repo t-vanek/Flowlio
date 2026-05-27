@@ -55,6 +55,9 @@ public sealed class AuthorizationController(
                 .SetClaim(Claims.Name, await userManager.GetUserNameAsync(user))
                 .SetClaim(Claims.PreferredUsername, user.DisplayName ?? await userManager.GetUserNameAsync(user));
 
+        foreach (var role in await userManager.GetRolesAsync(user))
+            identity.AddClaim(Claims.Role, role);
+
         identity.SetScopes(request.GetScopes());
         identity.SetResources(await scopeManager.ListResourcesAsync(identity.GetScopes()).ToListAsync());
         identity.SetDestinations(GetDestinations);
@@ -114,6 +117,12 @@ public sealed class AuthorizationController(
                 .SetClaim(Claims.Email, await userManager.GetEmailAsync(user))
                 .SetClaim(Claims.Name, await userManager.GetUserNameAsync(user))
                 .SetClaim(Claims.PreferredUsername, user.DisplayName ?? await userManager.GetUserNameAsync(user));
+
+        // Refresh role claims so admin grants/revocations take effect on token refresh.
+        foreach (var stale in identity.FindAll(Claims.Role).ToList())
+            identity.RemoveClaim(stale);
+        foreach (var role in await userManager.GetRolesAsync(user))
+            identity.AddClaim(Claims.Role, role);
 
         identity.SetDestinations(GetDestinations);
 

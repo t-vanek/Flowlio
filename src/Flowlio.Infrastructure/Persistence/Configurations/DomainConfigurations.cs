@@ -33,6 +33,17 @@ public class FamilyMemberConfiguration : IEntityTypeConfiguration<FamilyMember>
     }
 }
 
+public class FamilyRolePermissionConfiguration : IEntityTypeConfiguration<FamilyRolePermission>
+{
+    public void Configure(EntityTypeBuilder<FamilyRolePermission> b)
+    {
+        b.HasOne(x => x.Family).WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+
+        // Each (family, role, permission) grant is stored at most once.
+        b.HasIndex(x => new { x.FamilyId, x.Role, x.Permission }).IsUnique();
+    }
+}
+
 public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
 {
     public void Configure(EntityTypeBuilder<BankAccount> b)

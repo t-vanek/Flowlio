@@ -66,8 +66,19 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
+    public async Task<FamilyMemberDto?> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request)
+    {
+        var response = await http.PutAsJsonAsync($"api/members/{memberId}", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<FamilyMemberDto>()
+            : null;
+    }
+
     public async Task<bool> DeleteMemberAsync(Guid memberId) =>
         (await http.DeleteAsync($"api/members/{memberId}")).IsSuccessStatusCode;
+
+    public async Task<bool> SetMemberActiveAsync(Guid memberId, bool active) =>
+        (await http.PostAsync($"api/members/{memberId}/{(active ? "activate" : "deactivate")}", null)).IsSuccessStatusCode;
 
     public async Task<InvitationDto?> ReinviteMemberAsync(Guid memberId)
     {
@@ -127,4 +138,51 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<bool> DeleteCardAsync(Guid cardId) =>
         (await http.DeleteAsync($"api/cards/{cardId}")).IsSuccessStatusCode;
+
+    // --- Roles & permissions (per family) ---
+
+    public Task<FamilyRolesDto?> GetRolesAsync() =>
+        http.GetFromJsonAsync<FamilyRolesDto>("api/roles");
+
+    public async Task<bool> UpdateRoleAsync(MemberRole role, IReadOnlyList<Permission> permissions) =>
+        (await http.PutAsJsonAsync($"api/roles/{role}", new UpdateRolePermissionsRequest { Permissions = permissions })).IsSuccessStatusCode;
+
+    // --- Family management ---
+
+    public Task<FamilyDto?> GetFamilyAsync() =>
+        http.GetFromJsonAsync<FamilyDto>("api/family");
+
+    public async Task<bool> UpdateFamilyAsync(UpdateFamilyRequest request) =>
+        (await http.PutAsJsonAsync("api/family", request)).IsSuccessStatusCode;
+
+    public async Task<bool> TransferOwnershipAsync(Guid newOwnerMemberId) =>
+        (await http.PostAsJsonAsync("api/family/transfer-ownership", new TransferOwnershipRequest { NewOwnerMemberId = newOwnerMemberId })).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteFamilyAsync(string confirmName)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, "api/family")
+        {
+            Content = JsonContent.Create(new DeleteFamilyRequest { ConfirmName = confirmName }),
+        };
+        return (await http.SendAsync(request)).IsSuccessStatusCode;
+    }
+
+    // --- System administration (admin only) ---
+
+    public async Task<IReadOnlyList<AdminUserDto>> GetAdminUsersAsync()
+    {
+        var response = await http.GetAsync("api/admin/users");
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
+            : [];
+    }
+
+    public async Task<bool> SetUserAdminAsync(Guid userId, bool isAdmin) =>
+        (await http.PostAsJsonAsync($"api/admin/users/{userId}/admin", new SetUserAdminRequest { IsAdmin = isAdmin })).IsSuccessStatusCode;
+
+    public async Task<bool> SetUserLockedAsync(Guid userId, bool isLocked) =>
+        (await http.PostAsJsonAsync($"api/admin/users/{userId}/locked", new SetUserLockedRequest { IsLocked = isLocked })).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteUserAsync(Guid userId) =>
+        (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;
 }

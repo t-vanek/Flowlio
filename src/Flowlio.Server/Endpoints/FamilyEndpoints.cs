@@ -20,8 +20,11 @@ public static class FamilyEndpoints
     {
         api.MapGet("/members", GetMembers);
         api.MapPost("/members", CreateMember);
+        api.MapPut("/members/{memberId:guid}", UpdateMember);
         api.MapDelete("/members/{memberId:guid}", DeleteMember);
         api.MapPost("/members/{memberId:guid}/invite", ReinviteMember);
+        api.MapPost("/members/{memberId:guid}/deactivate", DeactivateMember);
+        api.MapPost("/members/{memberId:guid}/activate", ActivateMember);
 
         api.MapGet("/invitations", GetInvitations);
         api.MapPost("/invitations/{invitationId:guid}/revoke", RevokeInvitation);
@@ -63,7 +66,7 @@ public static class FamilyEndpoints
         HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ManageMembers))
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.DisplayName))
@@ -120,16 +123,123 @@ public static class FamilyEndpoints
                 Role = member.Role,
                 Status = status,
                 GuardianMemberId = member.GuardianMemberId,
+                IsActive = member.IsActive,
             },
             Invitation = inviteDto,
         });
+    }
+
+    private static async Task<IResult> UpdateMember(
+        Guid memberId, UpdateMemberRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
+            return Forbidden();
+
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+            return Results.BadRequest("Jméno je povinné.");
+
+        var member = await db.FamilyMembers
+            .FirstOrDefaultAsync(m => m.Id == memberId && m.FamilyId == me.FamilyId, ct);
+        if (member is null)
+            return Results.NotFound();
+
+        if (member.Role == MemberRole.Owner)
+        {
+            // The Owner's profile is editable, but the Owner role itself moves only via transfer-ownership.
+            if (request.Role != MemberRole.Owner)
+                return Results.BadRequest("Roli vlastníka lze změnit jen převodem vlastnictví.");
+        }
+        else
+        {
+            if (request.Role == MemberRole.Owner)
+                return Results.BadRequest("Vlastníka nastavíte převodem vlastnictví.");
+
+            Guid? guardianId = null;
+            if (request.Role == MemberRole.Child)
+            {
+                guardianId = request.GuardianMemberId ?? member.GuardianMemberId ?? me.Id;
+                var guardian = await db.FamilyMembers
+                    .FirstOrDefaultAsync(m => m.Id == guardianId && m.FamilyId == me.FamilyId, ct);
+                if (guardian is null || guardian.Role == MemberRole.Child || guardian.Id == member.Id)
+                    return Results.BadRequest("Neplatný opatrovník dětského účtu.");
+            }
+
+            member.Role = request.Role;
+            member.GuardianMemberId = guardianId;
+        }
+
+        member.DisplayName = request.DisplayName.Trim();
+        member.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+        member.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(await BuildMemberDtoAsync(db, member, me.Id, ct));
+    }
+
+    private static Task<IResult> DeactivateMember(
+        Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: false, db, family, ct);
+
+    private static Task<IResult> ActivateMember(
+        Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: true, db, family, ct);
+
+    private static async Task<IResult> SetMemberActiveAsync(
+        Guid memberId, bool active, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
+            return Forbidden();
+        if (memberId == me.Id)
+            return Results.BadRequest("Vlastní přístup nelze měnit.");
+
+        var member = await db.FamilyMembers
+            .FirstOrDefaultAsync(m => m.Id == memberId && m.FamilyId == me.FamilyId, ct);
+        if (member is null)
+            return Results.NotFound();
+        if (member.Role == MemberRole.Owner)
+            return Results.BadRequest("Vlastníka rodiny nelze deaktivovat.");
+
+        member.IsActive = active;
+        member.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<FamilyMemberDto> BuildMemberDtoAsync(
+        IAppDbContext db, FamilyMember member, Guid currentMemberId, CancellationToken ct)
+    {
+        var guardianName = member.GuardianMemberId is { } g
+            ? await db.FamilyMembers.Where(m => m.Id == g).Select(m => m.DisplayName).FirstOrDefaultAsync(ct)
+            : null;
+
+        var pending = member.UserId is null
+            && await db.FamilyInvitations.AnyAsync(i => i.MemberId == member.Id && i.Status == InvitationStatus.Pending, ct);
+
+        var status = member.UserId is not null
+            ? MemberStatus.Active
+            : pending ? MemberStatus.Pending : MemberStatus.Managed;
+
+        return new FamilyMemberDto
+        {
+            Id = member.Id,
+            DisplayName = member.DisplayName,
+            Email = member.Email,
+            Role = member.Role,
+            Status = status,
+            GuardianMemberId = member.GuardianMemberId,
+            GuardianName = guardianName,
+            IsCurrentUser = member.Id == currentMemberId,
+            IsActive = member.IsActive,
+        };
     }
 
     private static async Task<IResult> DeleteMember(
         Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ManageMembers))
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
             return Forbidden();
         if (memberId == me.Id)
             return Results.BadRequest("Sebe sama nelze odebrat.");
@@ -155,7 +265,7 @@ public static class FamilyEndpoints
         HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ManageMembers))
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
             return Forbidden();
 
         var member = await db.FamilyMembers
@@ -189,7 +299,7 @@ public static class FamilyEndpoints
         IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ManageMembers))
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
             return Forbidden();
 
         var invitations = await db.FamilyInvitations
@@ -213,7 +323,7 @@ public static class FamilyEndpoints
         Guid invitationId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ManageMembers))
+        if (!await family.CanAsync(Permission.ManageMembers, ct))
             return Forbidden();
 
         var invitation = await db.FamilyInvitations
@@ -271,7 +381,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!me.Can(Permission.ManageAccountAccess) || !await CanManageAccountAsync(me, account, db, ct))
+        if (!await family.CanAsync(Permission.ManageAccountAccess, ct) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         if (request.MemberId == account.OwnerMemberId)
@@ -314,7 +424,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!me.Can(Permission.ManageAccountAccess) || !await CanManageAccountAsync(me, account, db, ct))
+        if (!await family.CanAsync(Permission.ManageAccountAccess, ct) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         var grant = await db.AccountAccesses
@@ -368,7 +478,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, account, db, ct))
+        if (!await family.CanAsync(Permission.ManageCards, ct) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.CardholderName))
@@ -406,7 +516,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(c => c.Id == cardId && c.BankAccount!.FamilyId == me.FamilyId, ct);
         if (card is null)
             return Results.NotFound();
-        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
+        if (!await family.CanAsync(Permission.ManageCards, ct) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.CardholderName))
@@ -441,7 +551,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(c => c.Id == cardId && c.BankAccount!.FamilyId == me.FamilyId, ct);
         if (card is null)
             return Results.NotFound();
-        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
+        if (!await family.CanAsync(Permission.ManageCards, ct) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
             return Forbidden();
 
         db.BankCards.Remove(card);
@@ -468,6 +578,7 @@ public static class FamilyEndpoints
             GuardianMemberId = m.GuardianMemberId,
             GuardianName = m.GuardianMemberId is { } g && names.TryGetValue(g, out var gn) ? gn : null,
             IsCurrentUser = m.Id == currentMemberId,
+            IsActive = m.IsActive,
         };
     }
 

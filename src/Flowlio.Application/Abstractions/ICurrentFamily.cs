@@ -12,4 +12,10 @@ public interface ICurrentFamily
 
     /// <summary>The current user's <see cref="FamilyMember"/> within their family.</summary>
     Task<FamilyMember> RequireMemberAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The permissions the current member's role grants in their family (owners hold all).</summary>
+    Task<IReadOnlySet<Permission>> GetPermissionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Whether the current member may perform an action requiring the given permission.</summary>
+    Task<bool> CanAsync(Permission permission, CancellationToken cancellationToken = default);
 }

@@ -27,16 +27,26 @@
             <span class="nav-icon">📥</span> Import výpisu
         </NavLink>
     }
+    @if (_canAdminister)
+    {
+        <NavLink class="nav-link" href="administration">
+            <span class="nav-icon">⚙️</span> Administrace
+        </NavLink>
+    }
 </nav>
 
 @code {
     private bool _canManageMembers;
     private bool _canImport;
+    private bool _canAdminister;
 
     protected override async Task OnInitializedAsync()
     {
         var me = await CurrentUser.GetAsync();
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
+        _canAdminister = (me?.IsAdmin ?? false)
+            || (me?.Can(Permission.ManageRoles) ?? false)
+            || (me?.Can(Permission.ManageFamily) ?? false);
     }
 }

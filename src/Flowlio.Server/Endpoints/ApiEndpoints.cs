@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
+using Flowlio.Server.Auth;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,18 +27,23 @@ public static class ApiEndpoints
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         api.MapFamilyEndpoints();
+        api.MapRolesEndpoints();
+        api.MapFamilyManagementEndpoints();
+        app.MapAdminEndpoints();
     }
 
     private static async Task<CurrentUserDto> GetMe(
-        ICurrentFamily family, CancellationToken ct)
+        ClaimsPrincipal principal, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
+        var permissions = await family.GetPermissionsAsync(ct);
         return new CurrentUserDto
         {
             MemberId = me.Id,
             DisplayName = me.DisplayName,
             Role = me.Role,
-            Permissions = RolePermissions.For(me.Role).ToList(),
+            IsAdmin = principal.IsSystemAdmin(),
+            Permissions = permissions.ToList(),
         };
     }
 
@@ -89,7 +96,7 @@ public static class ApiEndpoints
         CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var member = await family.RequireMemberAsync(ct);
-        if (!member.Can(Permission.ManageAccounts))
+        if (!await family.CanAsync(Permission.ManageAccounts, ct))
             return Forbidden();
 
         var ownerMemberId = request.OwnerMemberId ?? member.Id;
@@ -244,8 +251,7 @@ public static class ApiEndpoints
         IMessageBus bus,
         CancellationToken ct)
     {
-        var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ImportStatements))
+        if (!await family.CanAsync(Permission.ImportStatements, ct))
             return Forbidden();
 
         if (file.Length == 0)

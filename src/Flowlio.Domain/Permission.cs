@@ -17,6 +17,10 @@ public enum Permission
     ManageAccountAccess = 3,
     /// <summary>Create, edit or remove payment cards.</summary>
     ManageCards = 4,
-    /// <summary>Add, remove and invite family members.</summary>
+    /// <summary>Add, remove, edit, deactivate and invite family members.</summary>
     ManageMembers = 5,
+    /// <summary>Edit what each role is allowed to do within the family.</summary>
+    ManageRoles = 6,
+    /// <summary>Rename the family, transfer ownership or delete the family.</summary>
+    ManageFamily = 7,
 }

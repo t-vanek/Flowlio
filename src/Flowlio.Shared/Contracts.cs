@@ -129,6 +129,10 @@ public sealed record CurrentUserDto
     public Guid MemberId { get; init; }
     public string DisplayName { get; init; } = "";
     public MemberRole Role { get; init; }
+
+    /// <summary>Whether the user holds the system-wide administrator role (cross-family user management).</summary>
+    public bool IsAdmin { get; init; }
+
     public IReadOnlyList<Permission> Permissions { get; init; } = [];
 
     public bool Can(Permission permission) => Permissions.Contains(permission);
@@ -152,6 +156,18 @@ public sealed record FamilyMemberDto
     public Guid? GuardianMemberId { get; init; }
     public string? GuardianName { get; init; }
     public bool IsCurrentUser { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
+/// <summary>Owner-initiated edit of an existing member's profile and role.</summary>
+public sealed record UpdateMemberRequest
+{
+    public string DisplayName { get; init; } = "";
+    public string? Email { get; init; }
+    public MemberRole Role { get; init; } = MemberRole.Adult;
+
+    /// <summary>Controlling guardian; required when <see cref="Role"/> is <see cref="MemberRole.Child"/>.</summary>
+    public Guid? GuardianMemberId { get; init; }
 }
 
 public sealed record CreateMemberRequest
@@ -244,4 +260,80 @@ public sealed record UpdateCardRequest
     public int ExpiryYear { get; init; }
     public CardStatus Status { get; init; }
     public decimal? MonthlyLimit { get; init; }
+}
+
+// ---- Roles & permissions (per-family, editable by the owner) ----------------
+
+public sealed record RolePermissionsDto
+{
+    public MemberRole Role { get; init; }
+    public IReadOnlyList<Permission> Permissions { get; init; } = [];
+
+    /// <summary>Whether the owner may edit this role's permissions (false for the Owner role).</summary>
+    public bool Editable { get; init; }
+}
+
+public sealed record FamilyRolesDto
+{
+    /// <summary>Every permission that exists, so the client can render the full matrix.</summary>
+    public IReadOnlyList<Permission> AllPermissions { get; init; } = [];
+    public IReadOnlyList<RolePermissionsDto> Roles { get; init; } = [];
+}
+
+public sealed record UpdateRolePermissionsRequest
+{
+    public IReadOnlyList<Permission> Permissions { get; init; } = [];
+}
+
+// ---- Family management ------------------------------------------------------
+
+public sealed record FamilyDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public string BaseCurrency { get; init; } = "CZK";
+    public int MemberCount { get; init; }
+    public Guid? OwnerMemberId { get; init; }
+    public string? OwnerName { get; init; }
+}
+
+public sealed record UpdateFamilyRequest
+{
+    public string Name { get; init; } = "";
+    public string BaseCurrency { get; init; } = "CZK";
+}
+
+public sealed record TransferOwnershipRequest
+{
+    public Guid NewOwnerMemberId { get; init; }
+}
+
+/// <summary>Deletes the whole family; <see cref="ConfirmName"/> must match the family name exactly.</summary>
+public sealed record DeleteFamilyRequest
+{
+    public string ConfirmName { get; init; } = "";
+}
+
+// ---- System administration (cross-family user accounts) ---------------------
+
+public sealed record AdminUserDto
+{
+    public Guid Id { get; init; }
+    public string? Email { get; init; }
+    public string? DisplayName { get; init; }
+    public bool IsAdmin { get; init; }
+    public bool IsLockedOut { get; init; }
+    public bool IsCurrentUser { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public IReadOnlyList<string> Families { get; init; } = [];
+}
+
+public sealed record SetUserAdminRequest
+{
+    public bool IsAdmin { get; init; }
+}
+
+public sealed record SetUserLockedRequest
+{
+    public bool IsLocked { get; init; }
 }

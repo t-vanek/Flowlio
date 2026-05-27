@@ -74,6 +74,10 @@
                             {
                                 <span class="muted">(vy)</span>
                             }
+                            @if (!m.IsActive)
+                            {
+                                <span class="muted">· neaktivní</span>
+                            }
                         </div>
                         <div class="muted">
                             @RoleLabel(m.Role) · @StatusLabel(m.Status)
@@ -92,12 +96,54 @@
                         {
                             <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ReinviteAsync(m.Id))">Znovu pozvat</FluentButton>
                         }
+                        @if (_canManage)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => BeginEdit(m))">Upravit</FluentButton>
+                        }
                         @if (_canManage && !m.IsCurrentUser && m.Role != MemberRole.Owner)
                         {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => SetActiveAsync(m, !m.IsActive))">
+                                @(m.IsActive ? "Deaktivovat" : "Aktivovat")
+                            </FluentButton>
                             <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(m.Id))">Odebrat</FluentButton>
                         }
                     </div>
                 </div>
+
+                @if (_editingId == m.Id)
+                {
+                    <div class="member-edit">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                            <FluentTextField @bind-Value="_editName" Label="Jméno" Style="width:100%" />
+                            <FluentTextField @bind-Value="_editEmail" Label="E-mail" Style="width:100%" />
+                            @if (m.Role != MemberRole.Owner)
+                            {
+                                <FluentSelect TOption="string" @bind-Value="_editRoleValue" Label="Role" Style="width:100%">
+                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý</FluentOption>
+                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel</FluentOption>
+                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
+                                </FluentSelect>
+                                @if (EditRole == MemberRole.Child)
+                                {
+                                    <FluentSelect TOption="string" @bind-Value="_editGuardianValue" Label="Opatrovník" Style="width:100%">
+                                        @foreach (var g in Guardians.Where(x => x.Id != m.Id))
+                                        {
+                                            <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
+                                        }
+                                    </FluentSelect>
+                                }
+                            }
+                            else
+                            {
+                                <p class="muted">Roli vlastníka změníte v Administraci → Rodina (převod vlastnictví).</p>
+                            }
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveEditAsync(m))">Uložit</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                            </FluentStack>
+                        </FluentStack>
+                    </div>
+                }
             }
         }
 
@@ -130,7 +176,14 @@
     private InvitationDto? _lastInvite;
     private bool _canManage;
 
+    private Guid? _editingId;
+    private string _editName = "";
+    private string _editEmail = "";
+    private string _editRoleValue = ((int)MemberRole.Adult).ToString();
+    private string _editGuardianValue = "";
+
     private MemberRole SelectedRole => (MemberRole)int.Parse(_roleValue);
+    private MemberRole EditRole => (MemberRole)int.Parse(_editRoleValue);
 
     private IEnumerable<FamilyMemberDto> Guardians =>
         _members?.Where(m => m.Role is MemberRole.Owner or MemberRole.Adult) ?? [];
@@ -220,6 +273,66 @@
     private async Task RevokeAsync(Guid invitationId)
     {
         await Api.RevokeInvitationAsync(invitationId);
+        await LoadAsync();
+    }
+
+    private void BeginEdit(FamilyMemberDto m)
+    {
+        _error = null;
+        _editingId = m.Id;
+        _editName = m.DisplayName;
+        _editEmail = m.Email ?? "";
+        _editRoleValue = ((int)(m.Role == MemberRole.Owner ? MemberRole.Adult : m.Role)).ToString();
+        _editGuardianValue = m.GuardianMemberId?.ToString()
+            ?? Guardians.FirstOrDefault(g => g.Id != m.Id)?.Id.ToString() ?? "";
+    }
+
+    private void CancelEdit() => _editingId = null;
+
+    private async Task SaveEditAsync(FamilyMemberDto m)
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_editName))
+        {
+            _error = "Zadejte jméno.";
+            return;
+        }
+
+        var role = m.Role == MemberRole.Owner ? MemberRole.Owner : EditRole;
+        Guid? guardianId = null;
+        if (role == MemberRole.Child)
+        {
+            if (!Guid.TryParse(_editGuardianValue, out var gid))
+            {
+                _error = "Vyberte opatrovníka.";
+                return;
+            }
+            guardianId = gid;
+        }
+
+        var result = await Api.UpdateMemberAsync(m.Id, new UpdateMemberRequest
+        {
+            DisplayName = _editName,
+            Email = string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail,
+            Role = role,
+            GuardianMemberId = guardianId,
+        });
+
+        if (result is null)
+        {
+            _error = "Úpravu se nepodařilo uložit.";
+            return;
+        }
+
+        _editingId = null;
+        await LoadAsync();
+    }
+
+    private async Task SetActiveAsync(FamilyMemberDto m, bool active)
+    {
+        _error = null;
+        if (!await Api.SetMemberActiveAsync(m.Id, active))
+            _error = "Změnu stavu se nepodařilo uložit.";
         await LoadAsync();
     }
 

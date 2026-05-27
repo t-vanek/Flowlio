@@ -119,6 +119,13 @@ builder.Services.AddAuthorization(options =>
         policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
     });
+
+    options.AddPolicy(AdminRoles.AdminPolicy, policy =>
+    {
+        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim(Claims.Role, AdminRoles.Administrator);
+    });
 });
 
 builder.Services.AddControllers();
@@ -166,6 +173,20 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Translate a suspended-membership signal raised deep in the request into a clean 403.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (FamilyAccessDeniedException ex)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { detail = ex.Message });
+    }
+});
 
 app.MapControllers();
 app.MapRazorPages();
