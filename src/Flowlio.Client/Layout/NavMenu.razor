@@ -52,7 +52,7 @@
         var me = await CurrentUser.GetAsync();
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
-        _canAdminister = (me?.IsAdmin ?? false)
+        _canAdminister = (me?.SystemPermissions.Count > 0)
             || (me?.Can(Permission.ManageRoles) ?? false)
             || (me?.Can(Permission.ManageFamily) ?? false);
     }

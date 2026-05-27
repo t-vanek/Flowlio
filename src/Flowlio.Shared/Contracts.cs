@@ -135,10 +135,15 @@ public sealed record CurrentUserDto
 
     public IReadOnlyList<Permission> Permissions { get; init; } = [];
 
+    /// <summary>The user's effective cross-family system permissions (account administration).</summary>
+    public IReadOnlyList<SystemPermission> SystemPermissions { get; init; } = [];
+
     /// <summary>How often the client should re-poll for access changes as a fallback to live push (seconds).</summary>
     public int PollIntervalSeconds { get; init; } = 60;
 
     public bool Can(Permission permission) => Permissions.Contains(permission);
+
+    public bool CanSystem(SystemPermission permission) => SystemPermissions.Contains(permission);
 }
 
 /// <summary>Whether a family member has their own login, a pending invite, or is guardian-managed.</summary>
@@ -336,6 +341,48 @@ public sealed record AdminUserDto
     /// <summary>Set when the account is soft-deleted (shown only in the deleted-accounts view).</summary>
     public DateTimeOffset? DeletedAtUtc { get; init; }
     public IReadOnlyList<string> Families { get; init; } = [];
+
+    /// <summary>System role names the account holds.</summary>
+    public IReadOnlyList<string> Roles { get; init; } = [];
+}
+
+public sealed record SetUserRolesRequest
+{
+    public IReadOnlyList<string> RoleNames { get; init; } = [];
+}
+
+// ---- System roles & permissions (cross-family, managed by a system admin) ----
+
+public sealed record SystemRoleDto
+{
+    public Guid RoleId { get; init; }
+    public string Name { get; init; } = "";
+
+    /// <summary>The built-in administrator role: always all permissions, cannot be edited or deleted.</summary>
+    public bool IsAdministrator { get; init; }
+    public IReadOnlyList<SystemPermission> Permissions { get; init; } = [];
+    public int UserCount { get; init; }
+}
+
+public sealed record SystemRolesDto
+{
+    public IReadOnlyList<SystemPermission> AllPermissions { get; init; } = [];
+    public IReadOnlyList<SystemRoleDto> Roles { get; init; } = [];
+}
+
+public sealed record CreateSystemRoleRequest
+{
+    public string Name { get; init; } = "";
+}
+
+public sealed record RenameSystemRoleRequest
+{
+    public string Name { get; init; } = "";
+}
+
+public sealed record UpdateSystemRolePermissionsRequest
+{
+    public IReadOnlyList<SystemPermission> Permissions { get; init; } = [];
 }
 
 public sealed record CreateUserRequest

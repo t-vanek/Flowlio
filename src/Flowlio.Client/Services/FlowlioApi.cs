@@ -180,8 +180,25 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> CreateUserAsync(CreateUserRequest request) =>
         (await http.PostAsJsonAsync("api/admin/users", request)).IsSuccessStatusCode;
 
-    public async Task<bool> SetUserAdminAsync(Guid userId, bool isAdmin) =>
-        (await http.PostAsJsonAsync($"api/admin/users/{userId}/admin", new SetUserAdminRequest { IsAdmin = isAdmin })).IsSuccessStatusCode;
+    public async Task<bool> SetUserRolesAsync(Guid userId, IReadOnlyList<string> roleNames) =>
+        (await http.PutAsJsonAsync($"api/admin/users/{userId}/roles", new SetUserRolesRequest { RoleNames = roleNames })).IsSuccessStatusCode;
+
+    // --- System roles & permissions ---
+
+    public Task<SystemRolesDto?> GetSystemRolesAsync() =>
+        http.GetFromJsonAsync<SystemRolesDto>("api/admin/system-roles");
+
+    public async Task<bool> CreateSystemRoleAsync(string name) =>
+        (await http.PostAsJsonAsync("api/admin/system-roles", new CreateSystemRoleRequest { Name = name })).IsSuccessStatusCode;
+
+    public async Task<bool> RenameSystemRoleAsync(Guid roleId, string name) =>
+        (await http.PutAsJsonAsync($"api/admin/system-roles/{roleId}", new RenameSystemRoleRequest { Name = name })).IsSuccessStatusCode;
+
+    public async Task<bool> SetSystemRolePermissionsAsync(Guid roleId, IReadOnlyList<SystemPermission> permissions) =>
+        (await http.PutAsJsonAsync($"api/admin/system-roles/{roleId}/permissions", new UpdateSystemRolePermissionsRequest { Permissions = permissions })).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteSystemRoleAsync(Guid roleId) =>
+        (await http.DeleteAsync($"api/admin/system-roles/{roleId}")).IsSuccessStatusCode;
 
     public async Task<bool> LockUserAsync(Guid userId, int minutes) =>
         (await http.PostAsJsonAsync($"api/admin/users/{userId}/lock", new LockUserRequest { Minutes = minutes })).IsSuccessStatusCode;

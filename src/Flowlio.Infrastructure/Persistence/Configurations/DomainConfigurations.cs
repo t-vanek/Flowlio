@@ -1,4 +1,5 @@
 using Flowlio.Domain;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -41,6 +42,15 @@ public class FamilyRolePermissionConfiguration : IEntityTypeConfiguration<Family
 
         // Each (family, role, permission) grant is stored at most once.
         b.HasIndex(x => new { x.FamilyId, x.Role, x.Permission }).IsUnique();
+    }
+}
+
+public class SystemRolePermissionConfiguration : IEntityTypeConfiguration<SystemRolePermission>
+{
+    public void Configure(EntityTypeBuilder<SystemRolePermission> b)
+    {
+        b.HasOne<IdentityRole<Guid>>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Cascade);
+        b.HasIndex(x => new { x.RoleId, x.Permission }).IsUnique();
     }
 }
 

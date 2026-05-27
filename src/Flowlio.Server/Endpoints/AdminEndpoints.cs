@@ -1,4 +1,5 @@
 using Flowlio.Application.Abstractions;
+using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Realtime;
@@ -7,13 +8,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using OpenIddict.Abstractions;
+using static Flowlio.Server.Auth.MemberAuthorization;
 
 namespace Flowlio.Server.Endpoints;
 
 /// <summary>
-/// System administration (cross-family). Restricted to the <see cref="AdminRoles.Administrator"/>
-/// role: create login accounts, grant/revoke admin, lock/block/restore, reset or force a password
-/// change, force sign-out, soft-delete (with restore) and permanent purge. Each action notifies the
+/// System administration (cross-family). The group is open to any user with a system permission;
+/// each operation is gated by its specific <see cref="SystemPermission"/>. Each action notifies the
 /// affected user (live toast + e-mail).
 /// </summary>
 public static class AdminEndpoints
@@ -24,7 +25,7 @@ public static class AdminEndpoints
         admin.MapGet("/users", GetUsers);
         admin.MapGet("/users/deleted", GetDeletedUsers);
         admin.MapPost("/users", CreateUser);
-        admin.MapPost("/users/{userId:guid}/admin", SetAdmin);
+        admin.MapPut("/users/{userId:guid}/roles", SetUserRoles);
         admin.MapPost("/users/{userId:guid}/lock", LockUser);
         admin.MapPost("/users/{userId:guid}/block", BlockUser);
         admin.MapPost("/users/{userId:guid}/restore", RestoreUser);
@@ -36,23 +37,35 @@ public static class AdminEndpoints
         admin.MapDelete("/users/{userId:guid}/purge", PurgeUser);
     }
 
-    private static async Task<IReadOnlyList<AdminUserDto>> GetUsers(
-        UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentUser current, CancellationToken ct) =>
-        await ToDtosAsync(await userManager.Users.OrderBy(u => u.Email).ToListAsync(ct), userManager, db, current, ct);
-
-    private static async Task<IReadOnlyList<AdminUserDto>> GetDeletedUsers(
-        UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentUser current, CancellationToken ct)
+    private static async Task<IResult> GetUsers(
+        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ViewUsers, ct))
+            return Forbidden();
+        var users = await userManager.Users.OrderBy(u => u.Email).ToListAsync(ct);
+        return Results.Ok(await ToDtosAsync(users, userManager, roleManager, db, current, ct));
+    }
+
+    private static async Task<IResult> GetDeletedUsers(
+        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
+    {
+        if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
+            return Forbidden();
         var deleted = await userManager.Users.IgnoreQueryFilters()
             .Where(u => u.DeletedAt != null)
             .OrderBy(u => u.Email)
             .ToListAsync(ct);
-        return await ToDtosAsync(deleted, userManager, db, current, ct);
+        return Results.Ok(await ToDtosAsync(deleted, userManager, roleManager, db, current, ct));
     }
 
     private static async Task<IResult> CreateUser(
-        CreateUserRequest request, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager, CancellationToken ct)
+        CreateUserRequest request, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        ICurrentSystemAccess sys, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.CreateUsers, ct))
+            return Forbidden();
         if (string.IsNullOrWhiteSpace(request.Email))
             return Results.BadRequest("E-mail je povinný.");
         if (string.IsNullOrWhiteSpace(request.Password))
@@ -79,46 +92,56 @@ public static class AdminEndpoints
 
         if (request.IsAdmin)
         {
-            if (!await roleManager.RoleExistsAsync(AdminRoles.Administrator))
-                await roleManager.CreateAsync(new IdentityRole<Guid>(AdminRoles.Administrator));
-            await userManager.AddToRoleAsync(user, AdminRoles.Administrator);
+            if (!await roleManager.RoleExistsAsync(SystemRoles.Administrator))
+                await roleManager.CreateAsync(new IdentityRole<Guid>(SystemRoles.Administrator));
+            await userManager.AddToRoleAsync(user, SystemRoles.Administrator);
         }
 
         return Results.NoContent();
     }
 
-    private static async Task<IResult> SetAdmin(
-        Guid userId, SetUserAdminRequest request,
-        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager, ICurrentUser current,
-        IHubContext<NotificationsHub> hub, AccountNotifier notifier, CancellationToken ct)
+    private static async Task<IResult> SetUserRoles(
+        Guid userId, SetUserRolesRequest request,
+        UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        ICurrentUser current, ICurrentSystemAccess sys, IHubContext<NotificationsHub> hub, AccountNotifier notifier, CancellationToken ct)
     {
-        if (userId == current.UserId && !request.IsAdmin)
-            return Results.BadRequest("Vlastní administrátorská práva nelze odebrat.");
+        if (!await sys.CanAsync(SystemPermission.ManageUserRoles, ct))
+            return Forbidden();
 
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return Results.NotFound();
 
-        if (!await roleManager.RoleExistsAsync(AdminRoles.Administrator))
-            await roleManager.CreateAsync(new IdentityRole<Guid>(AdminRoles.Administrator));
+        var existingRoleNames = await roleManager.Roles.Select(r => r.Name!).ToListAsync(ct);
+        var requested = (request.RoleNames ?? [])
+            .Where(r => existingRoleNames.Contains(r))
+            .ToHashSet(StringComparer.Ordinal);
 
-        var inRole = await userManager.IsInRoleAsync(user, AdminRoles.Administrator);
-        if (request.IsAdmin && !inRole)
-            await userManager.AddToRoleAsync(user, AdminRoles.Administrator);
-        else if (!request.IsAdmin && inRole)
-            await userManager.RemoveFromRoleAsync(user, AdminRoles.Administrator);
+        var currentRoles = (await userManager.GetRolesAsync(user)).ToHashSet(StringComparer.Ordinal);
+
+        if (userId == current.UserId
+            && currentRoles.Contains(SystemRoles.Administrator)
+            && !requested.Contains(SystemRoles.Administrator))
+            return Results.BadRequest("Vlastní roli administrátora nelze odebrat.");
+
+        var toAdd = requested.Except(currentRoles).ToList();
+        var toRemove = currentRoles.Except(requested).ToList();
+        if (toAdd.Count > 0)
+            await userManager.AddToRolesAsync(user, toAdd);
+        if (toRemove.Count > 0)
+            await userManager.RemoveFromRolesAsync(user, toRemove);
 
         await hub.NotifyUserAsync(userId, ct);
-        await notifier.NotifyAsync(user, "Změna oprávnění – Flowlio",
-            request.IsAdmin ? "Byla vám udělena role administrátora." : "Byla vám odebrána role administrátora.",
-            "info", ct);
+        await notifier.NotifyAsync(user, "Změna rolí – Flowlio", "Byly vám upraveny systémové role účtu.", "info", ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> LockUser(
         Guid userId, LockUserRequest request, UserManager<ApplicationUser> userManager, ICurrentUser current,
-        AccountNotifier notifier, CancellationToken ct)
+        ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
+            return Forbidden();
         if (userId == current.UserId)
             return Results.BadRequest("Vlastní účet nelze zamknout.");
 
@@ -135,8 +158,11 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> BlockUser(
-        Guid userId, UserManager<ApplicationUser> userManager, ICurrentUser current, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentUser current,
+        ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
+            return Forbidden();
         if (userId == current.UserId)
             return Results.BadRequest("Vlastní účet nelze zablokovat.");
 
@@ -152,8 +178,10 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> RestoreUser(
-        Guid userId, UserManager<ApplicationUser> userManager, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
+            return Forbidden();
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return Results.NotFound();
@@ -166,8 +194,10 @@ public static class AdminEndpoints
 
     private static async Task<IResult> SetPassword(
         Guid userId, AdminSetPasswordRequest request,
-        UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, AccountNotifier notifier, CancellationToken ct)
+        UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
+            return Forbidden();
         if (string.IsNullOrWhiteSpace(request.NewPassword))
             return Results.BadRequest("Nové heslo je povinné.");
 
@@ -193,8 +223,10 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> ForcePasswordChange(
-        Guid userId, UserManager<ApplicationUser> userManager, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
+            return Forbidden();
         var user = await userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return Results.NotFound();
@@ -207,8 +239,11 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> ForceLogout(
-        Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
+        ICurrentSystemAccess sys, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.ForceUserLogout, ct))
+            return Forbidden();
         if (userId == current.UserId)
             return Results.BadRequest("Vlastní relaci nelze ukončit zde.");
 
@@ -223,8 +258,10 @@ public static class AdminEndpoints
 
     private static async Task<IResult> DeleteUser(
         Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, IOpenIddictTokenManager tokens,
-        ICurrentUser current, AccountNotifier notifier, CancellationToken ct)
+        ICurrentUser current, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
+            return Forbidden();
         if (userId == current.UserId)
             return Results.BadRequest("Vlastní účet nelze smazat.");
 
@@ -233,7 +270,6 @@ public static class AdminEndpoints
             return Results.NotFound();
 
         // Soft delete: hide and block the account, suspend its family memberships and revoke tokens.
-        // The profiles keep their user link so a restore can reactivate them.
         user.DeletedAt = DateTimeOffset.UtcNow;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
@@ -251,8 +287,10 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> UndeleteUser(
-        Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
+            return Forbidden();
         var user = await userManager.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null)
             return Results.NotFound();
@@ -272,8 +310,10 @@ public static class AdminEndpoints
 
     private static async Task<IResult> PurgeUser(
         Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, IOpenIddictTokenManager tokens,
-        ICurrentUser current, CancellationToken ct)
+        ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
     {
+        if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
+            return Forbidden();
         if (userId == current.UserId)
             return Results.BadRequest("Vlastní účet nelze odstranit.");
 
@@ -281,7 +321,6 @@ public static class AdminEndpoints
         if (user is null)
             return Results.NotFound();
 
-        // Detach the login from any family profiles so no dangling user id remains.
         var members = await db.FamilyMembers.Where(m => m.UserId == userId).ToListAsync(ct);
         foreach (var member in members)
         {
@@ -299,9 +338,15 @@ public static class AdminEndpoints
     }
 
     private static async Task<IReadOnlyList<AdminUserDto>> ToDtosAsync(
-        List<ApplicationUser> users, UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentUser current, CancellationToken ct)
+        List<ApplicationUser> users, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        IAppDbContext db, ICurrentUser current, CancellationToken ct)
     {
-        var adminIds = (await userManager.GetUsersInRoleAsync(AdminRoles.Administrator)).Select(u => u.Id).ToHashSet();
+        // Build a user -> role-names map from each role's membership (few roles, so this is cheap).
+        var rolesByUser = new Dictionary<Guid, List<string>>();
+        var roleNames = await roleManager.Roles.Select(r => r.Name!).ToListAsync(ct);
+        foreach (var roleName in roleNames)
+            foreach (var member in await userManager.GetUsersInRoleAsync(roleName))
+                (rolesByUser.TryGetValue(member.Id, out var list) ? list : rolesByUser[member.Id] = []).Add(roleName);
 
         var ids = users.Select(u => u.Id).ToList();
         var memberships = await db.FamilyMembers
@@ -313,19 +358,24 @@ public static class AdminEndpoints
             .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.FamilyName).Distinct().ToList());
 
         var now = DateTimeOffset.UtcNow;
-        return users.Select(u => new AdminUserDto
+        return users.Select(u =>
         {
-            Id = u.Id,
-            Email = u.Email,
-            DisplayName = u.DisplayName,
-            IsAdmin = adminIds.Contains(u.Id),
-            IsLockedOut = u.LockoutEnd is { } end && end > now,
-            LockoutEndUtc = u.LockoutEnd,
-            MustChangePassword = u.MustChangePassword,
-            IsCurrentUser = u.Id == current.UserId,
-            CreatedAt = u.CreatedAt,
-            DeletedAtUtc = u.DeletedAt,
-            Families = familiesByUser.TryGetValue(u.Id, out var fams) ? fams : [],
+            var roles = rolesByUser.TryGetValue(u.Id, out var rs) ? rs : [];
+            return new AdminUserDto
+            {
+                Id = u.Id,
+                Email = u.Email,
+                DisplayName = u.DisplayName,
+                IsAdmin = roles.Contains(SystemRoles.Administrator),
+                IsLockedOut = u.LockoutEnd is { } end && end > now,
+                LockoutEndUtc = u.LockoutEnd,
+                MustChangePassword = u.MustChangePassword,
+                IsCurrentUser = u.Id == current.UserId,
+                CreatedAt = u.CreatedAt,
+                DeletedAtUtc = u.DeletedAt,
+                Families = familiesByUser.TryGetValue(u.Id, out var fams) ? fams : [],
+                Roles = roles,
+            };
         }).ToList();
     }
 
