@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: flowlio-pg
+    environment:
+      POSTGRES_USER: flowlio
+      POSTGRES_PASSWORD: flowlio_dev
+      POSTGRES_DB: flowlio
+    ports:
+      - "5432:5432"
+    volumes:
+      - flowlio-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowlio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  flowlio-pgdata:

@@ -1,0 +1,42 @@
+@inherits LayoutComponentBase
+@inject FlowlioApi Api
+@inject NavigationManager Navigation
+
+<FluentDesignTheme Mode="DesignThemeModes.System" StorageName="flowlio-theme" />
+
+<FluentToastProvider />
+<FluentDialogProvider />
+<FluentTooltipProvider />
+<FluentMessageBarProvider />
+<FluentMenuProvider />
+
+<div class="page">
+    <aside class="sidebar">
+        <NavMenu />
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <span class="topbar-title">Flowlio</span>
+            <span class="spacer"></span>
+            <AuthorizeView>
+                <Authorized>
+                    <span class="topbar-user">@context.User.Identity?.Name</span>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="LogoutAsync">Odhlásit</FluentButton>
+                </Authorized>
+            </AuthorizeView>
+        </header>
+
+        <article class="content">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    private async Task LogoutAsync()
+    {
+        await Api.LogoutAsync();
+        Navigation.NavigateTo("login");
+    }
+}

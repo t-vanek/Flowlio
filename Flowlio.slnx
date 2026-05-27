@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Flowlio.Application/Flowlio.Application.csproj" />
+    <Project Path="src/Flowlio.Client/Flowlio.Client.csproj" />
+    <Project Path="src/Flowlio.Domain/Flowlio.Domain.csproj" />
+    <Project Path="src/Flowlio.Infrastructure/Flowlio.Infrastructure.csproj" />
+    <Project Path="src/Flowlio.Server/Flowlio.Server.csproj" />
+    <Project Path="src/Flowlio.Shared/Flowlio.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Flowlio.Tests/Flowlio.Tests.csproj" />
+  </Folder>
+</Solution>

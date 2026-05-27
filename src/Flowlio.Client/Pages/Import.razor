@@ -1,0 +1,132 @@
+@page "/import"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Import výpisu – Flowlio</PageTitle>
+
+<h1 class="page-title">Import výpisu</h1>
+
+<div class="panel-grid">
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Nahrát výpis z účtu</h2>
+        <p class="muted">Vyberte účet, banku a soubor (CSV nebo PDF). Transakce se naparsují, deduplikují a roztřídí.</p>
+
+        @if (_accounts is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_accounts.Count == 0)
+        {
+            <FluentMessageBar Intent="MessageIntent.Warning">Nejdřív si vytvořte účet na stránce „Účty".</FluentMessageBar>
+        }
+        else
+        {
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet" Style="width:100%">
+                    @foreach (var a in _accounts)
+                    {
+                        <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                    }
+                </FluentSelect>
+
+                <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
+                    @foreach (var b in Enum.GetValues<BankProvider>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)b).ToString())">@BankLabel(b)</FluentOption>
+                    }
+                </FluentSelect>
+
+                <FluentSelect TOption="string" @bind-Value="_formatValue" Label="Formát" Style="width:100%">
+                    <FluentOption TOption="string" Value="0">CSV</FluentOption>
+                    <FluentOption TOption="string" Value="1">PDF</FluentOption>
+                </FluentSelect>
+
+                <label class="file-field">
+                    <InputFile OnChange="OnFileSelected" />
+                </label>
+
+                <FluentButton Appearance="Appearance.Accent" OnClick="UploadAsync" Loading="_busy" Disabled="_file is null">
+                    Importovat
+                </FluentButton>
+            </FluentStack>
+        }
+    </FluentCard>
+
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Výsledek</h2>
+        @if (_result is null)
+        {
+            <p class="muted">Zatím nebyl nahrán žádný výpis.</p>
+        }
+        else if (_result.Status == ImportStatus.Failed)
+        {
+            <FluentMessageBar Intent="MessageIntent.Error">Import selhal: @_result.Error</FluentMessageBar>
+        }
+        else
+        {
+            <FluentMessageBar Intent="MessageIntent.Success">
+                Naimportováno @_result.ImportedCount transakcí, přeskočeno @_result.DuplicateCount duplicit.
+            </FluentMessageBar>
+        }
+    </FluentCard>
+</div>
+
+@code {
+    private IReadOnlyList<BankAccountDto>? _accounts;
+    private string _accountValue = "";
+    private string _bankValue = "4";
+    private string _formatValue = "0";
+    private IBrowserFile? _file;
+    private ImportResultDto? _result;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _accounts = await Api.GetAccountsAsync();
+        if (_accounts.Count > 0)
+        {
+            _accountValue = _accounts[0].Id.ToString();
+            _bankValue = ((int)_accounts[0].Bank).ToString();
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e) => _file = e.File;
+
+    private async Task UploadAsync()
+    {
+        if (_file is null || string.IsNullOrWhiteSpace(_accountValue))
+            return;
+
+        _busy = true;
+        _result = null;
+        try
+        {
+            await using var source = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await source.CopyToAsync(ms);
+            ms.Position = 0;
+
+            _result = await Api.ImportStatementAsync(
+                Guid.Parse(_accountValue),
+                (BankProvider)int.Parse(_bankValue),
+                (ImportFormat)int.Parse(_formatValue),
+                _file.Name,
+                ms);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string BankLabel(BankProvider bank) => bank switch
+    {
+        BankProvider.Csob => "ČSOB",
+        BankProvider.KomercniBanka => "Komerční banka",
+        BankProvider.CeskaSporitelna => "Česká spořitelna",
+        BankProvider.Fio => "Fio banka",
+        BankProvider.AirBank => "Air Bank",
+        BankProvider.Revolut => "Revolut",
+        _ => "Jiná banka",
+    };
+}

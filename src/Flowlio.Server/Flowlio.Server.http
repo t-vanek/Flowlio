@@ -1,0 +1,6 @@
+@Flowlio.Server_HostAddress = http://localhost:5044
+
+GET {{Flowlio.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

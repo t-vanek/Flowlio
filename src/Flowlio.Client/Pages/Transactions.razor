@@ -1,0 +1,66 @@
+@page "/transactions"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Transakce – Flowlio</PageTitle>
+
+<h1 class="page-title">Transakce</h1>
+
+<div class="toolbar">
+    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:280px" />
+    <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Hledat</FluentButton>
+</div>
+
+@if (_page is null)
+{
+    <FluentProgressRing />
+}
+else if (_page.Items.Count == 0)
+{
+    <FluentCard Class="panel"><p class="muted">Žádné transakce. Naimportujte výpis na stránce „Import výpisu".</p></FluentCard>
+}
+else
+{
+    <FluentCard Class="panel no-pad">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Protistrana</th>
+                    <th>Popis</th>
+                    <th>VS</th>
+                    <th class="num">Částka</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in _page.Items)
+                {
+                    <tr>
+                        <td>@t.BookingDate.ToString("d.M.yyyy")</td>
+                        <td>@t.CounterpartyName</td>
+                        <td class="muted">@t.Description</td>
+                        <td>@t.VariableSymbol</td>
+                        <td class="num @(t.Amount < 0 ? "expense" : "income")">@Money(t.Amount)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </FluentCard>
+    <p class="muted">Zobrazeno @_page.Items.Count z @_page.TotalCount transakcí.</p>
+}
+
+@code {
+    private TransactionPageDto? _page;
+    private string _search = "";
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _page = null;
+        _page = await Api.GetTransactionsAsync(search: _search);
+    }
+
+    private static string Money(decimal value) =>
+        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
+}

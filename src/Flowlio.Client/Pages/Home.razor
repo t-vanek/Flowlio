@@ -1,0 +1,85 @@
+@page "/"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Přehled – Flowlio</PageTitle>
+
+<h1 class="page-title">Přehled</h1>
+
+@if (_summary is null)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <div class="kpi-grid">
+        <FluentCard Class="kpi-card">
+            <div class="kpi-label">Celkový zůstatek</div>
+            <div class="kpi-value">@Money(_summary.TotalBalance)</div>
+        </FluentCard>
+        <FluentCard Class="kpi-card">
+            <div class="kpi-label">Příjmy tento měsíc</div>
+            <div class="kpi-value income">@Money(_summary.IncomeThisMonth)</div>
+        </FluentCard>
+        <FluentCard Class="kpi-card">
+            <div class="kpi-label">Výdaje tento měsíc</div>
+            <div class="kpi-value expense">@Money(_summary.ExpenseThisMonth)</div>
+        </FluentCard>
+        <FluentCard Class="kpi-card">
+            <div class="kpi-label">Bilance měsíce</div>
+            <div class="kpi-value @(_summary.NetThisMonth >= 0 ? "income" : "expense")">@Money(_summary.NetThisMonth)</div>
+        </FluentCard>
+    </div>
+
+    <div class="panel-grid">
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Největší výdaje (tento měsíc)</h2>
+            @if (_summary.TopExpenseCategories.Count == 0)
+            {
+                <p class="muted">Zatím žádné kategorizované výdaje.</p>
+            }
+            else
+            {
+                @foreach (var c in _summary.TopExpenseCategories)
+                {
+                    <div class="bar-row">
+                        <span class="bar-dot" style="background:@c.Color"></span>
+                        <span class="bar-name">@c.CategoryName</span>
+                        <span class="bar-amount">@Money(c.Amount)</span>
+                    </div>
+                }
+            }
+        </FluentCard>
+
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Nadcházející platby (30 dní)</h2>
+            @if (_summary.Upcoming.Count == 0)
+            {
+                <p class="muted">Žádné naplánované platby.</p>
+            }
+            else
+            {
+                @foreach (var u in _summary.Upcoming)
+                {
+                    <div class="bar-row">
+                        <span class="bar-name">@u.Name</span>
+                        <span class="muted">@(u.DueDate?.ToString("d.M.yyyy"))</span>
+                        <span class="bar-amount expense">@Money(u.Amount)</span>
+                    </div>
+                }
+            }
+        </FluentCard>
+    </div>
+}
+
+@code {
+    private DashboardSummaryDto? _summary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await Api.GetDashboardAsync();
+    }
+
+    private static string Money(decimal value) =>
+        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
+}
