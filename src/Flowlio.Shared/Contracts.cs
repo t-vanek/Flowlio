@@ -434,6 +434,14 @@ public sealed record AdminUserDto
     public IReadOnlyList<string> Roles { get; init; } = [];
 }
 
+public sealed record AdminUserPageDto
+{
+    public IReadOnlyList<AdminUserDto> Items { get; init; } = [];
+    public int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+}
+
 public sealed record SetUserRolesRequest
 {
     public IReadOnlyList<string> RoleNames { get; init; } = [];

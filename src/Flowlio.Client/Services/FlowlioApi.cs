@@ -188,12 +188,12 @@ public sealed class FlowlioApi(HttpClient http)
 
     // --- System administration (admin only) ---
 
-    public async Task<IReadOnlyList<AdminUserDto>> GetAdminUsersAsync()
+    public async Task<AdminUserPageDto?> GetAdminUsersAsync(int page = 1, int pageSize = 25)
     {
-        var response = await http.GetAsync("api/admin/users");
+        var response = await http.GetAsync($"api/admin/users?page={page}&pageSize={pageSize}");
         return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
-            : [];
+            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
+            : null;
     }
 
     public async Task<bool> CreateUserAsync(CreateUserRequest request) =>
@@ -256,12 +256,12 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteUserAsync(Guid userId) =>
         (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;
 
-    public async Task<IReadOnlyList<AdminUserDto>> GetDeletedUsersAsync()
+    public async Task<AdminUserPageDto?> GetDeletedUsersAsync(int page = 1, int pageSize = 25)
     {
-        var response = await http.GetAsync("api/admin/users/deleted");
+        var response = await http.GetAsync($"api/admin/users/deleted?page={page}&pageSize={pageSize}");
         return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
-            : [];
+            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
+            : null;
     }
 
     public async Task<bool> UndeleteUserAsync(Guid userId) =>

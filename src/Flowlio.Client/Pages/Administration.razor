@@ -88,7 +88,7 @@ else
             }
             else
             {
-                @foreach (var u in _users)
+                @foreach (var u in _users.Items)
                 {
                     <div class="account-row">
                         <div>
@@ -203,6 +203,14 @@ else
                     }
                 }
             }
+            @if (_users is not null && _users.TotalCount > _users.PageSize)
+            {
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_usersPage <= 1)" OnClick="@(() => ChangeUsersPageAsync(-1))">Předchozí</FluentButton>
+                    <span class="muted">Strana @_users.Page z @UsersTotalPages · celkem @_users.TotalCount</span>
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_usersPage >= UsersTotalPages)" OnClick="@(() => ChangeUsersPageAsync(1))">Další</FluentButton>
+                </FluentStack>
+            }
         </FluentCard>
 
         @if (_showDeleted && _canDeleteUsers)
@@ -213,13 +221,13 @@ else
                 {
                     <FluentProgressRing />
                 }
-                else if (_deletedUsers.Count == 0)
+                else if (_deletedUsers.Items.Count == 0)
                 {
                     <p class="muted">Žádné smazané účty.</p>
                 }
                 else
                 {
-                    @foreach (var u in _deletedUsers)
+                    @foreach (var u in _deletedUsers.Items)
                     {
                         <div class="account-row">
                             <div>
@@ -231,6 +239,14 @@ else
                                 <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => PurgeAsync(u))">Trvale odstranit</FluentButton>
                             </div>
                         </div>
+                    }
+                    @if (_deletedUsers.TotalCount > _deletedUsers.PageSize)
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
+                            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_deletedPage <= 1)" OnClick="@(() => ChangeDeletedPageAsync(-1))">Předchozí</FluentButton>
+                            <span class="muted">Strana @_deletedUsers.Page z @DeletedTotalPages · celkem @_deletedUsers.TotalCount</span>
+                            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_deletedPage >= DeletedTotalPages)" OnClick="@(() => ChangeDeletedPageAsync(1))">Další</FluentButton>
+                        </FluentStack>
                     }
                 }
             </FluentCard>
@@ -471,7 +487,9 @@ else
     private bool _isOwner;
     private Tab _tab;
 
-    private IReadOnlyList<AdminUserDto>? _users;
+    private const int AdminPageSize = 25;
+    private AdminUserPageDto? _users;
+    private int _usersPage = 1;
     private Guid? _userExpanded;
     private HashSet<string> _editUserRoles = new();
     private CreateUserRequest _newUser = new();
@@ -479,7 +497,13 @@ else
     private string? _usersMessage;
     private MessageIntent _usersIntent = MessageIntent.Success;
     private bool _showDeleted;
-    private IReadOnlyList<AdminUserDto>? _deletedUsers;
+    private AdminUserPageDto? _deletedUsers;
+    private int _deletedPage = 1;
+
+    private int UsersTotalPages => _users is null || _users.PageSize == 0
+        ? 1 : Math.Max(1, (int)Math.Ceiling((double)_users.TotalCount / _users.PageSize));
+    private int DeletedTotalPages => _deletedUsers is null || _deletedUsers.PageSize == 0
+        ? 1 : Math.Max(1, (int)Math.Ceiling((double)_deletedUsers.TotalCount / _deletedUsers.PageSize));
 
     private SystemRolesDto? _systemRoles;
     private readonly Dictionary<Guid, HashSet<SystemPermission>> _sysRolePerms = new();
@@ -518,7 +542,7 @@ else
 
         if (_canUsers)
         {
-            _users = await Api.GetAdminUsersAsync();
+            await LoadUsersAsync();
             await LoadSystemRolesAsync();
         }
         if (_canAudit)
@@ -688,7 +712,40 @@ else
         var ok = await action();
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? okMessage : "Operace se nezdařila.";
-        _users = await Api.GetAdminUsersAsync();
+        await LoadUsersAsync();
+    }
+
+    // Reload the current page; if it fell past the end (e.g. after a delete), step back to the last page.
+    private async Task LoadUsersAsync()
+    {
+        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        if (_usersPage > UsersTotalPages)
+        {
+            _usersPage = UsersTotalPages;
+            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        }
+    }
+
+    private Task ChangeUsersPageAsync(int delta)
+    {
+        _usersPage = Math.Clamp(_usersPage + delta, 1, UsersTotalPages);
+        return LoadUsersAsync();
+    }
+
+    private async Task LoadDeletedAsync()
+    {
+        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        if (_deletedPage > DeletedTotalPages)
+        {
+            _deletedPage = DeletedTotalPages;
+            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        }
+    }
+
+    private Task ChangeDeletedPageAsync(int delta)
+    {
+        _deletedPage = Math.Clamp(_deletedPage + delta, 1, DeletedTotalPages);
+        return LoadDeletedAsync();
     }
 
     private async Task CreateUserAsync()
@@ -700,7 +757,7 @@ else
         _usersMessage = ok ? "Uživatel vytvořen." : "Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).";
         if (ok)
             _newUser = new();
-        _users = await Api.GetAdminUsersAsync();
+        await LoadUsersAsync();
     }
 
     private Task LockAsync(AdminUserDto u) =>
@@ -728,13 +785,13 @@ else
     {
         _showDeleted = !_showDeleted;
         if (_showDeleted)
-            _deletedUsers = await Api.GetDeletedUsersAsync();
+            await LoadDeletedAsync();
     }
 
     private async Task ReloadDeletedAsync()
     {
         if (_showDeleted)
-            _deletedUsers = await Api.GetDeletedUsersAsync();
+            await LoadDeletedAsync();
     }
 
     private async Task UndeleteAsync(AdminUserDto u)
@@ -756,7 +813,7 @@ else
         _usersMessage = ok ? "Heslo nastaveno; uživatel si jej při přihlášení změní." : "Heslo se nepodařilo nastavit (slabé heslo?).";
         if (ok)
             _passwordModel = new();
-        _users = await Api.GetAdminUsersAsync();
+        await LoadUsersAsync();
     }
 
     private static string LockLabel(AdminUserDto u) =>
