@@ -53,6 +53,16 @@ public sealed class AuthorizationController(
             return Redirect("/Account/ChangePassword?returnUrl=" + Uri.EscapeDataString(target));
         }
 
+        // Force 2FA enrolment before issuing any token. The user lands on the
+        // setup page; once they complete it, the returnUrl resumes /connect/authorize
+        // and the OIDC flow continues normally.
+        if (!await userManager.GetTwoFactorEnabledAsync(user))
+        {
+            var target = Request.PathBase + Request.Path + QueryString.Create(
+                Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList());
+            return Redirect("/Account/TwoFactor?returnUrl=" + Uri.EscapeDataString(target));
+        }
+
         var identity = new ClaimsIdentity(
             authenticationType: TokenValidationDefaults.AuthenticationType,
             nameType: Claims.Name,

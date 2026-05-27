@@ -487,3 +487,92 @@ code { color: #c02d76; }
     font-size: 13px;
 }
 .profile-item-label { flex: 1; }
+
+/* =====================================================================
+   Toolbar wrap + right-cluster actions (used on Transactions, Audit, …)
+   ===================================================================== */
+.toolbar {
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    align-items: flex-end;
+}
+.toolbar .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.toolbar fluent-date-picker { min-width: 140px; }
+.toolbar fluent-select { min-width: 160px; }
+
+/* =====================================================================
+   Audit log: clickable rows + detail modal
+   ===================================================================== */
+.audit-row {
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.audit-row:hover { background: var(--flowlio-surface-2); }
+.audit-row:focus-visible { outline: 2px solid var(--flowlio-accent); outline-offset: -2px; }
+
+.audit-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 64px);
+    overflow: auto;
+    background: var(--flowlio-surface);
+    color: var(--flowlio-text);
+    border: 1px solid var(--flowlio-border);
+    border-radius: 12px;
+    box-shadow: var(--flowlio-shadow), 0 16px 48px rgba(0, 0, 0, 0.25);
+    padding: 22px 24px;
+    z-index: 200;
+}
+.audit-detail {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 8px 14px;
+    margin: 6px 0 14px;
+    font-size: 14px;
+}
+.audit-detail dt {
+    color: var(--flowlio-text-muted);
+    font-weight: 500;
+}
+.audit-detail dd {
+    margin: 0;
+    color: var(--flowlio-text);
+    word-break: break-word;
+}
+.audit-detail code {
+    background: var(--flowlio-surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--flowlio-text);
+}
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+/* =====================================================================
+   Force-2FA: urgent banner on /Account/TwoFactor when admin set a deadline
+   (Banner markup lives in the TwoFactor.cshtml server page; styles also
+   echoed in /css/account.css so the page works without the SPA bundle.)
+   ===================================================================== */
+.force-2fa-banner {
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #fef3c7;
+    color: #78350f;
+    border: 1px solid #fde68a;
+    font-size: 14px;
+}
+.force-2fa-banner.expired {
+    background: #fee2e2;
+    color: #7f1d1d;
+    border-color: #fecaca;
+}

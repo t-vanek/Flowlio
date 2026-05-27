@@ -1,0 +1,231 @@
+/* Shared layout for server-rendered Razor pages under /Account.
+   These pages are outside the Blazor app shell (Layout=null), so they
+   carry their own minimal stylesheet that mirrors the SPA auth-shell. */
+
+:root {
+    --acc-accent:        #2563eb;
+    --acc-accent-hover:  #1d4ed8;
+    --acc-text:          #0f172a;
+    --acc-text-muted:    #475569;
+    --acc-text-faint:    #94a3b8;
+    --acc-border:        #cbd5e1;
+    --acc-border-soft:   #e2e8f0;
+    --acc-surface-soft:  #f8fafc;
+    --acc-ok-bg:         #dcfce7;
+    --acc-ok-fg:         #166534;
+    --acc-err-bg:        #fee2e2;
+    --acc-err-fg:        #b91c1c;
+    --acc-code-bg:       #f1f5f9;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: var(--acc-text);
+}
+
+body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+}
+
+.card {
+    background: #ffffff;
+    padding: 32px;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+.card.narrow { max-width: 380px; }
+
+.logo {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--acc-accent);
+    margin-bottom: 18px;
+}
+
+h1 { font-size: 24px; margin: 0 0 6px; }
+h2 { font-size: 17px; margin: 22px 0 8px; }
+h3 { font-size: 14px; margin: 16px 0 6px; color: var(--acc-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+p { margin: 0 0 12px; }
+p.muted, .muted { color: var(--acc-text-muted); font-size: 14px; }
+
+label {
+    display: block;
+    font-size: 13px;
+    color: var(--acc-text-muted);
+    margin: 12px 0 4px;
+}
+label.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--acc-text-muted);
+}
+
+input[type=text],
+input[type=email],
+input[type=password],
+input[type=number] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--acc-border);
+    border-radius: 8px;
+    font-size: 15px;
+    background: #ffffff;
+    color: var(--acc-text);
+    font-family: inherit;
+}
+input:focus { outline: 2px solid var(--acc-accent); outline-offset: 1px; }
+
+button,
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 11px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--acc-accent);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+}
+button:hover, .btn:hover { background: var(--acc-accent-hover); }
+button.secondary, .btn.secondary { background: #64748b; }
+button.secondary:hover, .btn.secondary:hover { background: #475569; }
+button.danger, .btn.danger { background: #dc2626; }
+button.danger:hover, .btn.danger:hover { background: #b91c1c; }
+button.ghost, .btn.ghost {
+    background: transparent;
+    color: var(--acc-accent);
+    border: 1px solid var(--acc-border);
+}
+button.ghost:hover, .btn.ghost:hover { background: var(--acc-surface-soft); }
+button.block, .btn.block { width: 100%; margin-top: 18px; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+.ok,
+.err {
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 14px;
+    font-size: 14px;
+}
+.ok  { background: var(--acc-ok-bg);  color: var(--acc-ok-fg); }
+.err { background: var(--acc-err-bg); color: var(--acc-err-fg); }
+
+code,
+.code {
+    background: var(--acc-code-bg);
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: inline-block;
+    font-size: 15px;
+    letter-spacing: 2px;
+    word-break: break-all;
+}
+
+.uri {
+    word-break: break-all;
+    font-size: 12px;
+    color: var(--acc-text-muted);
+    background: var(--acc-surface-soft);
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--acc-border-soft);
+}
+
+.codes {
+    background: var(--acc-surface-soft);
+    border: 1px dashed var(--acc-border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    columns: 2;
+    column-gap: 14px;
+}
+.codes > div { padding: 2px 0; }
+
+.switch {
+    margin-top: 22px;
+    font-size: 14px;
+    color: var(--acc-text-muted);
+}
+.switch a { color: var(--acc-accent); text-decoration: none; }
+.switch a:hover { text-decoration: underline; }
+
+/* 2FA setup: QR + key side-by-side on wide cards, stacked on narrow. */
+.qr-block {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin: 8px 0 4px;
+}
+.qr-block img {
+    width: 192px;
+    height: 192px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid var(--acc-border-soft);
+}
+.qr-block .qr-text { flex: 1 1 200px; min-width: 0; }
+
+.copy-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: 6px;
+}
+.copy-row .code { flex: 1; min-width: 0; }
+.copy-row .copy-btn {
+    flex-shrink: 0;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: transparent;
+    color: var(--acc-accent);
+    border: 1px solid var(--acc-border);
+}
+.copy-row .copy-btn:hover { background: var(--acc-surface-soft); }
+
+.force-2fa-banner {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #fef3c7;
+    color: #78350f;
+    border: 1px solid #fde68a;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.force-2fa-banner.expired {
+    background: #fee2e2;
+    color: #7f1d1d;
+    border-color: #fecaca;
+}
+.force-2fa-banner strong { display: block; margin-bottom: 4px; }
+
+@media (max-width: 480px) {
+    body { padding: 20px 12px; }
+    .card { padding: 24px; }
+    .codes { columns: 1; }
+}

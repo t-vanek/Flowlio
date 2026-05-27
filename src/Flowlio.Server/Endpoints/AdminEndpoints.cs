@@ -33,6 +33,7 @@ public static class AdminEndpoints
         admin.MapPost("/users/{userId:guid}/password", SetPassword);
         admin.MapPost("/users/{userId:guid}/force-password-change", ForcePasswordChange);
         admin.MapPost("/users/{userId:guid}/disable-2fa", DisableTwoFactor);
+        admin.MapPost("/users/{userId:guid}/require-2fa-by", Require2fa);
         admin.MapPost("/users/{userId:guid}/force-logout", ForceLogout);
         admin.MapDelete("/users/{userId:guid}", DeleteUser);
         admin.MapPost("/users/{userId:guid}/undelete", UndeleteUser);
@@ -284,6 +285,40 @@ public static class AdminEndpoints
         return Results.NoContent();
     }
 
+    /// <summary>
+    /// Sets (or clears) a deadline by which the user must enrol in 2FA. While the deadline
+    /// is in the future the user is funnelled to the setup page on every login; once it
+    /// passes (and 2FA is still off) the OIDC flow refuses to issue tokens.
+    /// </summary>
+    private static async Task<IResult> Require2fa(
+        Guid userId, Require2faRequest request, UserManager<ApplicationUser> userManager,
+        ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
+    {
+        if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
+            return Forbidden();
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return Results.NotFound();
+
+        user.Require2faBy = request.DeadlineUtc;
+        await userManager.UpdateAsync(user);
+
+        if (request.DeadlineUtc is { } deadline)
+        {
+            await notifier.NotifyAsync(user, "Vyžadováno zapnutí 2FA – Flowlio",
+                $"Administrátor vyžaduje, abyste si zapnul/a dvoufaktorové ověření do {deadline.LocalDateTime:d.M.yyyy HH:mm}.",
+                "warning", ct);
+            await audit.RecordAsync("user.require-2fa", "User", userId.ToString(), user.Email,
+                details: $"Vyžadováno 2FA do {deadline.UtcDateTime:O}", cancellationToken: ct);
+        }
+        else
+        {
+            await audit.RecordAsync("user.require-2fa", "User", userId.ToString(), user.Email,
+                details: "Požadavek na 2FA zrušen", cancellationToken: ct);
+        }
+        return Results.NoContent();
+    }
+
     private static async Task<IResult> ForceLogout(
         Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
         ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
@@ -428,6 +463,7 @@ public static class AdminEndpoints
                 DeletedAtUtc = u.DeletedAt,
                 Families = familiesByUser.TryGetValue(u.Id, out var fams) ? fams : [],
                 Roles = roles,
+                Require2faByUtc = u.Require2faBy,
             };
         }).ToList();
     }

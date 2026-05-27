@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IJSRuntime JS
 
 <PageTitle>Administrace – Flowlio</PageTitle>
 
@@ -114,6 +115,13 @@ else
                                 {
                                     <span class="muted">· 2FA</span>
                                 }
+                                @if (!u.TwoFactorEnabled && u.Require2faByUtc is { } deadline)
+                                {
+                                    var expired = deadline < DateTimeOffset.UtcNow;
+                                    <span class="muted" style="color:@(expired ? "var(--flowlio-expense)" : "var(--flowlio-warn)");">
+                                        · 2FA vyžadováno do @deadline.LocalDateTime.ToString("d.M.yyyy")@(expired ? " (vypršelo)" : "")
+                                    </span>
+                                }
                             </div>
                             <div class="muted">
                                 @u.Email
@@ -173,6 +181,18 @@ else
                                         @if (u.TwoFactorEnabled)
                                         {
                                             <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => Disable2faAsync(u))">Vypnout 2FA</FluentButton>
+                                        }
+                                        else
+                                        {
+                                            @if (u.Require2faByUtc is null)
+                                            {
+                                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenRequire2faAsync(u))">Vyžadovat 2FA…</FluentButton>
+                                            }
+                                            else
+                                            {
+                                                var tip = $"Vyžadováno do {u.Require2faByUtc.Value.LocalDateTime:d.M.yyyy HH:mm}";
+                                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ClearRequire2faAsync(u))" title="@tip">Zrušit požadavek 2FA</FluentButton>
+                                            }
                                         }
                                     }
                                     @if (_canForceLogout)
@@ -323,10 +343,23 @@ else
     {
         <FluentCard Class="panel">
             <h2 class="panel-title">Audit log</h2>
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                <FluentTextField @bind-Value="_auditSearch" Label="Hledat (aktér, cíl, popis)" Style="width:100%" />
-                <FluentButton Appearance="Appearance.Accent" OnClick="SearchAuditAsync">Hledat</FluentButton>
-            </FluentStack>
+            <div class="toolbar">
+                <FluentTextField @bind-Value="_auditSearch" Label="Hledat (aktér, cíl, popis)" Style="flex:1 1 240px;min-width:220px" />
+                <FluentSelect TOption="string" @bind-Value="_auditAction" Label="Akce">
+                    <FluentOption TOption="string" Value="">Všechny akce</FluentOption>
+                    @foreach (var a in _auditActions)
+                    {
+                        <FluentOption TOption="string" Value="@a">@AuditActionLabel(a)</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentDatePicker @bind-Value="_auditFrom" Label="Od" />
+                <FluentDatePicker @bind-Value="_auditTo" Label="Do" />
+                <div class="toolbar-actions">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SearchAuditAsync">Filtrovat</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearAuditFiltersAsync">Zrušit</FluentButton>
+                    <FluentButton Appearance="Appearance.Neutral" OnClick="ExportAuditAsync" Loading="_auditExporting">⬇ Export CSV</FluentButton>
+                </div>
+            </div>
             @if (_audit is null)
             {
                 <FluentProgressRing />
@@ -339,7 +372,7 @@ else
             {
                 @foreach (var e in _audit.Items)
                 {
-                    <div class="account-row">
+                    <div class="account-row audit-row" @onclick="@(() => OpenAuditDetail(e))" role="button" tabindex="0">
                         <div>
                             <div class="account-name">@AuditActionLabel(e.Action)@(e.TargetName is not null ? $" · {e.TargetName}" : "")</div>
                             <div class="muted">
@@ -350,6 +383,7 @@ else
                                 }
                             </div>
                         </div>
+                        <span class="muted">›</span>
                     </div>
                 }
                 <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
@@ -359,6 +393,37 @@ else
                 </FluentStack>
             }
         </FluentCard>
+
+        @if (_auditDetail is { } d)
+        {
+            <div class="profile-backdrop" @onclick="CloseAuditDetail"></div>
+            <div class="audit-modal" role="dialog" aria-modal="true">
+                <h3 class="panel-title">@AuditActionLabel(d.Action)</h3>
+                <dl class="audit-detail">
+                    <dt>Kdy</dt>
+                    <dd>@d.OccurredAt.LocalDateTime.ToString("dddd d.M.yyyy HH:mm:ss") <span class="muted">(UTC @d.OccurredAt.UtcDateTime.ToString("HH:mm:ss"))</span></dd>
+                    <dt>Aktér</dt>
+                    <dd>@(d.ActorName ?? "systém")</dd>
+                    <dt>Akce</dt>
+                    <dd><code>@d.Action</code></dd>
+                    @if (d.TargetType is not null)
+                    {
+                        <dt>Cíl</dt>
+                        <dd>@d.TargetType@(d.TargetName is not null ? $" · {d.TargetName}" : "")</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(d.Details))
+                    {
+                        <dt>Popis</dt>
+                        <dd>@d.Details</dd>
+                    }
+                    <dt>ID záznamu</dt>
+                    <dd><code>@d.Id</code></dd>
+                </dl>
+                <div class="btn-row">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="CloseAuditDetail">Zavřít</FluentButton>
+                </div>
+            </div>
+        }
     }
 
     @if (_tab == Tab.Roles && _canRoles)
@@ -514,6 +579,12 @@ else
 
     private AuditPageDto? _audit;
     private string _auditSearch = "";
+    private string _auditAction = "";
+    private DateTime? _auditFrom;
+    private DateTime? _auditTo;
+    private IReadOnlyList<string> _auditActions = [];
+    private AuditEntryDto? _auditDetail;
+    private bool _auditExporting;
     private int _auditPage = 1;
 
     private FamilyRolesDto? _roles;
@@ -546,7 +617,10 @@ else
             await LoadSystemRolesAsync();
         }
         if (_canAudit)
+        {
+            _auditActions = await Api.GetAuditActionsAsync();
             await LoadAuditAsync();
+        }
         if (_canRoles)
             await LoadRolesAsync();
         if (_canFamily)
@@ -593,12 +667,47 @@ else
                 _sysRolePerms[r.RoleId] = r.Permissions.ToHashSet();
     }
 
-    private async Task LoadAuditAsync() => _audit = await Api.GetAuditAsync(_auditSearch, _auditPage);
+    private async Task LoadAuditAsync()
+        => _audit = await Api.GetAuditAsync(_auditSearch, NullIfBlank(_auditAction), ToOffset(_auditFrom), ToOffset(_auditTo, endOfDay: true), _auditPage);
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    private static DateTimeOffset? ToOffset(DateTime? d, bool endOfDay = false)
+        => d is null ? null : new DateTimeOffset(endOfDay ? d.Value.Date.AddDays(1) : d.Value.Date, TimeSpan.Zero);
 
     private async Task SearchAuditAsync()
     {
         _auditPage = 1;
         await LoadAuditAsync();
+    }
+
+    private async Task ClearAuditFiltersAsync()
+    {
+        _auditSearch = "";
+        _auditAction = "";
+        _auditFrom = null;
+        _auditTo = null;
+        _auditPage = 1;
+        await LoadAuditAsync();
+    }
+
+    private void OpenAuditDetail(AuditEntryDto entry) => _auditDetail = entry;
+    private void CloseAuditDetail() => _auditDetail = null;
+
+    private async Task ExportAuditAsync()
+    {
+        if (_auditExporting) return;
+        _auditExporting = true;
+        try
+        {
+            var result = await Api.ExportAuditCsvAsync(_auditSearch, NullIfBlank(_auditAction), ToOffset(_auditFrom), ToOffset(_auditTo, endOfDay: true));
+            if (result is { } r)
+                await JS.InvokeVoidAsync("flowlioDownload.fromBytes", r.FileName, Convert.ToBase64String(r.Bytes), "text/csv;charset=utf-8");
+        }
+        finally
+        {
+            _auditExporting = false;
+        }
     }
 
     private async Task ChangeAuditPageAsync(int delta)
@@ -774,6 +883,26 @@ else
 
     private Task Disable2faAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.DisableUser2faAsync(u.Id), "Dvoufaktorové ověření vypnuto.");
+
+    private async Task OpenRequire2faAsync(AdminUserDto u)
+    {
+        // Lightweight prompt: ask for the number of days. Days from now → UTC deadline.
+        // Keeps the admin UI a single click + numeric entry instead of a full dialog.
+        var raw = await JS.InvokeAsync<string?>("prompt", $"Za kolik dní musí {u.Email ?? "uživatel"} mít zapnuté 2FA?", "7");
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        if (!int.TryParse(raw, out var days) || days < 1 || days > 365)
+        {
+            _usersMessage = "Zadejte počet dní mezi 1 a 365.";
+            _usersIntent = MessageIntent.Error;
+            return;
+        }
+        var deadline = DateTimeOffset.UtcNow.AddDays(days);
+        await RunUserActionAsync(() => Api.Require2faAsync(u.Id, deadline),
+            $"Zapnutí 2FA vyžadováno do {deadline.LocalDateTime:d.M.yyyy HH:mm}.");
+    }
+
+    private Task ClearRequire2faAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.Require2faAsync(u.Id, null), "Požadavek na 2FA zrušen.");
 
     private Task ForceLogoutAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");
