@@ -82,6 +82,44 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
+    // --- Manual transactions & movement batches ---
+
+    public async Task<TransactionDto?> CreateTransactionAsync(CreateTransactionRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/transactions", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<TransactionDto>()
+            : null;
+    }
+
+    public async Task<TransactionDto?> UpdateTransactionAsync(Guid id, UpdateTransactionRequest request)
+    {
+        var response = await http.PutAsJsonAsync($"api/transactions/{id}", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<TransactionDto>()
+            : null;
+    }
+
+    public async Task<bool> DeleteTransactionAsync(Guid id) =>
+        (await http.DeleteAsync($"api/transactions/{id}")).IsSuccessStatusCode;
+
+    public async Task<MovementBatchResultDto?> CreateMovementBatchAsync(CreateMovementBatchRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/movement-batches", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<MovementBatchResultDto>()
+            : null;
+    }
+
+    public async Task<IReadOnlyList<ImportBatchDto>> GetMovementBatchesAsync() =>
+        await http.GetFromJsonAsync<List<ImportBatchDto>>("api/movement-batches") ?? [];
+
+    public async Task<bool> UpdateMovementBatchAsync(Guid id, string? label) =>
+        (await http.PutAsJsonAsync($"api/movement-batches/{id}", new UpdateBatchRequest { Label = label })).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteMovementBatchAsync(Guid id) =>
+        (await http.DeleteAsync($"api/movement-batches/{id}")).IsSuccessStatusCode;
+
     // --- Family members & invitations ---
 
     public async Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync() =>

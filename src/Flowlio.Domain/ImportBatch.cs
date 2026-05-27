@@ -2,7 +2,11 @@ using Flowlio.Domain.Common;
 
 namespace Flowlio.Domain;
 
-/// <summary>Record of one statement file imported into an account, for audit and undo.</summary>
+/// <summary>
+/// Record of one batch of transactions added to an account, for audit and undo. A batch is either a
+/// parsed statement file (<see cref="BatchOrigin.FileImport"/>) or a hand-entered set of movements
+/// (<see cref="BatchOrigin.Manual"/>).
+/// </summary>
 public class ImportBatch : AuditableEntity
 {
     public Guid FamilyId { get; set; }
@@ -10,7 +14,14 @@ public class ImportBatch : AuditableEntity
     public Guid BankAccountId { get; set; }
     public BankAccount? BankAccount { get; set; }
 
-    public required string FileName { get; set; }
+    public BatchOrigin Origin { get; set; } = BatchOrigin.FileImport;
+
+    /// <summary>Name of the uploaded file; null for manually entered batches.</summary>
+    public string? FileName { get; set; }
+
+    /// <summary>User-given name for a manually entered batch of movements; null for file imports.</summary>
+    public string? Label { get; set; }
+
     public ImportFormat Format { get; set; }
     public BankProvider Bank { get; set; }
     public ImportStatus Status { get; set; } = ImportStatus.Pending;

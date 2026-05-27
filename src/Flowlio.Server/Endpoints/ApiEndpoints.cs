@@ -29,6 +29,13 @@ public static class ApiEndpoints
         api.MapPost("/accounts/{accountId:guid}/restore", RestoreAccount);
         api.MapGet("/categories", GetCategories);
         api.MapGet("/transactions", GetTransactions);
+        api.MapPost("/transactions", CreateTransaction);
+        api.MapPut("/transactions/{id:guid}", UpdateTransaction);
+        api.MapDelete("/transactions/{id:guid}", DeleteTransaction);
+        api.MapPost("/movement-batches", CreateMovementBatch);
+        api.MapGet("/movement-batches", GetMovementBatches);
+        api.MapPut("/movement-batches/{id:guid}", UpdateMovementBatch);
+        api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         api.MapFamilyEndpoints();
@@ -378,4 +385,252 @@ public static class ApiEndpoints
         var result = await bus.InvokeAsync<ImportResultDto>(command, ct);
         return Results.Ok(result);
     }
+
+    private static async Task<IResult> CreateTransaction(
+        CreateTransactionRequest request, IAppDbContext db, ICurrentFamily family,
+        FlowlioMapper mapper, IDistributedCache cache, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var account = await db.BankAccounts
+            .FirstOrDefaultAsync(a => a.Id == request.BankAccountId && a.FamilyId == familyId, ct);
+        if (account is null)
+            return Results.BadRequest("Účet nebyl nalezen.");
+
+        if (Validate(request.Fields) is { } error)
+            return Results.BadRequest(error);
+        if (!await CategoryBelongsToFamily(db, familyId, request.Fields.CategoryId, ct))
+            return Results.BadRequest("Neplatná kategorie.");
+
+        var transaction = new Transaction
+        {
+            FamilyId = familyId,
+            BankAccountId = account.Id,
+            DedupHash = DedupHasher.Unique(),
+        };
+        Apply(transaction, request.Fields);
+        db.Transactions.Add(transaction);
+        await db.SaveChangesAsync(ct);
+        await InvalidateDashboard(cache, familyId, ct);
+
+        return Results.Ok(mapper.ToDto(transaction));
+    }
+
+    private static async Task<IResult> UpdateTransaction(
+        Guid id, UpdateTransactionRequest request, IAppDbContext db, ICurrentFamily family,
+        FlowlioMapper mapper, IDistributedCache cache, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var transaction = await db.Transactions
+            .FirstOrDefaultAsync(t => t.Id == id && t.FamilyId == familyId, ct);
+        if (transaction is null)
+            return Results.NotFound();
+
+        if (Validate(request.Fields) is { } error)
+            return Results.BadRequest(error);
+        if (!await CategoryBelongsToFamily(db, familyId, request.Fields.CategoryId, ct))
+            return Results.BadRequest("Neplatná kategorie.");
+
+        // DedupHash stays stable: it is an import fingerprint, not derived from the editable fields.
+        Apply(transaction, request.Fields);
+        transaction.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await InvalidateDashboard(cache, familyId, ct);
+
+        return Results.Ok(mapper.ToDto(transaction));
+    }
+
+    private static async Task<IResult> DeleteTransaction(
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var transaction = await db.Transactions
+            .FirstOrDefaultAsync(t => t.Id == id && t.FamilyId == familyId, ct);
+        if (transaction is null)
+            return Results.NotFound();
+
+        db.Transactions.Remove(transaction);
+        await db.SaveChangesAsync(ct);
+        await InvalidateDashboard(cache, familyId, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> CreateMovementBatch(
+        CreateMovementBatchRequest request, IAppDbContext db, ICurrentFamily family,
+        ICurrentUser currentUser, IDistributedCache cache, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var account = await db.BankAccounts
+            .FirstOrDefaultAsync(a => a.Id == request.BankAccountId && a.FamilyId == familyId, ct);
+        if (account is null)
+            return Results.BadRequest("Účet nebyl nalezen.");
+        if (request.Movements.Count == 0)
+            return Results.BadRequest("Dávka musí obsahovat alespoň jeden pohyb.");
+
+        var categoryIds = await db.Categories
+            .Where(c => c.FamilyId == familyId)
+            .Select(c => c.Id)
+            .ToHashSetAsync(ct);
+
+        foreach (var movement in request.Movements)
+        {
+            if (Validate(movement) is { } error)
+                return Results.BadRequest(error);
+            if (movement.CategoryId is { } cid && !categoryIds.Contains(cid))
+                return Results.BadRequest("Neplatná kategorie.");
+        }
+
+        var batch = new ImportBatch
+        {
+            FamilyId = familyId,
+            BankAccountId = account.Id,
+            Origin = BatchOrigin.Manual,
+            Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim(),
+            Bank = account.Bank,
+            Format = ImportFormat.Csv,
+            Status = ImportStatus.Completed,
+            ImportedByUserId = currentUser.UserId ?? Guid.Empty,
+            ImportedCount = request.Movements.Count,
+        };
+        db.ImportBatches.Add(batch);
+
+        foreach (var movement in request.Movements)
+        {
+            var transaction = new Transaction
+            {
+                FamilyId = familyId,
+                BankAccountId = account.Id,
+                ImportBatchId = batch.Id,
+                DedupHash = DedupHasher.Unique(),
+            };
+            Apply(transaction, movement);
+            db.Transactions.Add(transaction);
+        }
+
+        await db.SaveChangesAsync(ct);
+        await InvalidateDashboard(cache, familyId, ct);
+
+        return Results.Ok(new MovementBatchResultDto { BatchId = batch.Id, CreatedCount = request.Movements.Count });
+    }
+
+    private static async Task<IReadOnlyList<ImportBatchDto>> GetMovementBatches(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return [];
+
+        var batches = await db.ImportBatches
+            .Where(b => b.FamilyId == familyId)
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync(ct);
+
+        var accountNames = await db.BankAccounts
+            .Where(a => a.FamilyId == familyId)
+            .ToDictionaryAsync(a => a.Id, a => a.Name, ct);
+
+        return batches.Select(b => new ImportBatchDto
+        {
+            Id = b.Id,
+            Origin = b.Origin,
+            BankAccountId = b.BankAccountId,
+            AccountName = accountNames.GetValueOrDefault(b.BankAccountId),
+            Name = b.Origin == BatchOrigin.Manual ? b.Label : b.FileName,
+            Bank = b.Bank,
+            Format = b.Format,
+            Status = b.Status,
+            ImportedCount = b.ImportedCount,
+            DuplicateCount = b.DuplicateCount,
+            CreatedAt = b.CreatedAt,
+            Error = b.Error,
+        }).ToList();
+    }
+
+    private static async Task<IResult> UpdateMovementBatch(
+        Guid id, UpdateBatchRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var batch = await db.ImportBatches
+            .FirstOrDefaultAsync(b => b.Id == id && b.FamilyId == familyId, ct);
+        if (batch is null)
+            return Results.NotFound();
+        if (batch.Origin != BatchOrigin.Manual)
+            return Results.BadRequest("Přejmenovat lze jen ručně vytvořené dávky pohybů.");
+
+        batch.Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim();
+        batch.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeleteMovementBatch(
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var batch = await db.ImportBatches
+            .FirstOrDefaultAsync(b => b.Id == id && b.FamilyId == familyId, ct);
+        if (batch is null)
+            return Results.NotFound();
+
+        // Removing a batch is an "undo": its transactions are deleted with it rather than orphaned.
+        var transactions = await db.Transactions.Where(t => t.ImportBatchId == id).ToListAsync(ct);
+        db.Transactions.RemoveRange(transactions);
+        db.ImportBatches.Remove(batch);
+        await db.SaveChangesAsync(ct);
+        await InvalidateDashboard(cache, familyId, ct);
+        return Results.NoContent();
+    }
+
+    private static string? Validate(TransactionFields fields)
+    {
+        if (fields.BookingDate == default)
+            return "Zadejte datum pohybu.";
+        if (fields.Amount == 0)
+            return "Částka nesmí být nulová.";
+        return null;
+    }
+
+    private static async Task<bool> CategoryBelongsToFamily(
+        IAppDbContext db, Guid familyId, Guid? categoryId, CancellationToken ct) =>
+        categoryId is not { } id || await db.Categories.AnyAsync(c => c.Id == id && c.FamilyId == familyId, ct);
+
+    private static void Apply(Transaction transaction, TransactionFields fields)
+    {
+        transaction.BookingDate = fields.BookingDate;
+        transaction.ValueDate = fields.ValueDate;
+        transaction.Amount = fields.Amount;
+        transaction.Currency = string.IsNullOrWhiteSpace(fields.Currency) ? "CZK" : fields.Currency.Trim().ToUpperInvariant();
+        transaction.Direction = fields.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
+        transaction.CounterpartyName = NullIfBlank(fields.CounterpartyName);
+        transaction.CounterpartyAccount = NullIfBlank(fields.CounterpartyAccount);
+        transaction.VariableSymbol = NullIfBlank(fields.VariableSymbol);
+        transaction.ConstantSymbol = NullIfBlank(fields.ConstantSymbol);
+        transaction.SpecificSymbol = NullIfBlank(fields.SpecificSymbol);
+        transaction.Description = NullIfBlank(fields.Description);
+        transaction.Note = NullIfBlank(fields.Note);
+        transaction.CategoryId = fields.CategoryId;
+    }
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static Task InvalidateDashboard(IDistributedCache cache, Guid familyId, CancellationToken ct) =>
+        cache.RemoveAsync(CacheKeys.Dashboard(familyId), ct);
 }
