@@ -10,15 +10,20 @@ using Flowlio.Server.Endpoints;
 using Flowlio.Server.Realtime;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using JasperFx.Resources;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using StackExchange.Redis;
 using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.Postgresql;
 using Wolverine.RabbitMQ;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var connectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("Connection string 'Default' is not configured.");
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("Connection string 'Redis' is not configured.");
 var rabbitConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
@@ -127,11 +132,22 @@ builder.Host.UseWolverine(opts =>
     // cannot inline, so allow handlers to resolve those dependencies through service location.
     opts.ServiceLocationPolicy = JasperFx.CodeGeneration.Model.ServiceLocationPolicy.AlwaysAllowed;
 
+    // Durable messaging: persist envelopes in PostgreSQL and enroll outgoing messages in the same
+    // EF Core transaction as the business data (transactional outbox).
+    opts.PersistMessagesWithPostgresql(connectionString);
+    opts.UseEntityFrameworkCoreTransactions();
+    opts.Policies.AutoApplyTransactions();
+    opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
+    opts.Policies.UseDurableInboxOnAllListeners();
+
     // RabbitMQ transport: statement-import completion events are published and consumed asynchronously.
     opts.UseRabbitMq(new Uri(rabbitConnectionString)).AutoProvision();
     opts.PublishMessage<StatementImported>().ToRabbitQueue("flowlio.statement-imported");
     opts.ListenToRabbitQueue("flowlio.statement-imported");
 });
+
+// Create Wolverine's message-storage tables (and RabbitMQ objects) on startup.
+builder.Services.AddResourceSetupOnStartup();
 
 var app = builder.Build();
 

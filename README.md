@@ -11,7 +11,8 @@ Because Flowlio is **not** certified for direct bank-API access, transactions ar
 - **Blazor WebAssembly** + **Microsoft FluentUI** (client)
 - **ASP.NET Core** host serving the WASM client and the API
 - **PostgreSQL** + **Entity Framework Core 10** (Npgsql)
-- **Wolverine** as the command/message bus, with a **RabbitMQ** transport for async events
+- **Wolverine** as the command/message bus, with a **RabbitMQ** transport and a **durable
+  transactional outbox** (PostgreSQL-backed) for guaranteed event delivery
 - **Redis** for distributed caching, the SignalR backplane and the Data Protection key ring
 - **SignalR** for live updates (e.g. import-completed notifications)
 - **ASP.NET Core Identity** + **OpenIddict** for authentication — OAuth2 **authorization-code flow
@@ -38,6 +39,12 @@ tests/
 - **RabbitMQ (via Wolverine):** when an import completes, the API publishes a `StatementImported`
   event to the `flowlio.statement-imported` queue. A handler consumes it asynchronously to invalidate
   the cached dashboard and push a live SignalR notification to the family.
+- **Durable transactional outbox:** Wolverine persists message envelopes in PostgreSQL (`wolverine`
+  schema) and enrolls outgoing messages in the same EF Core transaction as the imported data
+  (`[Transactional]` + `UseEntityFrameworkCoreTransactions`). Events are stored on commit and
+  delivered with retries by a background agent, so they survive a broker outage or a process crash —
+  no event is lost and none is sent for a transaction that rolled back. A durable inbox de-duplicates
+  on the consuming side.
 - **Redis:** the dashboard summary is cached read-through (per family, 5-minute TTL) and evicted on
   import; SignalR uses a Redis backplane so broadcasts reach clients on any instance; Data Protection
   keys are persisted to Redis so auth/antiforgery cookies survive restarts and scale-out.
