@@ -105,6 +105,15 @@ public enum ImportStatus
     Failed = 4,
 }
 
+/// <summary>How a batch of transactions came to exist on an account.</summary>
+public enum BatchOrigin
+{
+    /// <summary>Created by parsing an uploaded statement file.</summary>
+    FileImport = 0,
+    /// <summary>Entered by hand by a family member (no source file).</summary>
+    Manual = 1,
+}
+
 /// <summary>Which transaction field a categorization rule inspects.</summary>
 public enum RuleMatchField
 {

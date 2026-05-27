@@ -21,4 +21,15 @@ public static class DedupHasher
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(bytes);
     }
+
+    /// <summary>
+    /// A guaranteed-unique fingerprint for a hand-entered transaction. Manual movements are
+    /// user-asserted truth (not file rows), so they are never deduplicated; a random hash keeps
+    /// each one distinct under the unique (account, hash) index even when their fields are identical.
+    /// </summary>
+    public static string Unique()
+    {
+        var bytes = SHA256.HashData(Guid.NewGuid().ToByteArray());
+        return Convert.ToHexString(bytes);
+    }
 }

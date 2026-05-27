@@ -1,6 +1,7 @@
 @page "/transactions"
 @attribute [Authorize]
 @inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
 
 <PageTitle>Transakce – Flowlio</PageTitle>
 
@@ -9,7 +10,72 @@
 <div class="toolbar">
     <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:280px" />
     <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Hledat</FluentButton>
+    @if (_canManage && _accounts is { Count: > 0 })
+    {
+        <FluentButton Appearance="Appearance.Neutral" OnClick="OpenCreate">Přidat pohyb</FluentButton>
+    }
 </div>
+
+@if (_showEditor)
+{
+    <FluentCard Class="panel">
+        <h2 class="panel-title">@(_editId is null ? "Nový pohyb" : "Úprava pohybu")</h2>
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            @if (_editId is null)
+            {
+                <FluentSelect TOption="string" @bind-Value="_formAccount" Label="Účet" Style="width:100%">
+                    @foreach (var a in _accounts ?? [])
+                    {
+                        <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                    }
+                </FluentSelect>
+            }
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <div>
+                    <label style="display:block;font-size:12px;color:var(--neutral-foreground-rest);margin-bottom:4px;">Datum zaúčtování</label>
+                    <input type="date" style="height:32px;padding:0 8px;" @bind="_formBooking" />
+                </div>
+                <div>
+                    <label style="display:block;font-size:12px;color:var(--neutral-foreground-rest);margin-bottom:4px;">Datum splatnosti (volitelné)</label>
+                    <input type="date" style="height:32px;padding:0 8px;" @bind="_formValue" />
+                </div>
+                <FluentNumberField @bind-Value="_formAmount" Label="Částka (záporná = výdaj)" Style="width:200px" />
+                <FluentTextField @bind-Value="_formCurrency" Label="Měna" Style="width:90px" />
+            </FluentStack>
+
+            <FluentTextField @bind-Value="_formCounterparty" Label="Protistrana" Style="width:100%" />
+            <FluentTextField @bind-Value="_formCounterpartyAccount" Label="Číslo účtu protistrany" Style="width:100%" />
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentTextField @bind-Value="_formVs" Label="VS" Style="width:140px" />
+                <FluentTextField @bind-Value="_formCs" Label="KS" Style="width:140px" />
+                <FluentTextField @bind-Value="_formSs" Label="SS" Style="width:140px" />
+            </FluentStack>
+
+            <FluentTextField @bind-Value="_formDescription" Label="Popis" Style="width:100%" />
+            <FluentTextField @bind-Value="_formNote" Label="Poznámka" Style="width:100%" />
+
+            <FluentSelect TOption="string" @bind-Value="_formCategory" Label="Kategorie" Style="width:100%">
+                <FluentOption TOption="string" Value="">(bez kategorie)</FluentOption>
+                @foreach (var c in _categories ?? [])
+                {
+                    <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                }
+            </FluentSelect>
+
+            @if (_formError is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@_formError</FluentMessageBar>
+            }
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Loading="_saving">Uložit</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _showEditor = false)">Zrušit</FluentButton>
+            </FluentStack>
+        </FluentStack>
+    </FluentCard>
+}
 
 @if (_page is null)
 {
@@ -17,7 +83,7 @@
 }
 else if (_page.Items.Count == 0)
 {
-    <FluentCard Class="panel"><p class="muted">Žádné transakce. Naimportujte výpis na stránce „Import výpisu".</p></FluentCard>
+    <FluentCard Class="panel"><p class="muted">Žádné transakce. Naimportujte výpis nebo přidejte pohyb ručně.</p></FluentCard>
 }
 else
 {
@@ -29,7 +95,12 @@ else
                     <th>Protistrana</th>
                     <th>Popis</th>
                     <th>VS</th>
+                    <th>Kategorie</th>
                     <th class="num">Částka</th>
+                    @if (_canManage)
+                    {
+                        <th></th>
+                    }
                 </tr>
             </thead>
             <tbody>
@@ -40,7 +111,15 @@ else
                         <td>@t.CounterpartyName</td>
                         <td class="muted">@t.Description</td>
                         <td>@t.VariableSymbol</td>
+                        <td class="muted">@t.CategoryName</td>
                         <td class="num @(t.Amount < 0 ? "expense" : "income")">@Money(t.Amount)</td>
+                        @if (_canManage)
+                        {
+                            <td class="num">
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenEdit(t))">Upravit</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(t.Id))">Smazat</FluentButton>
+                            </td>
+                        }
                     </tr>
                 }
             </tbody>
@@ -52,13 +131,150 @@ else
 @code {
     private TransactionPageDto? _page;
     private string _search = "";
+    private bool _canManage;
+    private IReadOnlyList<BankAccountDto>? _accounts;
+    private IReadOnlyList<CategoryDto>? _categories;
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    private bool _showEditor;
+    private bool _saving;
+    private Guid? _editId;
+    private string? _formError;
+
+    private string _formAccount = "";
+    private DateOnly _formBooking = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly? _formValue;
+    private decimal _formAmount;
+    private string _formCurrency = "CZK";
+    private string _formCounterparty = "";
+    private string _formCounterpartyAccount = "";
+    private string _formVs = "";
+    private string _formCs = "";
+    private string _formSs = "";
+    private string _formDescription = "";
+    private string _formNote = "";
+    private string _formCategory = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
+        if (_canManage)
+        {
+            _accounts = await Api.GetAccountsAsync();
+            _categories = await Api.GetCategoriesAsync();
+        }
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
         _page = null;
         _page = await Api.GetTransactionsAsync(search: _search);
+    }
+
+    private void OpenCreate()
+    {
+        _editId = null;
+        _formError = null;
+        _formAccount = _accounts?.FirstOrDefault()?.Id.ToString() ?? "";
+        _formBooking = DateOnly.FromDateTime(DateTime.Today);
+        _formValue = null;
+        _formAmount = 0;
+        _formCurrency = "CZK";
+        _formCounterparty = "";
+        _formCounterpartyAccount = "";
+        _formVs = "";
+        _formCs = "";
+        _formSs = "";
+        _formDescription = "";
+        _formNote = "";
+        _formCategory = "";
+        _showEditor = true;
+    }
+
+    private void OpenEdit(TransactionDto t)
+    {
+        _editId = t.Id;
+        _formError = null;
+        _formAccount = t.BankAccountId.ToString();
+        _formBooking = t.BookingDate;
+        _formValue = t.ValueDate;
+        _formAmount = t.Amount;
+        _formCurrency = t.Currency;
+        _formCounterparty = t.CounterpartyName ?? "";
+        _formCounterpartyAccount = t.CounterpartyAccount ?? "";
+        _formVs = t.VariableSymbol ?? "";
+        _formCs = t.ConstantSymbol ?? "";
+        _formSs = t.SpecificSymbol ?? "";
+        _formDescription = t.Description ?? "";
+        _formNote = t.Note ?? "";
+        _formCategory = t.CategoryId?.ToString() ?? "";
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _formError = null;
+        if (_formAmount == 0)
+        {
+            _formError = "Částka nesmí být nulová.";
+            return;
+        }
+
+        var fields = new TransactionFields
+        {
+            BookingDate = _formBooking,
+            ValueDate = _formValue,
+            Amount = _formAmount,
+            Currency = string.IsNullOrWhiteSpace(_formCurrency) ? "CZK" : _formCurrency,
+            CounterpartyName = _formCounterparty,
+            CounterpartyAccount = _formCounterpartyAccount,
+            VariableSymbol = _formVs,
+            ConstantSymbol = _formCs,
+            SpecificSymbol = _formSs,
+            Description = _formDescription,
+            Note = _formNote,
+            CategoryId = Guid.TryParse(_formCategory, out var cid) ? cid : null,
+        };
+
+        _saving = true;
+        try
+        {
+            if (_editId is { } id)
+            {
+                var updated = await Api.UpdateTransactionAsync(id, new UpdateTransactionRequest { Fields = fields });
+                if (updated is null)
+                {
+                    _formError = "Pohyb se nepodařilo uložit.";
+                    return;
+                }
+            }
+            else
+            {
+                if (!Guid.TryParse(_formAccount, out var accountId))
+                {
+                    _formError = "Vyberte účet.";
+                    return;
+                }
+                var created = await Api.CreateTransactionAsync(new CreateTransactionRequest { BankAccountId = accountId, Fields = fields });
+                if (created is null)
+                {
+                    _formError = "Pohyb se nepodařilo vytvořit.";
+                    return;
+                }
+            }
+            _showEditor = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        if (await Api.DeleteTransactionAsync(id))
+            await ReloadAsync();
     }
 
     private static string Money(decimal value) =>
