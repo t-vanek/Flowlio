@@ -119,35 +119,41 @@
                 @if (_editingId == m.Id)
                 {
                     <div class="member-edit">
-                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
-                            <FluentTextField @bind-Value="_editName" Label="Jméno" Style="width:100%" />
-                            <FluentTextField @bind-Value="_editEmail" Label="E-mail" Style="width:100%" />
-                            @if (m.Role != MemberRole.Owner)
-                            {
-                                <FluentSelect TOption="string" @bind-Value="_editRoleValue" Label="Role" Style="width:100%">
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý</FluentOption>
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel</FluentOption>
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
-                                </FluentSelect>
-                                @if (EditRole == MemberRole.Child)
+                        <EditForm Model="_editModel" OnValidSubmit="@(() => SaveEditAsync(m))">
+                            <DataAnnotationsValidator />
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                                <div>
+                                    <FluentTextField @bind-Value="_editModel.DisplayName" Label="Jméno" Style="width:100%" />
+                                    <FluentValidationMessage For="@(() => _editModel.DisplayName)" />
+                                </div>
+                                <FluentTextField @bind-Value="_editEmail" Label="E-mail" Style="width:100%" />
+                                @if (m.Role != MemberRole.Owner)
                                 {
-                                    <FluentSelect TOption="string" @bind-Value="_editGuardianValue" Label="Opatrovník" Style="width:100%">
-                                        @foreach (var g in Guardians.Where(x => x.Id != m.Id))
-                                        {
-                                            <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
-                                        }
+                                    <FluentSelect TOption="string" @bind-Value="_editRoleValue" Label="Role" Style="width:100%">
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
                                     </FluentSelect>
+                                    @if (EditRole == MemberRole.Child)
+                                    {
+                                        <FluentSelect TOption="string" @bind-Value="_editGuardianValue" Label="Opatrovník" Style="width:100%">
+                                            @foreach (var g in Guardians.Where(x => x.Id != m.Id))
+                                            {
+                                                <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
+                                            }
+                                        </FluentSelect>
+                                    }
                                 }
-                            }
-                            else
-                            {
-                                <p class="muted">Roli vlastníka změníte v Administraci → Rodina (převod vlastnictví).</p>
-                            }
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveEditAsync(m))">Uložit</FluentButton>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                                else
+                                {
+                                    <p class="muted">Roli vlastníka změníte v Administraci → Rodina (převod vlastnictví).</p>
+                                }
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit</FluentButton>
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                                </FluentStack>
                             </FluentStack>
-                        </FluentStack>
+                        </EditForm>
                     </div>
                 }
             }
@@ -183,7 +189,7 @@
     private bool _canManage;
 
     private Guid? _editingId;
-    private string _editName = "";
+    private UpdateMemberRequest _editModel = new();
     private string _editEmail = "";
     private string _editRoleValue = ((int)MemberRole.Adult).ToString();
     private string _editGuardianValue = "";
@@ -278,7 +284,7 @@
     {
         _error = null;
         _editingId = m.Id;
-        _editName = m.DisplayName;
+        _editModel = new UpdateMemberRequest { DisplayName = m.DisplayName };
         _editEmail = m.Email ?? "";
         _editRoleValue = ((int)(m.Role == MemberRole.Owner ? MemberRole.Adult : m.Role)).ToString();
         _editGuardianValue = m.GuardianMemberId?.ToString()
@@ -290,11 +296,6 @@
     private async Task SaveEditAsync(FamilyMemberDto m)
     {
         _error = null;
-        if (string.IsNullOrWhiteSpace(_editName))
-        {
-            _error = "Zadejte jméno.";
-            return;
-        }
 
         var role = m.Role == MemberRole.Owner ? MemberRole.Owner : EditRole;
         Guid? guardianId = null;
@@ -308,13 +309,10 @@
             guardianId = gid;
         }
 
-        var result = await Api.UpdateMemberAsync(m.Id, new UpdateMemberRequest
-        {
-            DisplayName = _editName,
-            Email = string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail,
-            Role = role,
-            GuardianMemberId = guardianId,
-        });
+        _editModel.Email = string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim();
+        _editModel.Role = role;
+        _editModel.GuardianMemberId = guardianId;
+        var result = await Api.UpdateMemberAsync(m.Id, _editModel);
 
         if (result is null)
         {

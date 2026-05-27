@@ -187,10 +187,16 @@ else
 
                                 @if (_canPasswords)
                                 {
-                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top:10px;">
-                                        <FluentTextField @bind-Value="_pwdValue" TextFieldType="TextFieldType.Password" Label="Nové heslo" />
-                                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SetPasswordAsync(u))">Nastavit heslo</FluentButton>
-                                    </FluentStack>
+                                    <EditForm Model="_passwordModel" OnValidSubmit="@(() => SetPasswordAsync(u))">
+                                        <DataAnnotationsValidator />
+                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top:10px;">
+                                            <div>
+                                                <FluentTextField @bind-Value="_passwordModel.NewPassword" TextFieldType="TextFieldType.Password" Label="Nové heslo" />
+                                                <FluentValidationMessage For="@(() => _passwordModel.NewPassword)" />
+                                            </div>
+                                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Nastavit heslo</FluentButton>
+                                        </FluentStack>
+                                    </EditForm>
                                 }
                             }
                         </div>
@@ -235,10 +241,16 @@ else
     {
         <FluentCard Class="panel">
             <h2 class="panel-title">Nová role účtů</h2>
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                <FluentTextField @bind-Value="_newRoleName" Label="Název role" Placeholder="např. Podpora" />
-                <FluentButton Appearance="Appearance.Accent" OnClick="CreateSystemRoleAsync">Vytvořit roli</FluentButton>
-            </FluentStack>
+            <EditForm Model="_newRoleModel" OnValidSubmit="CreateSystemRoleAsync">
+                <DataAnnotationsValidator />
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                    <div>
+                        <FluentTextField @bind-Value="_newRoleModel.Name" Label="Název role" Placeholder="např. Podpora" />
+                        <FluentValidationMessage For="@(() => _newRoleModel.Name)" />
+                    </div>
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Vytvořit roli</FluentButton>
+                </FluentStack>
+            </EditForm>
         </FluentCard>
 
         <FluentCard Class="panel">
@@ -268,12 +280,18 @@ else
                         </div>
                         @if (!role.IsAdministrator)
                         {
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveSysRoleAsync(role.RoleId))">Uložit oprávnění</FluentButton>
-                                <FluentTextField @bind-Value="_renameValue" Label="Přejmenovat na" />
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RenameSysRoleAsync(role.RoleId))">Přejmenovat</FluentButton>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteSysRoleAsync(role.RoleId))">Smazat roli</FluentButton>
-                            </FluentStack>
+                            <EditForm Model="_renameModel" OnValidSubmit="@(() => RenameSysRoleAsync(role.RoleId))">
+                                <DataAnnotationsValidator />
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Accent" OnClick="@(() => SaveSysRoleAsync(role.RoleId))">Uložit oprávnění</FluentButton>
+                                    <div>
+                                        <FluentTextField @bind-Value="_renameModel.Name" Label="Přejmenovat na" />
+                                        <FluentValidationMessage For="@(() => _renameModel.Name)" />
+                                    </div>
+                                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth">Přejmenovat</FluentButton>
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Stealth" OnClick="@(() => DeleteSysRoleAsync(role.RoleId))">Smazat roli</FluentButton>
+                                </FluentStack>
+                            </EditForm>
                         }
                     </div>
                 }
@@ -378,12 +396,21 @@ else
             }
             else
             {
-                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                    <FluentTextField @bind-Value="_familyName" Label="Název rodiny" Style="width:100%" />
-                    <FluentTextField @bind-Value="_baseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
-                    <FluentButton Appearance="Appearance.Accent" OnClick="SaveFamilyAsync">Uložit změny</FluentButton>
-                    <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
-                </FluentStack>
+                <EditForm Model="_familyModel" OnValidSubmit="SaveFamilyAsync">
+                    <DataAnnotationsValidator />
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <div>
+                            <FluentTextField @bind-Value="_familyModel.Name" Label="Název rodiny" Style="width:100%" />
+                            <FluentValidationMessage For="@(() => _familyModel.Name)" />
+                        </div>
+                        <div>
+                            <FluentTextField @bind-Value="_familyModel.BaseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
+                            <FluentValidationMessage For="@(() => _familyModel.BaseCurrency)" />
+                        </div>
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit změny</FluentButton>
+                        <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
+                    </FluentStack>
+                </EditForm>
 
                 @if (_isOwner)
                 {
@@ -408,10 +435,13 @@ else
 
                     <h3 class="panel-title" style="margin-top:20px;">Smazat rodinu</h3>
                     <p class="muted">Nevratně smaže rodinu i všechna data (účty, transakce, karty). Pro potvrzení opište název „@_family.Name".</p>
-                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                        <FluentTextField @bind-Value="_deleteConfirm" Label="Název rodiny" />
-                        <FluentButton Appearance="Appearance.Accent" OnClick="DeleteFamilyAsync" Disabled="@(_deleteConfirm != _family.Name)">Smazat rodinu</FluentButton>
-                    </FluentStack>
+                    <EditForm Model="_deleteModel" OnValidSubmit="DeleteFamilyAsync">
+                        <DataAnnotationsValidator />
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                            <FluentTextField @bind-Value="_deleteModel.ConfirmName" Label="Název rodiny" />
+                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Disabled="@(_deleteModel.ConfirmName != _family.Name)">Smazat rodinu</FluentButton>
+                        </FluentStack>
+                    </EditForm>
                 }
 
                 @if (_familyMessage is not null)
@@ -445,7 +475,7 @@ else
     private Guid? _userExpanded;
     private HashSet<string> _editUserRoles = new();
     private CreateUserRequest _newUser = new();
-    private string _pwdValue = "";
+    private AdminSetPasswordRequest _passwordModel = new();
     private string? _usersMessage;
     private MessageIntent _usersIntent = MessageIntent.Success;
     private bool _showDeleted;
@@ -453,8 +483,8 @@ else
 
     private SystemRolesDto? _systemRoles;
     private readonly Dictionary<Guid, HashSet<SystemPermission>> _sysRolePerms = new();
-    private string _newRoleName = "";
-    private string _renameValue = "";
+    private CreateSystemRoleRequest _newRoleModel = new();
+    private RenameSystemRoleRequest _renameModel = new();
     private string? _sysRolesMessage;
     private MessageIntent _sysRolesIntent = MessageIntent.Success;
 
@@ -468,10 +498,9 @@ else
 
     private FamilyDto? _family;
     private IReadOnlyList<FamilyMemberDto>? _members;
-    private string _familyName = "";
-    private string _baseCurrency = "CZK";
+    private UpdateFamilyRequest _familyModel = new();
     private string _transferValue = "";
-    private string _deleteConfirm = "";
+    private DeleteFamilyRequest _deleteModel = new();
     private string? _familyMessage;
     private MessageIntent _familyIntent = MessageIntent.Success;
 
@@ -569,8 +598,8 @@ else
         _members = await Api.GetMembersAsync();
         if (_family is not null)
         {
-            _familyName = _family.Name;
-            _baseCurrency = _family.BaseCurrency;
+            _familyModel = new UpdateFamilyRequest { Name = _family.Name, BaseCurrency = _family.BaseCurrency };
+            _deleteModel = new DeleteFamilyRequest();
         }
         _transferValue = TransferCandidates.FirstOrDefault()?.Id.ToString() ?? "";
     }
@@ -616,10 +645,8 @@ else
 
     private async Task CreateSystemRoleAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newRoleName))
-            return;
-        await RunSysRolesActionAsync(() => Api.CreateSystemRoleAsync(_newRoleName), "Role vytvořena.");
-        _newRoleName = "";
+        await RunSysRolesActionAsync(() => Api.CreateSystemRoleAsync(_newRoleModel.Name), "Role vytvořena.");
+        _newRoleModel = new();
     }
 
     private Task SaveSysRoleAsync(Guid roleId) =>
@@ -629,10 +656,8 @@ else
 
     private async Task RenameSysRoleAsync(Guid roleId)
     {
-        if (string.IsNullOrWhiteSpace(_renameValue))
-            return;
-        await RunSysRolesActionAsync(() => Api.RenameSystemRoleAsync(roleId, _renameValue), "Role přejmenována.");
-        _renameValue = "";
+        await RunSysRolesActionAsync(() => Api.RenameSystemRoleAsync(roleId, _renameModel.Name), "Role přejmenována.");
+        _renameModel = new();
     }
 
     private Task DeleteSysRoleAsync(Guid roleId) =>
@@ -726,17 +751,11 @@ else
 
     private async Task SetPasswordAsync(AdminUserDto u)
     {
-        if (string.IsNullOrWhiteSpace(_pwdValue))
-        {
-            _usersIntent = MessageIntent.Error;
-            _usersMessage = "Zadejte nové heslo.";
-            return;
-        }
-        var ok = await Api.SetUserPasswordAsync(u.Id, new AdminSetPasswordRequest { NewPassword = _pwdValue, MustChangePassword = true });
+        var ok = await Api.SetUserPasswordAsync(u.Id, _passwordModel);
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? "Heslo nastaveno; uživatel si jej při přihlášení změní." : "Heslo se nepodařilo nastavit (slabé heslo?).";
         if (ok)
-            _pwdValue = "";
+            _passwordModel = new();
         _users = await Api.GetAdminUsersAsync();
     }
 
@@ -749,7 +768,7 @@ else
     private async Task SaveFamilyAsync()
     {
         _familyMessage = null;
-        var ok = await Api.UpdateFamilyAsync(new UpdateFamilyRequest { Name = _familyName, BaseCurrency = _baseCurrency });
+        var ok = await Api.UpdateFamilyAsync(_familyModel);
         _familyIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _familyMessage = ok ? "Rodina uložena." : "Uložení se nezdařilo.";
         await LoadFamilyAsync();
@@ -783,14 +802,14 @@ else
     private async Task DeleteFamilyAsync()
     {
         _familyMessage = null;
-        if (_family is null || _deleteConfirm != _family.Name)
+        if (_family is null || _deleteModel.ConfirmName != _family.Name)
             return;
-        var ok = await Api.DeleteFamilyAsync(_deleteConfirm);
+        var ok = await Api.DeleteFamilyAsync(_deleteModel.ConfirmName);
         if (ok)
         {
             _familyIntent = MessageIntent.Success;
             _familyMessage = "Rodina byla smazána.";
-            _deleteConfirm = "";
+            _deleteModel = new();
             await LoadFamilyAsync();
         }
         else
