@@ -31,6 +31,13 @@
         <div class="logo">₣ Flowlio</div>
         <h1>Vytvořit účet</h1>
 
+        @if (!string.IsNullOrEmpty(Model.InvitedToFamily))
+        {
+            <div style="background:#dbeafe;color:#1e3a8a;padding:10px;border-radius:8px;margin-top:14px;font-size:14px;">
+                Byli jste pozváni do rodiny ve Flowlio. Dokončete registraci a získáte přístup.
+            </div>
+        }
+
         @if (!string.IsNullOrEmpty(Model.Error))
         {
             <div class="err">@Model.Error</div>
@@ -46,6 +53,7 @@
         <input id="Password" name="Password" type="password" />
 
         <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
+        <input type="hidden" name="Invite" value="@Model.Invite" />
         <button type="submit">Zaregistrovat se</button>
 
         <div class="switch">Už máte účet? <a href="/Account/Login?returnUrl=@Uri.EscapeDataString(Model.ReturnUrl ?? "/")">Přihlaste se</a></div>

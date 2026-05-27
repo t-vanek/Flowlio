@@ -19,6 +19,16 @@
             </FluentSelect>
             <FluentTextField @bind-Value="_accountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
             <FluentNumberField @bind-Value="_openingBalance" Label="Počáteční zůstatek" Style="width:100%" />
+
+            <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">
+                <FluentOption TOption="string" Value="">Můj / společný účet</FluentOption>
+                @foreach (var m in OwnerCandidates)
+                {
+                    <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName (@RoleLabel(m.Role))</FluentOption>
+                }
+            </FluentSelect>
+            <p class="muted">Zvolíte-li jako vlastníka dítě, vznikne dětský účet pod kontrolou jeho opatrovníka.</p>
+
             <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
         </FluentStack>
     </FluentCard>
@@ -39,11 +49,151 @@
             {
                 <div class="account-row">
                     <div>
-                        <div class="account-name">@a.Name</div>
-                        <div class="muted">@BankLabel(a.Bank) · @a.AccountNumber</div>
+                        <div class="account-name">
+                            @a.Name
+                            @if (a.IsChildAccount)
+                            {
+                                <span class="muted">· dětský účet</span>
+                            }
+                        </div>
+                        <div class="muted">
+                            @BankLabel(a.Bank)@(string.IsNullOrWhiteSpace(a.AccountNumber) ? "" : $" · {a.AccountNumber}")
+                            @if (a.OwnerName is not null)
+                            {
+                                <text> · vlastník: @a.OwnerName</text>
+                            }
+                            · @a.CardCount karet · @a.DisponentCount sdílení
+                        </div>
                     </div>
-                    <div class="account-balance">@Money(a.CurrentBalance)</div>
+                    <div style="text-align:right;">
+                        <div class="account-balance">@Money(a.CurrentBalance)</div>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleAsync(a.Id))">
+                            @(_expanded == a.Id ? "Skrýt" : "Spravovat")
+                        </FluentButton>
+                    </div>
                 </div>
+
+                @if (_expanded == a.Id)
+                {
+                    <div class="account-manage">
+                        @* ---- Disponents / shared access ---- *@
+                        <h3 class="panel-title">Disponenti a sdílení</h3>
+                        @if (_access is null)
+                        {
+                            <FluentProgressRing />
+                        }
+                        else
+                        {
+                            @if (_access.Grants.Count == 0)
+                            {
+                                <p class="muted">Účet zatím nikdo další nesdílí.</p>
+                            }
+                            else
+                            {
+                                @foreach (var g in _access.Grants)
+                                {
+                                    <div class="account-row">
+                                        <div>@g.MemberName <span class="muted">· @LevelLabel(g.Level)</span></div>
+                                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RevokeAccessAsync(a.Id, g.FamilyMemberId))">Odebrat</FluentButton>
+                                    </div>
+                                }
+                            }
+
+                            @if (GrantCandidates(a).Any())
+                            {
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentSelect TOption="string" @bind-Value="_grantMemberValue" Label="Člen">
+                                        @foreach (var m in GrantCandidates(a))
+                                        {
+                                            <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                        }
+                                    </FluentSelect>
+                                    <FluentSelect TOption="string" @bind-Value="_grantLevelValue" Label="Úroveň">
+                                        <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Disponent).ToString())">Disponent</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Viewer).ToString())">Jen čtení</FluentOption>
+                                    </FluentSelect>
+                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => GrantAccessAsync(a.Id))">Sdílet</FluentButton>
+                                </FluentStack>
+                            }
+                            else
+                            {
+                                <p class="muted">Pro sdílení nejdřív přidejte další členy na stránce „Rodina".</p>
+                            }
+                        }
+
+                        @* ---- Cards ---- *@
+                        <h3 class="panel-title" style="margin-top:16px;">Karty</h3>
+                        @if (_cards is null)
+                        {
+                            <FluentProgressRing />
+                        }
+                        else
+                        {
+                            @if (_cards.Count == 0)
+                            {
+                                <p class="muted">K účtu zatím nejsou žádné karty.</p>
+                            }
+                            else
+                            {
+                                @foreach (var c in _cards)
+                                {
+                                    <div class="account-row">
+                                        <div>
+                                            <div class="account-name">@CardTypeLabel(c.Type) @(string.IsNullOrWhiteSpace(c.Last4) ? "" : $"•••• {c.Last4}")</div>
+                                            <div class="muted">
+                                                @c.CardholderName · platí @c.ExpiryMonth.ToString("D2")/@c.ExpiryYear · @CardStatusLabel(c.Status)
+                                                @if (c.HolderName is not null)
+                                                {
+                                                    <text> · držitel: @c.HolderName</text>
+                                                }
+                                                @if (c.MonthlyLimit is { } lim)
+                                                {
+                                                    <text> · limit @Money(lim)</text>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleCardStatusAsync(c))">
+                                                @(c.Status == CardStatus.Active ? "Zablokovat" : "Aktivovat")
+                                            </FluentButton>
+                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteCardAsync(c.Id))">Smazat</FluentButton>
+                                        </div>
+                                    </div>
+                                }
+                            }
+
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                                <FluentTextField @bind-Value="_cardName" Label="Jméno na kartě" Style="width:100%" Placeholder="JANA NOVAKOVA" />
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentSelect TOption="string" @bind-Value="_cardTypeValue" Label="Typ">
+                                        <FluentOption TOption="string" Value="@(((int)CardType.Debit).ToString())">Debetní</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)CardType.Credit).ToString())">Kreditní</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)CardType.Prepaid).ToString())">Předplacená</FluentOption>
+                                    </FluentSelect>
+                                    <FluentTextField @bind-Value="_cardLast4" Label="Poslední 4 číslice" Placeholder="1234" />
+                                    <FluentNumberField @bind-Value="_cardExpMonth" Label="Měsíc" Style="width:90px" />
+                                    <FluentNumberField @bind-Value="_cardExpYear" Label="Rok" Style="width:110px" />
+                                </FluentStack>
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentSelect TOption="string" @bind-Value="_cardHolderValue" Label="Držitel">
+                                        <FluentOption TOption="string" Value="">(bez přiřazení)</FluentOption>
+                                        @foreach (var m in _members ?? [])
+                                        {
+                                            <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                        }
+                                    </FluentSelect>
+                                    <FluentNumberField @bind-Value="_cardLimit" Label="Měsíční limit (0 = bez)" Style="width:160px" />
+                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => CreateCardAsync(a.Id))">Přidat kartu</FluentButton>
+                                </FluentStack>
+                            </FluentStack>
+                        }
+
+                        @if (_manageError is not null)
+                        {
+                            <FluentMessageBar Intent="MessageIntent.Error">@_manageError</FluentMessageBar>
+                        }
+                    </div>
+                }
             }
         }
     </FluentCard>
@@ -51,13 +201,38 @@
 
 @code {
     private IReadOnlyList<BankAccountDto>? _accounts;
+    private IReadOnlyList<FamilyMemberDto>? _members;
+
     private string _name = "";
     private string _bankValue = "4";
     private string _accountNumber = "";
     private decimal _openingBalance;
+    private string _ownerValue = "";
     private bool _busy;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    private Guid? _expanded;
+    private AccountAccessOverviewDto? _access;
+    private IReadOnlyList<BankCardDto>? _cards;
+    private string? _manageError;
+
+    private string _grantMemberValue = "";
+    private string _grantLevelValue = ((int)AccountAccessLevel.Disponent).ToString();
+
+    private string _cardName = "";
+    private string _cardLast4 = "";
+    private string _cardTypeValue = ((int)CardType.Debit).ToString();
+    private int _cardExpMonth = 12;
+    private int _cardExpYear = DateTime.UtcNow.Year + 3;
+    private string _cardHolderValue = "";
+    private decimal _cardLimit;
+
+    private IEnumerable<FamilyMemberDto> OwnerCandidates => _members ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _members = await Api.GetMembersAsync();
+        await LoadAsync();
+    }
 
     private async Task LoadAsync() => _accounts = await Api.GetAccountsAsync();
 
@@ -76,16 +251,136 @@
                 AccountNumber = string.IsNullOrWhiteSpace(_accountNumber) ? null : _accountNumber,
                 Currency = "CZK",
                 OpeningBalance = _openingBalance,
+                OwnerMemberId = Guid.TryParse(_ownerValue, out var oid) ? oid : null,
             };
             await Api.CreateAccountAsync(request);
             _name = "";
             _accountNumber = "";
             _openingBalance = 0;
+            _ownerValue = "";
             await LoadAsync();
         }
         finally
         {
             _busy = false;
+        }
+    }
+
+    private async Task ToggleAsync(Guid accountId)
+    {
+        _manageError = null;
+        if (_expanded == accountId)
+        {
+            _expanded = null;
+            return;
+        }
+        _expanded = accountId;
+        _access = null;
+        _cards = null;
+        await ReloadManageAsync(accountId);
+    }
+
+    private async Task ReloadManageAsync(Guid accountId)
+    {
+        _access = await Api.GetAccountAccessAsync(accountId);
+        _cards = await Api.GetCardsAsync(accountId);
+        _grantMemberValue = GrantCandidatesFor(accountId).FirstOrDefault()?.Id.ToString() ?? "";
+    }
+
+    private IEnumerable<FamilyMemberDto> GrantCandidates(BankAccountDto a) => GrantCandidatesFor(a.Id);
+
+    private IEnumerable<FamilyMemberDto> GrantCandidatesFor(Guid accountId)
+    {
+        var ownerId = _access?.OwnerMemberId;
+        var granted = _access?.Grants.Select(g => g.FamilyMemberId).ToHashSet() ?? [];
+        return (_members ?? []).Where(m => m.Id != ownerId && !granted.Contains(m.Id));
+    }
+
+    private async Task GrantAccessAsync(Guid accountId)
+    {
+        _manageError = null;
+        if (!Guid.TryParse(_grantMemberValue, out var memberId))
+            return;
+        var result = await Api.GrantAccessAsync(accountId, new GrantAccessRequest
+        {
+            MemberId = memberId,
+            Level = (AccountAccessLevel)int.Parse(_grantLevelValue),
+        });
+        if (result is null)
+            _manageError = "Sdílení se nepodařilo nastavit.";
+        await ReloadManageAsync(accountId);
+        await LoadAsync();
+    }
+
+    private async Task RevokeAccessAsync(Guid accountId, Guid memberId)
+    {
+        await Api.RevokeAccessAsync(accountId, memberId);
+        await ReloadManageAsync(accountId);
+        await LoadAsync();
+    }
+
+    private async Task CreateCardAsync(Guid accountId)
+    {
+        _manageError = null;
+        if (string.IsNullOrWhiteSpace(_cardName))
+        {
+            _manageError = "Zadejte jméno na kartě.";
+            return;
+        }
+        if (_cardExpMonth is < 1 or > 12)
+        {
+            _manageError = "Měsíc platnosti musí být 1–12.";
+            return;
+        }
+
+        var card = await Api.CreateCardAsync(accountId, new CreateCardRequest
+        {
+            HolderMemberId = Guid.TryParse(_cardHolderValue, out var hid) ? hid : null,
+            CardholderName = _cardName,
+            Last4 = string.IsNullOrWhiteSpace(_cardLast4) ? null : _cardLast4,
+            Type = (CardType)int.Parse(_cardTypeValue),
+            ExpiryMonth = _cardExpMonth,
+            ExpiryYear = _cardExpYear,
+            MonthlyLimit = _cardLimit > 0 ? _cardLimit : null,
+        });
+        if (card is null)
+        {
+            _manageError = "Kartu se nepodařilo přidat.";
+            return;
+        }
+        _cardName = "";
+        _cardLast4 = "";
+        _cardHolderValue = "";
+        _cardLimit = 0;
+        await ReloadManageAsync(accountId);
+        await LoadAsync();
+    }
+
+    private async Task ToggleCardStatusAsync(BankCardDto c)
+    {
+        var newStatus = c.Status == CardStatus.Active ? CardStatus.Blocked : CardStatus.Active;
+        await Api.UpdateCardAsync(c.Id, new UpdateCardRequest
+        {
+            HolderMemberId = c.HolderMemberId,
+            CardholderName = c.CardholderName,
+            Last4 = c.Last4,
+            Type = c.Type,
+            ExpiryMonth = c.ExpiryMonth,
+            ExpiryYear = c.ExpiryYear,
+            Status = newStatus,
+            MonthlyLimit = c.MonthlyLimit,
+        });
+        if (_expanded is { } id)
+            await ReloadManageAsync(id);
+    }
+
+    private async Task DeleteCardAsync(Guid cardId)
+    {
+        await Api.DeleteCardAsync(cardId);
+        if (_expanded is { } id)
+        {
+            await ReloadManageAsync(id);
+            await LoadAsync();
         }
     }
 
@@ -101,5 +396,37 @@
         BankProvider.AirBank => "Air Bank",
         BankProvider.Revolut => "Revolut",
         _ => "Jiná banka",
+    };
+
+    private static string RoleLabel(MemberRole role) => role switch
+    {
+        MemberRole.Owner => "vlastník",
+        MemberRole.Adult => "dospělý",
+        MemberRole.Viewer => "pozorovatel",
+        MemberRole.Child => "dítě",
+        _ => role.ToString(),
+    };
+
+    private static string LevelLabel(AccountAccessLevel level) => level switch
+    {
+        AccountAccessLevel.Disponent => "disponent",
+        AccountAccessLevel.Viewer => "jen čtení",
+        _ => level.ToString(),
+    };
+
+    private static string CardTypeLabel(CardType type) => type switch
+    {
+        CardType.Debit => "Debetní",
+        CardType.Credit => "Kreditní",
+        CardType.Prepaid => "Předplacená",
+        _ => type.ToString(),
+    };
+
+    private static string CardStatusLabel(CardStatus status) => status switch
+    {
+        CardStatus.Active => "aktivní",
+        CardStatus.Blocked => "zablokovaná",
+        CardStatus.Expired => "platnost vypršela",
+        _ => status.ToString(),
     };
 }

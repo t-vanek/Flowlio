@@ -17,7 +17,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<Family> Families => Set<Family>();
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
+    public DbSet<FamilyInvitation> FamilyInvitations => Set<FamilyInvitation>();
     public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
+    public DbSet<AccountAccess> AccountAccesses => Set<AccountAccess>();
+    public DbSet<BankCard> BankCards => Set<BankCard>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<RecurringPayment> RecurringPayments => Set<RecurringPayment>();

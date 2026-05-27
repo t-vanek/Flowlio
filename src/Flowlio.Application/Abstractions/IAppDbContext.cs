@@ -11,7 +11,10 @@ public interface IAppDbContext
 {
     DbSet<Family> Families { get; }
     DbSet<FamilyMember> FamilyMembers { get; }
+    DbSet<FamilyInvitation> FamilyInvitations { get; }
     DbSet<BankAccount> BankAccounts { get; }
+    DbSet<AccountAccess> AccountAccesses { get; }
+    DbSet<BankCard> BankCards { get; }
     DbSet<Category> Categories { get; }
     DbSet<Transaction> Transactions { get; }
     DbSet<RecurringPayment> RecurringPayments { get; }

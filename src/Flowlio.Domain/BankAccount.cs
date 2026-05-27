@@ -19,5 +19,18 @@ public class BankAccount : AuditableEntity
     /// <summary>Balance before the first imported transaction; running balances build on this.</summary>
     public decimal OpeningBalance { get; set; }
 
+    /// <summary>
+    /// The family member who owns this account. When the owner is a <see cref="MemberRole.Child"/>
+    /// member this is a child account, controlled by that child's guardian.
+    /// </summary>
+    public Guid? OwnerMemberId { get; set; }
+    public FamilyMember? OwnerMember { get; set; }
+
     public ICollection<Transaction> Transactions { get; set; } = [];
+
+    /// <summary>Authorized users (disponents) and viewers granted access to this account.</summary>
+    public ICollection<AccountAccess> AccessGrants { get; set; } = [];
+
+    /// <summary>Payment cards issued on this account.</summary>
+    public ICollection<BankCard> Cards { get; set; } = [];
 }
