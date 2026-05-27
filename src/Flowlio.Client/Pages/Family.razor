@@ -1,0 +1,233 @@
+@page "/family"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Rodina – Flowlio</PageTitle>
+
+<h1 class="page-title">Rodina</h1>
+
+<div class="panel-grid">
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Přidat člena</h2>
+        <p class="muted">Pozvěte manžela/manželku jako dospělého, přidejte pozorovatele, nebo založte dětský účet pod opatrovníkem.</p>
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            <FluentTextField @bind-Value="_name" Label="Jméno" Style="width:100%" Placeholder="Jana Nováková" />
+
+            <FluentSelect TOption="string" @bind-Value="_roleValue" Label="Role" Style="width:100%">
+                <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý (manžel/ka)</FluentOption>
+                <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel (jen čtení)</FluentOption>
+                <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
+            </FluentSelect>
+
+            @if (SelectedRole == MemberRole.Child)
+            {
+                <FluentSelect TOption="string" @bind-Value="_guardianValue" Label="Opatrovník" Style="width:100%">
+                    @foreach (var g in Guardians)
+                    {
+                        <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
+                    }
+                </FluentSelect>
+                <p class="muted">Opatrovník má plnou kontrolu nad účty a kartami dítěte. E-mail je volitelný – starší dítě se může přihlásit, malé spravuje rodič.</p>
+            }
+
+            <FluentTextField @bind-Value="_email" Label="@(SelectedRole == MemberRole.Child ? "E-mail (volitelný)" : "E-mail pro pozvánku")" Style="width:100%" Placeholder="jana@example.com" />
+
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat člena</FluentButton>
+
+            @if (_error is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+            }
+            @if (_lastInvite is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Success">
+                    Pozvánka vytvořena. Odešlete tento odkaz @_lastInvite.MemberName:
+                </FluentMessageBar>
+                <FluentTextField Value="@_lastInvite.InviteUrl" ReadOnly="true" Style="width:100%" />
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Členové rodiny</h2>
+        @if (_members is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_members.Count == 0)
+        {
+            <p class="muted">Zatím žádní členové.</p>
+        }
+        else
+        {
+            @foreach (var m in _members)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">
+                            @m.DisplayName
+                            @if (m.IsCurrentUser)
+                            {
+                                <span class="muted">(vy)</span>
+                            }
+                        </div>
+                        <div class="muted">
+                            @RoleLabel(m.Role) · @StatusLabel(m.Status)
+                            @if (m.GuardianName is not null)
+                            {
+                                <text> · opatrovník: @m.GuardianName</text>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(m.Email))
+                            {
+                                <text> · @m.Email</text>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        @if (m.Status == MemberStatus.Pending)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ReinviteAsync(m.Id))">Znovu pozvat</FluentButton>
+                        }
+                        @if (!m.IsCurrentUser && m.Role != MemberRole.Owner)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(m.Id))">Odebrat</FluentButton>
+                        }
+                    </div>
+                </div>
+            }
+        }
+
+        @if (_invitations is { Count: > 0 })
+        {
+            <h2 class="panel-title" style="margin-top:20px;">Čekající pozvánky</h2>
+            @foreach (var inv in _invitations)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">@inv.MemberName</div>
+                        <div class="muted">@inv.Email · platí do @inv.ExpiresAt.LocalDateTime.ToString("d.M.yyyy")</div>
+                    </div>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RevokeAsync(inv.Id))">Zrušit</FluentButton>
+                </div>
+            }
+        }
+    </FluentCard>
+</div>
+
+@code {
+    private IReadOnlyList<FamilyMemberDto>? _members;
+    private IReadOnlyList<InvitationDto>? _invitations;
+    private string _name = "";
+    private string _email = "";
+    private string _roleValue = ((int)MemberRole.Adult).ToString();
+    private string _guardianValue = "";
+    private bool _busy;
+    private string? _error;
+    private InvitationDto? _lastInvite;
+
+    private MemberRole SelectedRole => (MemberRole)int.Parse(_roleValue);
+
+    private IEnumerable<FamilyMemberDto> Guardians =>
+        _members?.Where(m => m.Role is MemberRole.Owner or MemberRole.Adult) ?? [];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _members = await Api.GetMembersAsync();
+        _invitations = await Api.GetInvitationsAsync();
+        if (string.IsNullOrEmpty(_guardianValue))
+            _guardianValue = Guardians.FirstOrDefault()?.Id.ToString() ?? "";
+    }
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _lastInvite = null;
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Zadejte jméno.";
+            return;
+        }
+
+        Guid? guardianId = null;
+        if (SelectedRole == MemberRole.Child)
+        {
+            if (!Guid.TryParse(_guardianValue, out var gid))
+            {
+                _error = "Vyberte opatrovníka.";
+                return;
+            }
+            guardianId = gid;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Api.CreateMemberAsync(new CreateMemberRequest
+            {
+                DisplayName = _name,
+                Email = string.IsNullOrWhiteSpace(_email) ? null : _email,
+                Role = SelectedRole,
+                GuardianMemberId = guardianId,
+            });
+
+            if (result is null)
+            {
+                _error = "Člena se nepodařilo přidat.";
+                return;
+            }
+
+            _lastInvite = result.Invitation;
+            _name = "";
+            _email = "";
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReinviteAsync(Guid memberId)
+    {
+        _error = null;
+        var invite = await Api.ReinviteMemberAsync(memberId);
+        if (invite is null)
+            _error = "Pozvánku se nepodařilo vytvořit (chybí u člena e-mail?).";
+        else
+            _lastInvite = invite;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Guid memberId)
+    {
+        _error = null;
+        if (!await Api.DeleteMemberAsync(memberId))
+            _error = "Člena nelze odebrat (je opatrovníkem dítěte?).";
+        await LoadAsync();
+    }
+
+    private async Task RevokeAsync(Guid invitationId)
+    {
+        await Api.RevokeInvitationAsync(invitationId);
+        await LoadAsync();
+    }
+
+    private static string RoleLabel(MemberRole role) => role switch
+    {
+        MemberRole.Owner => "Vlastník",
+        MemberRole.Adult => "Dospělý",
+        MemberRole.Viewer => "Pozorovatel",
+        MemberRole.Child => "Dítě",
+        _ => role.ToString(),
+    };
+
+    private static string StatusLabel(MemberStatus status) => status switch
+    {
+        MemberStatus.Active => "aktivní",
+        MemberStatus.Pending => "čeká na přijetí",
+        MemberStatus.Managed => "spravováno rodičem",
+        _ => status.ToString(),
+    };
+}

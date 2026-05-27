@@ -22,6 +22,7 @@ public static class ApiEndpoints
         api.MapGet("/transactions", GetTransactions);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
+        api.MapFamilyEndpoints();
     }
 
     private static async Task<IReadOnlyList<BankAccountDto>> GetAccounts(
@@ -36,27 +37,68 @@ public static class ApiEndpoints
             .Select(g => new { AccountId = g.Key, Sum = g.Sum(x => x.Amount) })
             .ToDictionaryAsync(x => x.AccountId, x => x.Sum, ct);
 
+        var members = await db.FamilyMembers
+            .Where(m => m.FamilyId == familyId)
+            .Select(m => new { m.Id, m.DisplayName, m.Role })
+            .ToDictionaryAsync(m => m.Id, ct);
+
+        var cardCounts = await db.BankCards
+            .Where(c => c.BankAccount!.FamilyId == familyId)
+            .GroupBy(c => c.BankAccountId)
+            .Select(g => new { Id = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.Count, ct);
+
+        var grantCounts = await db.AccountAccesses
+            .Where(g => g.BankAccount!.FamilyId == familyId)
+            .GroupBy(g => g.BankAccountId)
+            .Select(g => new { Id = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.Count, ct);
+
         return accounts
-            .Select(a => mapper.ToDto(a) with { CurrentBalance = a.OpeningBalance + sums.GetValueOrDefault(a.Id) })
+            .Select(a =>
+            {
+                var owner = a.OwnerMemberId is { } oid ? members.GetValueOrDefault(oid) : null;
+                return mapper.ToDto(a) with
+                {
+                    CurrentBalance = a.OpeningBalance + sums.GetValueOrDefault(a.Id),
+                    OwnerName = owner?.DisplayName,
+                    IsChildAccount = owner?.Role == MemberRole.Child,
+                    CardCount = cardCounts.GetValueOrDefault(a.Id),
+                    DisponentCount = grantCounts.GetValueOrDefault(a.Id),
+                };
+            })
             .ToList();
     }
 
     private static async Task<IResult> CreateAccount(
         CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var member = await family.RequireMemberAsync(ct);
+        var ownerMemberId = request.OwnerMemberId ?? member.Id;
+
+        var owner = await db.FamilyMembers
+            .FirstOrDefaultAsync(m => m.Id == ownerMemberId && m.FamilyId == member.FamilyId, ct);
+        if (owner is null)
+            return Results.BadRequest("Neplatný vlastník účtu.");
+
         var account = new BankAccount
         {
-            FamilyId = familyId,
+            FamilyId = member.FamilyId,
             Name = request.Name,
             Bank = request.Bank,
             AccountNumber = request.AccountNumber,
             Currency = request.Currency,
             OpeningBalance = request.OpeningBalance,
+            OwnerMemberId = owner.Id,
         };
         db.BankAccounts.Add(account);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(mapper.ToDto(account) with { CurrentBalance = account.OpeningBalance });
+        return Results.Ok(mapper.ToDto(account) with
+        {
+            CurrentBalance = account.OpeningBalance,
+            OwnerName = owner.DisplayName,
+            IsChildAccount = owner.Role == MemberRole.Child,
+        });
     }
 
     private static async Task<IReadOnlyList<CategoryDto>> GetCategories(

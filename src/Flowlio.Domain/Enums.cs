@@ -41,10 +41,49 @@ public enum MemberRole
 {
     /// <summary>Full control including managing members and deleting the family.</summary>
     Owner = 0,
-    /// <summary>Can manage accounts, transactions, budgets.</summary>
+    /// <summary>Can manage accounts, transactions, budgets. Spouses join with this role.</summary>
     Adult = 1,
     /// <summary>Read-only access to shared dashboards.</summary>
     Viewer = 2,
+    /// <summary>A child whose accounts and cards are controlled by a guardian (parent) member.</summary>
+    Child = 3,
+}
+
+/// <summary>
+/// What a non-owner family member may do on a specific bank account. The account's primary owner
+/// is tracked separately via <c>BankAccount.OwnerMemberId</c>.
+/// </summary>
+public enum AccountAccessLevel
+{
+    /// <summary>Authorized user ("disponent") — may view the account and manage its cards/transactions.</summary>
+    Disponent = 0,
+    /// <summary>Read-only access to the account.</summary>
+    Viewer = 1,
+}
+
+/// <summary>Kind of payment card issued on a bank account.</summary>
+public enum CardType
+{
+    Debit = 0,
+    Credit = 1,
+    Prepaid = 2,
+}
+
+/// <summary>Operational state of a payment card.</summary>
+public enum CardStatus
+{
+    Active = 0,
+    Blocked = 1,
+    Expired = 2,
+}
+
+/// <summary>Lifecycle of a family invitation sent so another person can join with their own login.</summary>
+public enum InvitationStatus
+{
+    Pending = 0,
+    Accepted = 1,
+    Revoked = 2,
+    Expired = 3,
 }
 
 /// <summary>File format a statement was imported from.</summary>

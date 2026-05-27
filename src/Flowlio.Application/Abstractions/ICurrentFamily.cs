@@ -1,3 +1,5 @@
+using Flowlio.Domain;
+
 namespace Flowlio.Application.Abstractions;
 
 /// <summary>
@@ -7,4 +9,7 @@ namespace Flowlio.Application.Abstractions;
 public interface ICurrentFamily
 {
     Task<Guid> RequireAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The current user's <see cref="FamilyMember"/> within their family.</summary>
+    Task<FamilyMember> RequireMemberAsync(CancellationToken cancellationToken = default);
 }
