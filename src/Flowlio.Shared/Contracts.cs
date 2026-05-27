@@ -385,6 +385,27 @@ public sealed record UpdateSystemRolePermissionsRequest
     public IReadOnlyList<SystemPermission> Permissions { get; init; } = [];
 }
 
+// ---- Audit log -------------------------------------------------------------
+
+public sealed record AuditEntryDto
+{
+    public Guid Id { get; init; }
+    public DateTimeOffset OccurredAt { get; init; }
+    public string? ActorName { get; init; }
+    public string Action { get; init; } = "";
+    public string? TargetType { get; init; }
+    public string? TargetName { get; init; }
+    public string? Details { get; init; }
+}
+
+public sealed record AuditPageDto
+{
+    public IReadOnlyList<AuditEntryDto> Items { get; init; } = [];
+    public int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+}
+
 public sealed record CreateUserRequest
 {
     public string Email { get; init; } = "";

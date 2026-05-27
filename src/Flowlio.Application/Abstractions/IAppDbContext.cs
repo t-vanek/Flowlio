@@ -13,6 +13,7 @@ public interface IAppDbContext
     DbSet<FamilyMember> FamilyMembers { get; }
     DbSet<FamilyRolePermission> FamilyRolePermissions { get; }
     DbSet<SystemRolePermission> SystemRolePermissions { get; }
+    DbSet<AuditEntry> AuditEntries { get; }
     DbSet<FamilyInvitation> FamilyInvitations { get; }
     DbSet<BankAccount> BankAccounts { get; }
     DbSet<AccountAccess> AccountAccesses { get; }

@@ -59,7 +59,8 @@ public static class SystemRolesEndpoints
     }
 
     private static async Task<IResult> CreateRole(
-        CreateSystemRoleRequest request, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys, CancellationToken ct)
+        CreateSystemRoleRequest request, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys,
+        IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageSystemRoles, ct))
             return Forbidden();
@@ -70,14 +71,18 @@ public static class SystemRolesEndpoints
         if (await roleManager.RoleExistsAsync(name))
             return Results.BadRequest("Role s tímto názvem už existuje.");
 
-        var result = await roleManager.CreateAsync(new IdentityRole<Guid>(name));
-        return result.Succeeded
-            ? Results.NoContent()
-            : Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+        var role = new IdentityRole<Guid>(name);
+        var result = await roleManager.CreateAsync(role);
+        if (!result.Succeeded)
+            return Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        await audit.RecordAsync("system-role.create", "SystemRole", role.Id.ToString(), name, cancellationToken: ct);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> RenameRole(
-        Guid roleId, RenameSystemRoleRequest request, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys, CancellationToken ct)
+        Guid roleId, RenameSystemRoleRequest request, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys,
+        IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageSystemRoles, ct))
             return Forbidden();
@@ -92,16 +97,20 @@ public static class SystemRolesEndpoints
         if (string.IsNullOrWhiteSpace(name))
             return Results.BadRequest("Název role je povinný.");
 
+        var oldName = role.Name;
         role.Name = name;
         var result = await roleManager.UpdateAsync(role);
-        return result.Succeeded
-            ? Results.NoContent()
-            : Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+        if (!result.Succeeded)
+            return Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        await audit.RecordAsync("system-role.rename", "SystemRole", roleId.ToString(), name,
+            details: $"Přejmenováno z „{oldName}“", cancellationToken: ct);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> SetPermissions(
         Guid roleId, UpdateSystemRolePermissionsRequest request, RoleManager<IdentityRole<Guid>> roleManager,
-        IAppDbContext db, ICurrentSystemAccess sys, CancellationToken ct)
+        IAppDbContext db, ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageSystemRoles, ct))
             return Forbidden();
@@ -122,11 +131,13 @@ public static class SystemRolesEndpoints
             db.SystemRolePermissions.Add(new SystemRolePermission { RoleId = roleId, Permission = added });
 
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("system-role.permissions", "SystemRole", roleId.ToString(), role.Name,
+            details: $"Oprávnění: {(requested.Count > 0 ? string.Join(", ", requested) : "žádná")}", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> DeleteRole(
-        Guid roleId, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys, CancellationToken ct)
+        Guid roleId, RoleManager<IdentityRole<Guid>> roleManager, ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageSystemRoles, ct))
             return Forbidden();
@@ -137,9 +148,12 @@ public static class SystemRolesEndpoints
         if (role.Name == SystemRoles.Administrator)
             return Results.BadRequest("Roli administrátora nelze smazat.");
 
+        var name = role.Name;
         var result = await roleManager.DeleteAsync(role);
-        return result.Succeeded
-            ? Results.NoContent()
-            : Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+        if (!result.Succeeded)
+            return Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        await audit.RecordAsync("system-role.delete", "SystemRole", roleId.ToString(), name, cancellationToken: ct);
+        return Results.NoContent();
     }
 }

@@ -14,7 +14,7 @@ namespace Flowlio.Server.Endpoints;
 
 /// <summary>
 /// System administration (cross-family). The group is open to any user with a system permission;
-/// each operation is gated by its specific <see cref="SystemPermission"/>. Each action notifies the
+/// each operation is gated by its specific <see cref="SystemPermission"/>, audited, and notifies the
 /// affected user (live toast + e-mail).
 /// </summary>
 public static class AdminEndpoints
@@ -62,7 +62,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> CreateUser(
         CreateUserRequest request, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
-        ICurrentSystemAccess sys, CancellationToken ct)
+        ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.CreateUsers, ct))
             return Forbidden();
@@ -97,13 +97,16 @@ public static class AdminEndpoints
             await userManager.AddToRoleAsync(user, SystemRoles.Administrator);
         }
 
+        await audit.RecordAsync("user.create", "User", user.Id.ToString(), user.Email,
+            details: request.IsAdmin ? "Vytvořen účet (administrátor)" : "Vytvořen účet", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> SetUserRoles(
         Guid userId, SetUserRolesRequest request,
         UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
-        ICurrentUser current, ICurrentSystemAccess sys, IHubContext<NotificationsHub> hub, AccountNotifier notifier, CancellationToken ct)
+        ICurrentUser current, ICurrentSystemAccess sys, IHubContext<NotificationsHub> hub, AccountNotifier notifier,
+        IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserRoles, ct))
             return Forbidden();
@@ -133,12 +136,14 @@ public static class AdminEndpoints
 
         await hub.NotifyUserAsync(userId, ct);
         await notifier.NotifyAsync(user, "Změna rolí – Flowlio", "Byly vám upraveny systémové role účtu.", "info", ct);
+        await audit.RecordAsync("user.roles", "User", userId.ToString(), user.Email,
+            details: $"Role: {(requested.Count > 0 ? string.Join(", ", requested) : "žádné")}", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> LockUser(
         Guid userId, LockUserRequest request, UserManager<ApplicationUser> userManager, ICurrentUser current,
-        ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
             return Forbidden();
@@ -154,12 +159,14 @@ public static class AdminEndpoints
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(minutes));
         await notifier.NotifyAsync(user, "Účet dočasně zamčen – Flowlio",
             $"Váš účet byl dočasně zamčen na {minutes} minut.", "warning", ct);
+        await audit.RecordAsync("user.lock", "User", userId.ToString(), user.Email,
+            details: $"Zamčeno na {minutes} min", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> BlockUser(
         Guid userId, UserManager<ApplicationUser> userManager, ICurrentUser current,
-        ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
             return Forbidden();
@@ -174,11 +181,13 @@ public static class AdminEndpoints
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
         await notifier.NotifyAsync(user, "Účet zablokován – Flowlio",
             "Váš účet byl zablokován administrátorem.", "error", ct);
+        await audit.RecordAsync("user.block", "User", userId.ToString(), user.Email, details: "Účet zablokován", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> RestoreUser(
-        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier,
+        IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserLockout, ct))
             return Forbidden();
@@ -189,12 +198,14 @@ public static class AdminEndpoints
         await userManager.SetLockoutEndDateAsync(user, null);
         await userManager.ResetAccessFailedCountAsync(user);
         await notifier.NotifyAsync(user, "Účet odemčen – Flowlio", "Váš účet byl odemčen.", "success", ct);
+        await audit.RecordAsync("user.unlock", "User", userId.ToString(), user.Email, details: "Účet odemčen", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> SetPassword(
         Guid userId, AdminSetPasswordRequest request,
-        UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentSystemAccess sys,
+        AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
             return Forbidden();
@@ -219,11 +230,13 @@ public static class AdminEndpoints
         await RevokeTokensAsync(tokens, userId, ct);
         await notifier.NotifyAsync(user, "Heslo bylo změněno – Flowlio",
             "Administrátor vám nastavil nové heslo. Při příštím přihlášení budete vyzváni k volbě vlastního.", "warning", ct);
+        await audit.RecordAsync("user.password-reset", "User", userId.ToString(), user.Email, details: "Heslo nastaveno administrátorem", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> ForcePasswordChange(
-        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier,
+        IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
             return Forbidden();
@@ -235,12 +248,13 @@ public static class AdminEndpoints
         await userManager.UpdateAsync(user);
         await notifier.NotifyAsync(user, "Vyžadována změna hesla – Flowlio",
             "Při příštím přihlášení budete vyzváni ke změně hesla.", "warning", ct);
+        await audit.RecordAsync("user.force-password-change", "User", userId.ToString(), user.Email, details: "Vynucena změna hesla", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> ForceLogout(
         Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
-        ICurrentSystemAccess sys, CancellationToken ct)
+        ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ForceUserLogout, ct))
             return Forbidden();
@@ -253,12 +267,13 @@ public static class AdminEndpoints
 
         await userManager.UpdateSecurityStampAsync(user);
         await RevokeTokensAsync(tokens, userId, ct);
+        await audit.RecordAsync("user.force-logout", "User", userId.ToString(), user.Email, details: "Vynuceno odhlášení", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> DeleteUser(
         Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, IOpenIddictTokenManager tokens,
-        ICurrentUser current, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        ICurrentUser current, ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
             return Forbidden();
@@ -283,11 +298,13 @@ public static class AdminEndpoints
         await RevokeTokensAsync(tokens, userId, ct);
         await notifier.NotifyAsync(user, "Účet deaktivován – Flowlio",
             "Váš účet byl deaktivován administrátorem.", "error", ct);
+        await audit.RecordAsync("user.delete", "User", userId.ToString(), user.Email, details: "Účet smazán (soft delete)", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> UndeleteUser(
-        Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentSystemAccess sys, AccountNotifier notifier, CancellationToken ct)
+        Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, ICurrentSystemAccess sys,
+        AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
             return Forbidden();
@@ -305,12 +322,13 @@ public static class AdminEndpoints
         await db.SaveChangesAsync(ct);
 
         await notifier.NotifyAsync(user, "Účet obnoven – Flowlio", "Váš účet byl obnoven.", "success", ct);
+        await audit.RecordAsync("user.undelete", "User", userId.ToString(), user.Email, details: "Účet obnoven", cancellationToken: ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> PurgeUser(
         Guid userId, UserManager<ApplicationUser> userManager, IAppDbContext db, IOpenIddictTokenManager tokens,
-        ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
+        ICurrentUser current, ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
             return Forbidden();
@@ -331,17 +349,19 @@ public static class AdminEndpoints
 
         await RevokeTokensAsync(tokens, userId, ct);
 
+        var email = user.Email;
         var result = await userManager.DeleteAsync(user);
-        return result.Succeeded
-            ? Results.NoContent()
-            : Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+        if (!result.Succeeded)
+            return Results.BadRequest(string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        await audit.RecordAsync("user.purge", "User", userId.ToString(), email, details: "Účet trvale odstraněn", cancellationToken: ct);
+        return Results.NoContent();
     }
 
     private static async Task<IReadOnlyList<AdminUserDto>> ToDtosAsync(
         List<ApplicationUser> users, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
         IAppDbContext db, ICurrentUser current, CancellationToken ct)
     {
-        // Build a user -> role-names map from each role's membership (few roles, so this is cheap).
         var rolesByUser = new Dictionary<Guid, List<string>>();
         var roleNames = await roleManager.Roles.Select(r => r.Name!).ToListAsync(ct);
         foreach (var roleName in roleNames)

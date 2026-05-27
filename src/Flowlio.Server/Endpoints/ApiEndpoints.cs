@@ -32,6 +32,7 @@ public static class ApiEndpoints
         api.MapFamilyManagementEndpoints();
         app.MapAdminEndpoints();
         app.MapSystemRolesEndpoints();
+        app.MapAuditEndpoints();
     }
 
     private static async Task<CurrentUserDto> GetMe(

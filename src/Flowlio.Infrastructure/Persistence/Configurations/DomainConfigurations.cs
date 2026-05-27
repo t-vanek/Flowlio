@@ -54,6 +54,23 @@ public class SystemRolePermissionConfiguration : IEntityTypeConfiguration<System
     }
 }
 
+public class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEntry>
+{
+    public void Configure(EntityTypeBuilder<AuditEntry> b)
+    {
+        b.Property(x => x.Action).HasMaxLength(80).IsRequired();
+        b.Property(x => x.ActorName).HasMaxLength(256);
+        b.Property(x => x.TargetType).HasMaxLength(80);
+        b.Property(x => x.TargetId).HasMaxLength(64);
+        b.Property(x => x.TargetName).HasMaxLength(256);
+        b.Property(x => x.Details).HasMaxLength(1000);
+        b.HasIndex(x => x.OccurredAt);
+        b.HasIndex(x => x.Action);
+        b.HasIndex(x => x.ActorUserId);
+        b.HasIndex(x => x.FamilyId);
+    }
+}
+
 public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
 {
     public void Configure(EntityTypeBuilder<BankAccount> b)

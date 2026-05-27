@@ -42,7 +42,7 @@ public static class FamilyManagementEndpoints
     }
 
     private static async Task<IResult> UpdateFamily(
-        UpdateFamilyRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        UpdateFamilyRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageFamily, ct))
@@ -59,12 +59,13 @@ public static class FamilyManagementEndpoints
             fam.BaseCurrency = request.BaseCurrency.Trim().ToUpperInvariant();
         fam.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("family.update", "Family", fam.Id.ToString(), fam.Name, fam.Id, "Upravena rodina", ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> TransferOwnership(
         TransferOwnershipRequest request, IAppDbContext db, ICurrentFamily family,
-        IHubContext<NotificationsHub> hub, CancellationToken ct)
+        IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         // Ownership transfer is reserved for the current owner regardless of granted permissions.
@@ -90,11 +91,13 @@ public static class FamilyManagementEndpoints
         me.UpdatedAt = target.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
+        await audit.RecordAsync("family.transfer-ownership", "Family", me.FamilyId.ToString(), target.DisplayName, me.FamilyId,
+            $"Vlastnictví převedeno na {target.DisplayName}", ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> DeleteFamily(
-        DeleteFamilyRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        DeleteFamilyRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (me.Role != MemberRole.Owner)
@@ -109,8 +112,11 @@ public static class FamilyManagementEndpoints
         // All family-scoped data (members, accounts and their transactions/cards, categories,
         // recurring payments, subscriptions, rules, invitations, role permissions) is removed by
         // the database cascade when the family row is deleted.
+        var familyId = fam.Id;
+        var familyName = fam.Name;
         db.Families.Remove(fam);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("family.delete", "Family", familyId.ToString(), familyName, familyId, "Rodina smazána", ct);
         return Results.NoContent();
     }
 }

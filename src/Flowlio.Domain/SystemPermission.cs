@@ -22,6 +22,8 @@ public enum SystemPermission
     DeleteUsers = 6,
     /// <summary>Create, edit and delete system roles and their permissions.</summary>
     ManageSystemRoles = 7,
+    /// <summary>View the audit log of administrative actions.</summary>
+    ViewAuditLog = 8,
 }
 
 /// <summary>Well-known system role names.</summary>

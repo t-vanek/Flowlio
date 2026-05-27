@@ -48,7 +48,7 @@ public static class RolesEndpoints
 
     private static async Task<IResult> UpdateRole(
         string role, UpdateRolePermissionsRequest request, IAppDbContext db, ICurrentFamily family,
-        IHubContext<NotificationsHub> hub, CancellationToken ct)
+        IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageRoles, ct))
@@ -73,6 +73,8 @@ public static class RolesEndpoints
 
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
+        await audit.RecordAsync("family-role.permissions", "FamilyRole", parsed.ToString(), parsed.ToString(), me.FamilyId,
+            $"Oprávnění role {parsed}", ct);
         return Results.NoContent();
     }
 }

@@ -65,7 +65,7 @@ public static class FamilyEndpoints
 
     private static async Task<IResult> CreateMember(
         CreateMemberRequest request, IAppDbContext db, ICurrentFamily family, InvitationService invitations,
-        HttpRequest http, CancellationToken ct)
+        HttpRequest http, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -107,6 +107,8 @@ public static class FamilyEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("member.create", "Member", member.Id.ToString(), member.DisplayName, me.FamilyId,
+            $"Přidán člen ({member.Role})", ct);
 
         if (inviteUrl is not null && member.Email is not null)
         {
@@ -133,7 +135,7 @@ public static class FamilyEndpoints
 
     private static async Task<IResult> UpdateMember(
         Guid memberId, UpdateMemberRequest request, IAppDbContext db, ICurrentFamily family,
-        IHubContext<NotificationsHub> hub, CancellationToken ct)
+        IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -177,20 +179,22 @@ public static class FamilyEndpoints
         member.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
+        await audit.RecordAsync("member.update", "Member", member.Id.ToString(), member.DisplayName, me.FamilyId,
+            $"Upraven člen ({member.Role})", ct);
 
         return Results.Ok(await BuildMemberDtoAsync(db, member, me.Id, ct));
     }
 
     private static Task<IResult> DeactivateMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct) =>
-        SetMemberActiveAsync(memberId, active: false, db, family, hub, ct);
+        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: false, db, family, hub, audit, ct);
 
     private static Task<IResult> ActivateMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct) =>
-        SetMemberActiveAsync(memberId, active: true, db, family, hub, ct);
+        Guid memberId, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct) =>
+        SetMemberActiveAsync(memberId, active: true, db, family, hub, audit, ct);
 
     private static async Task<IResult> SetMemberActiveAsync(
-        Guid memberId, bool active, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, CancellationToken ct)
+        Guid memberId, bool active, IAppDbContext db, ICurrentFamily family, IHubContext<NotificationsHub> hub, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -209,6 +213,8 @@ public static class FamilyEndpoints
         member.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
+        await audit.RecordAsync(active ? "member.activate" : "member.deactivate", "Member", member.Id.ToString(),
+            member.DisplayName, me.FamilyId, active ? "Člen aktivován" : "Člen deaktivován", ct);
         return Results.NoContent();
     }
 
@@ -241,7 +247,7 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> DeleteMember(
-        Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid memberId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -260,8 +266,10 @@ public static class FamilyEndpoints
         if (hasDependents)
             return Results.BadRequest("Člen je opatrovníkem dětského účtu. Nejprve přiřaďte dítě jinému opatrovníkovi.");
 
+        var name = member.DisplayName;
         db.FamilyMembers.Remove(member);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("member.delete", "Member", memberId.ToString(), name, me.FamilyId, "Odebrán člen", ct);
         return Results.NoContent();
     }
 

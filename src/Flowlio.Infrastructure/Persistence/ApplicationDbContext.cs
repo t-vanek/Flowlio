@@ -19,6 +19,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
     public DbSet<FamilyRolePermission> FamilyRolePermissions => Set<FamilyRolePermission>();
     public DbSet<SystemRolePermission> SystemRolePermissions => Set<SystemRolePermission>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<FamilyInvitation> FamilyInvitations => Set<FamilyInvitation>();
     public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
     public DbSet<AccountAccess> AccountAccesses => Set<AccountAccess>();

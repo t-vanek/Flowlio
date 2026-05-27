@@ -200,6 +200,19 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteSystemRoleAsync(Guid roleId) =>
         (await http.DeleteAsync($"api/admin/system-roles/{roleId}")).IsSuccessStatusCode;
 
+    // --- Audit log ---
+
+    public async Task<AuditPageDto?> GetAuditAsync(string? search = null, int page = 1)
+    {
+        var url = $"api/admin/audit?page={page}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search)}";
+        var response = await http.GetAsync(url);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<AuditPageDto>()
+            : null;
+    }
+
     public async Task<bool> LockUserAsync(Guid userId, int minutes) =>
         (await http.PostAsJsonAsync($"api/admin/users/{userId}/lock", new LockUserRequest { Minutes = minutes })).IsSuccessStatusCode;
 

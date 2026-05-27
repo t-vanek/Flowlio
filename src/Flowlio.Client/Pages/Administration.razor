@@ -11,7 +11,7 @@
 {
     <FluentProgressRing />
 }
-else if (!_canUsers && !_canSysRoles && !_canRoles && !_canFamily)
+else if (!_canUsers && !_canSysRoles && !_canAudit && !_canRoles && !_canFamily)
 {
     <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
 }
@@ -25,6 +25,10 @@ else
         @if (_canSysRoles)
         {
             <FluentButton Appearance="@TabAppearance(Tab.SystemRoles)" OnClick="@(() => _tab = Tab.SystemRoles)">Role účtů</FluentButton>
+        }
+        @if (_canAudit)
+        {
+            <FluentButton Appearance="@TabAppearance(Tab.Audit)" OnClick="@(() => _tab = Tab.Audit)">Audit</FluentButton>
         }
         @if (_canRoles)
         {
@@ -264,6 +268,48 @@ else
         </FluentCard>
     }
 
+    @if (_tab == Tab.Audit && _canAudit)
+    {
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Audit log</h2>
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentTextField @bind-Value="_auditSearch" Label="Hledat (aktér, cíl, popis)" Style="width:100%" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="SearchAuditAsync">Hledat</FluentButton>
+            </FluentStack>
+            @if (_audit is null)
+            {
+                <FluentProgressRing />
+            }
+            else if (_audit.Items.Count == 0)
+            {
+                <p class="muted">Žádné záznamy.</p>
+            }
+            else
+            {
+                @foreach (var e in _audit.Items)
+                {
+                    <div class="account-row">
+                        <div>
+                            <div class="account-name">@AuditActionLabel(e.Action)@(e.TargetName is not null ? $" · {e.TargetName}" : "")</div>
+                            <div class="muted">
+                                @e.OccurredAt.LocalDateTime.ToString("d.M.yyyy HH:mm") · @(e.ActorName ?? "systém")
+                                @if (!string.IsNullOrWhiteSpace(e.Details))
+                                {
+                                    <text> · @e.Details</text>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_auditPage <= 1)" OnClick="@(() => ChangeAuditPageAsync(-1))">Předchozí</FluentButton>
+                    <span class="muted">Strana @_audit.Page · celkem @_audit.TotalCount</span>
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_auditPage * _audit.PageSize >= _audit.TotalCount)" OnClick="@(() => ChangeAuditPageAsync(1))">Další</FluentButton>
+                </FluentStack>
+            }
+        </FluentCard>
+    }
+
     @if (_tab == Tab.Roles && _canRoles)
     {
         <FluentCard Class="panel">
@@ -361,7 +407,7 @@ else
 }
 
 @code {
-    private enum Tab { Users, SystemRoles, Roles, Family }
+    private enum Tab { Users, SystemRoles, Audit, Roles, Family }
 
     private CurrentUserDto? _me;
     private bool _canUsers;
@@ -372,6 +418,7 @@ else
     private bool _canForceLogout;
     private bool _canDeleteUsers;
     private bool _canSysRoles;
+    private bool _canAudit;
     private bool _canRoles;
     private bool _canFamily;
     private bool _isOwner;
@@ -397,6 +444,10 @@ else
     private string _renameValue = "";
     private string? _sysRolesMessage;
     private MessageIntent _sysRolesIntent = MessageIntent.Success;
+
+    private AuditPageDto? _audit;
+    private string _auditSearch = "";
+    private int _auditPage = 1;
 
     private FamilyRolesDto? _roles;
     private readonly Dictionary<MemberRole, HashSet<Permission>> _rolePerms = new();
@@ -428,6 +479,8 @@ else
             _users = await Api.GetAdminUsersAsync();
             await LoadSystemRolesAsync();
         }
+        if (_canAudit)
+            await LoadAuditAsync();
         if (_canRoles)
             await LoadRolesAsync();
         if (_canFamily)
@@ -445,6 +498,7 @@ else
         _canForceLogout = S(SystemPermission.ForceUserLogout);
         _canDeleteUsers = S(SystemPermission.DeleteUsers);
         _canSysRoles = S(SystemPermission.ManageSystemRoles);
+        _canAudit = S(SystemPermission.ViewAuditLog);
         _canRoles = _me?.Can(Permission.ManageRoles) ?? false;
         _canFamily = _me?.Can(Permission.ManageFamily) ?? false;
         _isOwner = _me?.Role == MemberRole.Owner;
@@ -454,9 +508,14 @@ else
     {
         if (_tab == Tab.Users && _canUsers) return;
         if (_tab == Tab.SystemRoles && _canSysRoles) return;
+        if (_tab == Tab.Audit && _canAudit) return;
         if (_tab == Tab.Roles && _canRoles) return;
         if (_tab == Tab.Family && _canFamily) return;
-        _tab = _canUsers ? Tab.Users : _canSysRoles ? Tab.SystemRoles : _canRoles ? Tab.Roles : Tab.Family;
+        _tab = _canUsers ? Tab.Users
+            : _canSysRoles ? Tab.SystemRoles
+            : _canAudit ? Tab.Audit
+            : _canRoles ? Tab.Roles
+            : Tab.Family;
     }
 
     private async Task LoadSystemRolesAsync()
@@ -466,6 +525,20 @@ else
         if (_systemRoles is not null)
             foreach (var r in _systemRoles.Roles)
                 _sysRolePerms[r.RoleId] = r.Permissions.ToHashSet();
+    }
+
+    private async Task LoadAuditAsync() => _audit = await Api.GetAuditAsync(_auditSearch, _auditPage);
+
+    private async Task SearchAuditAsync()
+    {
+        _auditPage = 1;
+        await LoadAuditAsync();
+    }
+
+    private async Task ChangeAuditPageAsync(int delta)
+    {
+        _auditPage = Math.Max(1, _auditPage + delta);
+        await LoadAuditAsync();
     }
 
     private async Task LoadRolesAsync()
@@ -762,6 +835,36 @@ else
         SystemPermission.ForceUserLogout => "Vynutit odhlášení",
         SystemPermission.DeleteUsers => "Mazání účtů",
         SystemPermission.ManageSystemRoles => "Správa systémových rolí",
+        SystemPermission.ViewAuditLog => "Audit log",
         _ => p.ToString(),
+    };
+
+    private static string AuditActionLabel(string action) => action switch
+    {
+        "user.create" => "Vytvoření účtu",
+        "user.roles" => "Změna rolí účtu",
+        "user.lock" => "Zámek účtu",
+        "user.block" => "Blokace účtu",
+        "user.unlock" => "Odemčení účtu",
+        "user.password-reset" => "Reset hesla",
+        "user.force-password-change" => "Vynucení změny hesla",
+        "user.force-logout" => "Vynucené odhlášení",
+        "user.delete" => "Smazání účtu",
+        "user.undelete" => "Obnovení účtu",
+        "user.purge" => "Trvalé odstranění účtu",
+        "system-role.create" => "Vytvoření role účtů",
+        "system-role.rename" => "Přejmenování role účtů",
+        "system-role.permissions" => "Změna oprávnění role účtů",
+        "system-role.delete" => "Smazání role účtů",
+        "family.update" => "Úprava rodiny",
+        "family.transfer-ownership" => "Převod vlastnictví",
+        "family.delete" => "Smazání rodiny",
+        "family-role.permissions" => "Změna oprávnění role rodiny",
+        "member.create" => "Přidání člena",
+        "member.update" => "Úprava člena",
+        "member.delete" => "Odebrání člena",
+        "member.activate" => "Aktivace člena",
+        "member.deactivate" => "Deaktivace člena",
+        _ => action,
     };
 }
