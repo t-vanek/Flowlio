@@ -25,6 +25,10 @@ builder.Services.AddOidcAuthentication(options =>
     options.ProviderOptions.DefaultScopes.Add("flowlio.api");
 
     options.UserOptions.NameClaim = "name";
+
+    // After a successful logout, skip the default "You are logged out" screen and
+    // send the user straight back to the login flow.
+    options.AuthenticationPaths.LogOutSucceededPath = "authentication/login";
 });
 
 builder.Services

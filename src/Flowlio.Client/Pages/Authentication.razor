@@ -1,8 +1,51 @@
 @page "/authentication/{action}"
+@layout EmptyLayout
 @using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@inject NavigationManager Navigation
 
-<RemoteAuthenticatorView Action="@Action" />
+<div class="auth-shell">
+    <div class="auth-status">
+        <RemoteAuthenticatorView Action="@Action">
+            <LogOutSucceeded>
+                <FluentProgressRing />
+                <p>Odhlašuji…</p>
+            </LogOutSucceeded>
+            <LoggingIn>
+                <FluentProgressRing />
+                <p>Přihlašuji…</p>
+            </LoggingIn>
+            <CompletingLoggingIn>
+                <FluentProgressRing />
+                <p>Dokončuji přihlášení…</p>
+            </CompletingLoggingIn>
+            <CompletingLogOut>
+                <FluentProgressRing />
+                <p>Dokončuji odhlášení…</p>
+            </CompletingLogOut>
+            <LogOutFailed>
+                <p>Odhlášení selhalo. <a href="/">Pokračovat</a></p>
+            </LogOutFailed>
+            <LogInFailed>
+                <p>Přihlášení selhalo. <a href="authentication/login">Zkusit znovu</a></p>
+            </LogInFailed>
+        </RemoteAuthenticatorView>
+    </div>
+</div>
 
 @code {
     [Parameter] public string? Action { get; set; }
+
+    /// <summary>
+    /// Failsafe: if the user lands on the default "logged-out" route (e.g. an older
+    /// build of the WASM client cached in the browser still uses it), send them
+    /// straight back to the sign-in flow instead of leaving them stuck on a static
+    /// "You are logged out" view.
+    /// </summary>
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && string.Equals(Action, "logged-out", StringComparison.Ordinal))
+        {
+            Navigation.NavigateToLogin("authentication/login");
+        }
+    }
 }

@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @implements IAsyncDisposable
+@inject NavigationManager Navigation
 @inject LiveNotificationService Live
 @inject CurrentUserState CurrentUser
 @inject IToastService Toasts
@@ -12,14 +13,26 @@
 <FluentMessageBarProvider />
 <FluentMenuProvider />
 
-<div class="page">
+<div class="page @(_sidebarOpen ? "is-sidebar-open" : "")">
     <aside class="sidebar">
         <NavMenu />
     </aside>
 
+    @if (_sidebarOpen)
+    {
+        <div class="sidebar-backdrop" @onclick="CloseSidebar"></div>
+    }
+
     <main class="main">
         <header class="topbar">
-            <span class="topbar-title">Flowlio</span>
+            <button type="button"
+                    class="topbar-burger"
+                    aria-label="Otevřít navigaci"
+                    aria-expanded="@(_sidebarOpen ? "true" : "false")"
+                    @onclick="ToggleSidebar">
+                <span></span><span></span><span></span>
+            </button>
+            <span class="topbar-title">@_pageTitle</span>
             <span class="spacer"></span>
             <ProfileMenu OnThemeChanged="HandleThemeChangedAsync" />
         </header>
@@ -32,6 +45,57 @@
 
 @code {
     private DesignThemeModes _designMode = DesignThemeModes.System;
+    private string _pageTitle = "";
+
+    private static readonly (string Prefix, string Title)[] _routeTitles =
+    [
+        ("/transactions",   "Transakce"),
+        ("/pohyby",         "Pohyby"),
+        ("/accounts",       "Účty"),
+        ("/family",         "Rodina"),
+        ("/import",         "Import výpisu"),
+        ("/administration", "Administrace"),
+    ];
+
+    protected override void OnInitialized()
+    {
+        UpdatePageTitle();
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private bool _sidebarOpen;
+
+    private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
+    private void CloseSidebar() => _sidebarOpen = false;
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Always close the slide-over sidebar after a navigation on mobile;
+        // on desktop the sidebar is permanent so the flag is a no-op visually.
+        _sidebarOpen = false;
+
+        var previous = _pageTitle;
+        UpdatePageTitle();
+        if (previous != _pageTitle)
+            InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdatePageTitle()
+    {
+        var path = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).TrimEnd('/');
+        if (path.Contains('?')) path = path[..path.IndexOf('?')];
+        if (path.Contains('#')) path = path[..path.IndexOf('#')];
+
+        foreach (var (prefix, title) in _routeTitles)
+        {
+            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                _pageTitle = title;
+                return;
+            }
+        }
+        _pageTitle = "Přehled";
+    }
 
     private Task HandleThemeChangedAsync(string theme)
     {
@@ -87,6 +151,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Navigation.LocationChanged -= OnLocationChanged;
         Live.ImportCompleted -= OnImportCompleted;
         Live.AccessChanged -= OnAccessChanged;
         Live.Notice -= OnNotice;
