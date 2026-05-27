@@ -18,7 +18,8 @@ public static class SystemRolesEndpoints
 {
     public static void MapSystemRolesEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy);
+        var group = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy)
+            .AddEndpointFilter<Validation.ValidationEndpointFilter>();
         group.MapGet("/system-roles", GetRoles);
         group.MapPost("/system-roles", CreateRole);
         group.MapPut("/system-roles/{roleId:guid}", RenameRole);

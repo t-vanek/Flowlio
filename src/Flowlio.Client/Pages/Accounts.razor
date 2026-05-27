@@ -12,28 +12,37 @@
     {
     <FluentCard Class="panel">
         <h2 class="panel-title">Nový účet</h2>
-        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-            <FluentTextField @bind-Value="_name" Label="Název" Style="width:100%" Placeholder="Běžný účet" />
-            <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
-                @foreach (var b in Enum.GetValues<BankProvider>())
-                {
-                    <FluentOption TOption="string" Value="@(((int)b).ToString())">@BankLabel(b)</FluentOption>
-                }
-            </FluentSelect>
-            <FluentTextField @bind-Value="_accountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
-            <FluentNumberField @bind-Value="_openingBalance" Label="Počáteční zůstatek" Style="width:100%" />
+        <EditForm Model="_accountModel" OnValidSubmit="CreateAsync">
+            <DataAnnotationsValidator />
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <div>
+                    <FluentTextField @bind-Value="_accountModel.Name" Label="Název" Style="width:100%" Placeholder="Běžný účet" />
+                    <FluentValidationMessage For="@(() => _accountModel.Name)" />
+                </div>
+                <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
+                    @foreach (var b in Enum.GetValues<BankProvider>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)b).ToString())">@BankLabel(b)</FluentOption>
+                    }
+                </FluentSelect>
+                <div>
+                    <FluentTextField @bind-Value="_accountModel.AccountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
+                    <FluentValidationMessage For="@(() => _accountModel.AccountNumber)" />
+                </div>
+                <FluentNumberField @bind-Value="_accountModel.OpeningBalance" Label="Počáteční zůstatek" Style="width:100%" />
 
-            <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">
-                <FluentOption TOption="string" Value="">Můj / společný účet</FluentOption>
-                @foreach (var m in OwnerCandidates)
-                {
-                    <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName (@RoleLabel(m.Role))</FluentOption>
-                }
-            </FluentSelect>
-            <p class="muted">Zvolíte-li jako vlastníka dítě, vznikne dětský účet pod kontrolou jeho opatrovníka.</p>
+                <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">
+                    <FluentOption TOption="string" Value="">Můj / společný účet</FluentOption>
+                    @foreach (var m in OwnerCandidates)
+                    {
+                        <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName (@RoleLabel(m.Role))</FluentOption>
+                    }
+                </FluentSelect>
+                <p class="muted">Zvolíte-li jako vlastníka dítě, vznikne dětský účet pod kontrolou jeho opatrovníka.</p>
 
-            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
-        </FluentStack>
+                <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Loading="_busy">Přidat účet</FluentButton>
+            </FluentStack>
+        </EditForm>
     </FluentCard>
     }
 
@@ -181,30 +190,40 @@
 
                             @if (_canManageCards)
                             {
-                                <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                                    <FluentTextField @bind-Value="_cardName" Label="Jméno na kartě" Style="width:100%" Placeholder="JANA NOVAKOVA" />
-                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                        <FluentSelect TOption="string" @bind-Value="_cardTypeValue" Label="Typ">
-                                            <FluentOption TOption="string" Value="@(((int)CardType.Debit).ToString())">Debetní</FluentOption>
-                                            <FluentOption TOption="string" Value="@(((int)CardType.Credit).ToString())">Kreditní</FluentOption>
-                                            <FluentOption TOption="string" Value="@(((int)CardType.Prepaid).ToString())">Předplacená</FluentOption>
-                                        </FluentSelect>
-                                        <FluentTextField @bind-Value="_cardLast4" Label="Poslední 4 číslice" Placeholder="1234" />
-                                        <FluentNumberField @bind-Value="_cardExpMonth" Label="Měsíc" Style="width:90px" />
-                                        <FluentNumberField @bind-Value="_cardExpYear" Label="Rok" Style="width:110px" />
+                                <EditForm Model="_cardModel" OnValidSubmit="@(() => CreateCardAsync(a.Id))">
+                                    <DataAnnotationsValidator />
+                                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                                        <div>
+                                            <FluentTextField @bind-Value="_cardModel.CardholderName" Label="Jméno na kartě" Style="width:100%" Placeholder="JANA NOVAKOVA" />
+                                            <FluentValidationMessage For="@(() => _cardModel.CardholderName)" />
+                                        </div>
+                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                            <FluentSelect TOption="string" @bind-Value="_cardTypeValue" Label="Typ">
+                                                <FluentOption TOption="string" Value="@(((int)CardType.Debit).ToString())">Debetní</FluentOption>
+                                                <FluentOption TOption="string" Value="@(((int)CardType.Credit).ToString())">Kreditní</FluentOption>
+                                                <FluentOption TOption="string" Value="@(((int)CardType.Prepaid).ToString())">Předplacená</FluentOption>
+                                            </FluentSelect>
+                                            <FluentTextField @bind-Value="_cardModel.Last4" Label="Poslední 4 číslice" Placeholder="1234" />
+                                            <FluentNumberField @bind-Value="_cardModel.ExpiryMonth" Label="Měsíc" Style="width:90px" />
+                                            <FluentNumberField @bind-Value="_cardModel.ExpiryYear" Label="Rok" Style="width:110px" />
+                                        </FluentStack>
+                                        <FluentValidationMessage For="@(() => _cardModel.Last4)" />
+                                        <FluentValidationMessage For="@(() => _cardModel.ExpiryMonth)" />
+                                        <FluentValidationMessage For="@(() => _cardModel.ExpiryYear)" />
+                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                            <FluentSelect TOption="string" @bind-Value="_cardHolderValue" Label="Držitel">
+                                                <FluentOption TOption="string" Value="">(bez přiřazení)</FluentOption>
+                                                @foreach (var m in _members ?? [])
+                                                {
+                                                    <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                                }
+                                            </FluentSelect>
+                                            <FluentNumberField @bind-Value="_cardModel.MonthlyLimit" Label="Měsíční limit (prázdné = bez)" Style="width:160px" />
+                                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Přidat kartu</FluentButton>
+                                        </FluentStack>
+                                        <FluentValidationMessage For="@(() => _cardModel.MonthlyLimit)" />
                                     </FluentStack>
-                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                        <FluentSelect TOption="string" @bind-Value="_cardHolderValue" Label="Držitel">
-                                            <FluentOption TOption="string" Value="">(bez přiřazení)</FluentOption>
-                                            @foreach (var m in _members ?? [])
-                                            {
-                                                <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
-                                            }
-                                        </FluentSelect>
-                                        <FluentNumberField @bind-Value="_cardLimit" Label="Měsíční limit (0 = bez)" Style="width:160px" />
-                                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => CreateCardAsync(a.Id))">Přidat kartu</FluentButton>
-                                    </FluentStack>
-                                </FluentStack>
+                                </EditForm>
                             }
                         }
 
@@ -245,10 +264,8 @@
     private IReadOnlyList<ArchivedAccountDto>? _archived;
     private IReadOnlyList<FamilyMemberDto>? _members;
 
-    private string _name = "";
+    private CreateBankAccountRequest _accountModel = new();
     private string _bankValue = "4";
-    private string _accountNumber = "";
-    private decimal _openingBalance;
     private string _ownerValue = "";
     private bool _busy;
 
@@ -260,13 +277,12 @@
     private string _grantMemberValue = "";
     private string _grantLevelValue = ((int)AccountAccessLevel.Disponent).ToString();
 
-    private string _cardName = "";
-    private string _cardLast4 = "";
+    private CreateCardRequest _cardModel = NewCardModel();
     private string _cardTypeValue = ((int)CardType.Debit).ToString();
-    private int _cardExpMonth = 12;
-    private int _cardExpYear = DateTime.UtcNow.Year + 3;
     private string _cardHolderValue = "";
-    private decimal _cardLimit;
+
+    private static CreateCardRequest NewCardModel() =>
+        new() { ExpiryMonth = 12, ExpiryYear = DateTime.UtcNow.Year + 3 };
 
     private bool _canManageAccounts;
     private bool _canManageAccess;
@@ -308,25 +324,16 @@
 
     private async Task CreateAsync()
     {
-        if (string.IsNullOrWhiteSpace(_name))
-            return;
-
         _busy = true;
         try
         {
-            var request = new CreateBankAccountRequest
-            {
-                Name = _name,
-                Bank = (BankProvider)int.Parse(_bankValue),
-                AccountNumber = string.IsNullOrWhiteSpace(_accountNumber) ? null : _accountNumber,
-                Currency = "CZK",
-                OpeningBalance = _openingBalance,
-                OwnerMemberId = Guid.TryParse(_ownerValue, out var oid) ? oid : null,
-            };
-            await Api.CreateAccountAsync(request);
-            _name = "";
-            _accountNumber = "";
-            _openingBalance = 0;
+            _accountModel.Bank = (BankProvider)int.Parse(_bankValue);
+            _accountModel.OwnerMemberId = Guid.TryParse(_ownerValue, out var oid) ? oid : null;
+            if (string.IsNullOrWhiteSpace(_accountModel.AccountNumber))
+                _accountModel.AccountNumber = null;
+            await Api.CreateAccountAsync(_accountModel);
+            _accountModel = new();
+            _bankValue = "4";
             _ownerValue = "";
             await LoadAsync();
         }
@@ -392,36 +399,20 @@
     private async Task CreateCardAsync(Guid accountId)
     {
         _manageError = null;
-        if (string.IsNullOrWhiteSpace(_cardName))
-        {
-            _manageError = "Zadejte jméno na kartě.";
-            return;
-        }
-        if (_cardExpMonth is < 1 or > 12)
-        {
-            _manageError = "Měsíc platnosti musí být 1–12.";
-            return;
-        }
+        _cardModel.Type = (CardType)int.Parse(_cardTypeValue);
+        _cardModel.HolderMemberId = Guid.TryParse(_cardHolderValue, out var hid) ? hid : null;
+        if (string.IsNullOrWhiteSpace(_cardModel.Last4))
+            _cardModel.Last4 = null;
 
-        var card = await Api.CreateCardAsync(accountId, new CreateCardRequest
-        {
-            HolderMemberId = Guid.TryParse(_cardHolderValue, out var hid) ? hid : null,
-            CardholderName = _cardName,
-            Last4 = string.IsNullOrWhiteSpace(_cardLast4) ? null : _cardLast4,
-            Type = (CardType)int.Parse(_cardTypeValue),
-            ExpiryMonth = _cardExpMonth,
-            ExpiryYear = _cardExpYear,
-            MonthlyLimit = _cardLimit > 0 ? _cardLimit : null,
-        });
+        var card = await Api.CreateCardAsync(accountId, _cardModel);
         if (card is null)
         {
             _manageError = "Kartu se nepodařilo přidat.";
             return;
         }
-        _cardName = "";
-        _cardLast4 = "";
+        _cardModel = NewCardModel();
+        _cardTypeValue = ((int)CardType.Debit).ToString();
         _cardHolderValue = "";
-        _cardLimit = 0;
         await ReloadManageAsync(accountId);
         await LoadAsync();
     }

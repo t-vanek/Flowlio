@@ -1,6 +1,22 @@
+using System.ComponentModel.DataAnnotations;
 using Flowlio.Domain;
 
 namespace Flowlio.Shared;
+
+/// <summary>Shared validation constants so the client, server filter and DB constraints agree.</summary>
+public static class ValidationRules
+{
+    /// <summary>ISO 4217 currency code: exactly three letters (case-insensitive; the server upper-cases).</summary>
+    public const string CurrencyRegex = "^[A-Za-z]{3}$";
+
+    /// <summary>Up to four digits (the displayed tail of a card number).</summary>
+    public const string Last4Regex = "^[0-9]{0,4}$";
+
+    public const int MinExpiryYear = 2000;
+    public const int MaxExpiryYear = 2100;
+    public const int MinPasswordLength = 8;
+    public const double MaxMoney = 1_000_000_000d;
+}
 
 public sealed record BankAccountDto
 {
@@ -31,14 +47,24 @@ public sealed record ArchivedAccountDto
 
 public sealed record CreateBankAccountRequest
 {
-    public string Name { get; init; } = "";
-    public BankProvider Bank { get; init; }
-    public string? AccountNumber { get; init; }
-    public string Currency { get; init; } = "CZK";
-    public decimal OpeningBalance { get; init; }
+    [Required(ErrorMessage = "Název účtu je povinný.")]
+    [StringLength(200, MinimumLength = 1, ErrorMessage = "Název účtu může mít nejvýše 200 znaků.")]
+    public string Name { get; set; } = "";
+
+    public BankProvider Bank { get; set; }
+
+    [StringLength(64, ErrorMessage = "Číslo účtu může mít nejvýše 64 znaků.")]
+    public string? AccountNumber { get; set; }
+
+    [Required(ErrorMessage = "Měna je povinná.")]
+    [RegularExpression(ValidationRules.CurrencyRegex, ErrorMessage = "Měna musí být třípísmenný kód (např. CZK).")]
+    public string Currency { get; set; } = "CZK";
+
+    [Range(-ValidationRules.MaxMoney, ValidationRules.MaxMoney, ErrorMessage = "Počáteční zůstatek je mimo povolený rozsah.")]
+    public decimal OpeningBalance { get; set; }
 
     /// <summary>Member who owns the account. When that member is a child, this becomes a child account.</summary>
-    public Guid? OwnerMemberId { get; init; }
+    public Guid? OwnerMemberId { get; set; }
 }
 
 public sealed record CategoryDto
@@ -188,22 +214,34 @@ public sealed record FamilyMemberDto
 /// <summary>Owner-initiated edit of an existing member's profile and role.</summary>
 public sealed record UpdateMemberRequest
 {
-    public string DisplayName { get; init; } = "";
-    public string? Email { get; init; }
-    public MemberRole Role { get; init; } = MemberRole.Adult;
+    [Required(ErrorMessage = "Jméno je povinné.")]
+    [StringLength(120, MinimumLength = 1, ErrorMessage = "Jméno může mít nejvýše 120 znaků.")]
+    public string DisplayName { get; set; } = "";
+
+    [EmailAddress(ErrorMessage = "Zadejte platný e-mail.")]
+    [StringLength(256, ErrorMessage = "E-mail může mít nejvýše 256 znaků.")]
+    public string? Email { get; set; }
+
+    public MemberRole Role { get; set; } = MemberRole.Adult;
 
     /// <summary>Controlling guardian; required when <see cref="Role"/> is <see cref="MemberRole.Child"/>.</summary>
-    public Guid? GuardianMemberId { get; init; }
+    public Guid? GuardianMemberId { get; set; }
 }
 
 public sealed record CreateMemberRequest
 {
-    public string DisplayName { get; init; } = "";
-    public string? Email { get; init; }
-    public MemberRole Role { get; init; } = MemberRole.Adult;
+    [Required(ErrorMessage = "Jméno je povinné.")]
+    [StringLength(120, MinimumLength = 1, ErrorMessage = "Jméno může mít nejvýše 120 znaků.")]
+    public string DisplayName { get; set; } = "";
+
+    [EmailAddress(ErrorMessage = "Zadejte platný e-mail.")]
+    [StringLength(256, ErrorMessage = "E-mail může mít nejvýše 256 znaků.")]
+    public string? Email { get; set; }
+
+    public MemberRole Role { get; set; } = MemberRole.Adult;
 
     /// <summary>Required when <see cref="Role"/> is <see cref="MemberRole.Child"/>: the controlling guardian member.</summary>
-    public Guid? GuardianMemberId { get; init; }
+    public Guid? GuardianMemberId { get; set; }
 }
 
 public sealed record InvitationDto
@@ -267,25 +305,50 @@ public sealed record BankCardDto
 
 public sealed record CreateCardRequest
 {
-    public Guid? HolderMemberId { get; init; }
-    public string CardholderName { get; init; } = "";
-    public string? Last4 { get; init; }
-    public CardType Type { get; init; } = CardType.Debit;
-    public int ExpiryMonth { get; init; }
-    public int ExpiryYear { get; init; }
-    public decimal? MonthlyLimit { get; init; }
+    public Guid? HolderMemberId { get; set; }
+
+    [Required(ErrorMessage = "Jméno na kartě je povinné.")]
+    [StringLength(120, MinimumLength = 1, ErrorMessage = "Jméno na kartě může mít nejvýše 120 znaků.")]
+    public string CardholderName { get; set; } = "";
+
+    [RegularExpression(ValidationRules.Last4Regex, ErrorMessage = "Zadejte nejvýše 4 číslice.")]
+    public string? Last4 { get; set; }
+
+    public CardType Type { get; set; } = CardType.Debit;
+
+    [Range(1, 12, ErrorMessage = "Měsíc platnosti musí být 1–12.")]
+    public int ExpiryMonth { get; set; }
+
+    [Range(ValidationRules.MinExpiryYear, ValidationRules.MaxExpiryYear, ErrorMessage = "Neplatný rok platnosti.")]
+    public int ExpiryYear { get; set; }
+
+    [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Měsíční limit nesmí být záporný.")]
+    public decimal? MonthlyLimit { get; set; }
 }
 
 public sealed record UpdateCardRequest
 {
-    public Guid? HolderMemberId { get; init; }
-    public string CardholderName { get; init; } = "";
-    public string? Last4 { get; init; }
-    public CardType Type { get; init; }
-    public int ExpiryMonth { get; init; }
-    public int ExpiryYear { get; init; }
-    public CardStatus Status { get; init; }
-    public decimal? MonthlyLimit { get; init; }
+    public Guid? HolderMemberId { get; set; }
+
+    [Required(ErrorMessage = "Jméno na kartě je povinné.")]
+    [StringLength(120, MinimumLength = 1, ErrorMessage = "Jméno na kartě může mít nejvýše 120 znaků.")]
+    public string CardholderName { get; set; } = "";
+
+    [RegularExpression(ValidationRules.Last4Regex, ErrorMessage = "Zadejte nejvýše 4 číslice.")]
+    public string? Last4 { get; set; }
+
+    public CardType Type { get; set; }
+
+    [Range(1, 12, ErrorMessage = "Měsíc platnosti musí být 1–12.")]
+    public int ExpiryMonth { get; set; }
+
+    [Range(ValidationRules.MinExpiryYear, ValidationRules.MaxExpiryYear, ErrorMessage = "Neplatný rok platnosti.")]
+    public int ExpiryYear { get; set; }
+
+    public CardStatus Status { get; set; }
+
+    [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Měsíční limit nesmí být záporný.")]
+    public decimal? MonthlyLimit { get; set; }
 }
 
 // ---- Roles & permissions (per-family, editable by the owner) ----------------
@@ -325,8 +388,13 @@ public sealed record FamilyDto
 
 public sealed record UpdateFamilyRequest
 {
-    public string Name { get; init; } = "";
-    public string BaseCurrency { get; init; } = "CZK";
+    [Required(ErrorMessage = "Název rodiny je povinný.")]
+    [StringLength(200, MinimumLength = 1, ErrorMessage = "Název rodiny může mít nejvýše 200 znaků.")]
+    public string Name { get; set; } = "";
+
+    [Required(ErrorMessage = "Měna je povinná.")]
+    [RegularExpression(ValidationRules.CurrencyRegex, ErrorMessage = "Měna musí být třípísmenný kód (např. CZK).")]
+    public string BaseCurrency { get; set; } = "CZK";
 }
 
 public sealed record TransferOwnershipRequest
@@ -337,7 +405,8 @@ public sealed record TransferOwnershipRequest
 /// <summary>Deletes the whole family; <see cref="ConfirmName"/> must match the family name exactly.</summary>
 public sealed record DeleteFamilyRequest
 {
-    public string ConfirmName { get; init; } = "";
+    [Required(ErrorMessage = "Pro potvrzení zadejte název rodiny.")]
+    public string ConfirmName { get; set; } = "";
 }
 
 // ---- System administration (cross-family user accounts) ---------------------
@@ -391,12 +460,16 @@ public sealed record SystemRolesDto
 
 public sealed record CreateSystemRoleRequest
 {
-    public string Name { get; init; } = "";
+    [Required(ErrorMessage = "Název role je povinný.")]
+    [StringLength(256, MinimumLength = 1, ErrorMessage = "Název role může mít nejvýše 256 znaků.")]
+    public string Name { get; set; } = "";
 }
 
 public sealed record RenameSystemRoleRequest
 {
-    public string Name { get; init; } = "";
+    [Required(ErrorMessage = "Název role je povinný.")]
+    [StringLength(256, MinimumLength = 1, ErrorMessage = "Název role může mít nejvýše 256 znaků.")]
+    public string Name { get; set; } = "";
 }
 
 public sealed record UpdateSystemRolePermissionsRequest
@@ -427,13 +500,22 @@ public sealed record AuditPageDto
 
 public sealed record CreateUserRequest
 {
-    public string Email { get; init; } = "";
-    public string? DisplayName { get; init; }
-    public string Password { get; init; } = "";
-    public bool IsAdmin { get; init; }
+    [Required(ErrorMessage = "E-mail je povinný.")]
+    [EmailAddress(ErrorMessage = "Zadejte platný e-mail.")]
+    [StringLength(256, ErrorMessage = "E-mail může mít nejvýše 256 znaků.")]
+    public string Email { get; set; } = "";
+
+    [StringLength(120, ErrorMessage = "Jméno může mít nejvýše 120 znaků.")]
+    public string? DisplayName { get; set; }
+
+    [Required(ErrorMessage = "Heslo je povinné.")]
+    [StringLength(100, MinimumLength = ValidationRules.MinPasswordLength, ErrorMessage = "Heslo musí mít alespoň 8 znaků.")]
+    public string Password { get; set; } = "";
+
+    public bool IsAdmin { get; set; }
 
     /// <summary>Require the user to choose a new password on first sign-in.</summary>
-    public bool MustChangePassword { get; init; } = true;
+    public bool MustChangePassword { get; set; } = true;
 }
 
 public sealed record SetUserAdminRequest
@@ -444,13 +526,16 @@ public sealed record SetUserAdminRequest
 /// <summary>Temporary lock; the account unlocks itself after the given number of minutes.</summary>
 public sealed record LockUserRequest
 {
-    public int Minutes { get; init; } = 60;
+    [Range(1, 60 * 24 * 365, ErrorMessage = "Doba zamčení musí být 1 minuta až 1 rok.")]
+    public int Minutes { get; set; } = 60;
 }
 
 public sealed record AdminSetPasswordRequest
 {
-    public string NewPassword { get; init; } = "";
+    [Required(ErrorMessage = "Nové heslo je povinné.")]
+    [StringLength(100, MinimumLength = ValidationRules.MinPasswordLength, ErrorMessage = "Heslo musí mít alespoň 8 znaků.")]
+    public string NewPassword { get; set; } = "";
 
     /// <summary>Also require the user to change this password on next sign-in.</summary>
-    public bool MustChangePassword { get; init; } = true;
+    public bool MustChangePassword { get; set; } = true;
 }

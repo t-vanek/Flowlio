@@ -21,7 +21,8 @@ public static class AdminEndpoints
 {
     public static void MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        var admin = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy);
+        var admin = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy)
+            .AddEndpointFilter<Validation.ValidationEndpointFilter>();
         admin.MapGet("/users", GetUsers);
         admin.MapGet("/users/deleted", GetDeletedUsers);
         admin.MapPost("/users", CreateUser);

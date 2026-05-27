@@ -46,20 +46,29 @@ else
         {
             <FluentCard Class="panel">
                 <h2 class="panel-title">Nový uživatel</h2>
-                <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
-                    <FluentTextField @bind-Value="_newEmail" Label="E-mail" Style="width:100%" Placeholder="novy@example.com" />
-                    <FluentTextField @bind-Value="_newName" Label="Jméno (volitelné)" Style="width:100%" />
-                    <FluentTextField @bind-Value="_newPassword" TextFieldType="TextFieldType.Password" Label="Počáteční heslo" Style="width:100%" />
-                    <label class="perm-item">
-                        <input type="checkbox" checked="@_newIsAdmin" @onchange="@(e => _newIsAdmin = (bool)(e.Value ?? false))" />
-                        <span>Administrátor</span>
-                    </label>
-                    <label class="perm-item">
-                        <input type="checkbox" checked="@_newMustChange" @onchange="@(e => _newMustChange = (bool)(e.Value ?? false))" />
-                        <span>Vynutit změnu hesla při prvním přihlášení</span>
-                    </label>
-                    <FluentButton Appearance="Appearance.Accent" OnClick="CreateUserAsync">Vytvořit uživatele</FluentButton>
-                </FluentStack>
+                <EditForm Model="_newUser" OnValidSubmit="CreateUserAsync">
+                    <DataAnnotationsValidator />
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                        <div>
+                            <FluentTextField @bind-Value="_newUser.Email" Label="E-mail" Style="width:100%" Placeholder="novy@example.com" />
+                            <FluentValidationMessage For="@(() => _newUser.Email)" />
+                        </div>
+                        <FluentTextField @bind-Value="_newUser.DisplayName" Label="Jméno (volitelné)" Style="width:100%" />
+                        <div>
+                            <FluentTextField @bind-Value="_newUser.Password" TextFieldType="TextFieldType.Password" Label="Počáteční heslo" Style="width:100%" />
+                            <FluentValidationMessage For="@(() => _newUser.Password)" />
+                        </div>
+                        <label class="perm-item">
+                            <input type="checkbox" checked="@_newUser.IsAdmin" @onchange="@(e => _newUser.IsAdmin = (bool)(e.Value ?? false))" />
+                            <span>Administrátor</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" checked="@_newUser.MustChangePassword" @onchange="@(e => _newUser.MustChangePassword = (bool)(e.Value ?? false))" />
+                            <span>Vynutit změnu hesla při prvním přihlášení</span>
+                        </label>
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Vytvořit uživatele</FluentButton>
+                    </FluentStack>
+                </EditForm>
             </FluentCard>
         }
 
@@ -435,11 +444,7 @@ else
     private IReadOnlyList<AdminUserDto>? _users;
     private Guid? _userExpanded;
     private HashSet<string> _editUserRoles = new();
-    private string _newEmail = "";
-    private string _newName = "";
-    private string _newPassword = "";
-    private bool _newIsAdmin;
-    private bool _newMustChange = true;
+    private CreateUserRequest _newUser = new();
     private string _pwdValue = "";
     private string? _usersMessage;
     private MessageIntent _usersIntent = MessageIntent.Success;
@@ -663,30 +668,13 @@ else
 
     private async Task CreateUserAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newEmail) || string.IsNullOrWhiteSpace(_newPassword))
-        {
-            _usersIntent = MessageIntent.Error;
-            _usersMessage = "Zadejte e-mail a počáteční heslo.";
-            return;
-        }
-        var ok = await Api.CreateUserAsync(new CreateUserRequest
-        {
-            Email = _newEmail,
-            DisplayName = string.IsNullOrWhiteSpace(_newName) ? null : _newName,
-            Password = _newPassword,
-            IsAdmin = _newIsAdmin,
-            MustChangePassword = _newMustChange,
-        });
+        if (string.IsNullOrWhiteSpace(_newUser.DisplayName))
+            _newUser.DisplayName = null;
+        var ok = await Api.CreateUserAsync(_newUser);
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? "Uživatel vytvořen." : "Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).";
         if (ok)
-        {
-            _newEmail = "";
-            _newName = "";
-            _newPassword = "";
-            _newIsAdmin = false;
-            _newMustChange = true;
-        }
+            _newUser = new();
         _users = await Api.GetAdminUsersAsync();
     }
 

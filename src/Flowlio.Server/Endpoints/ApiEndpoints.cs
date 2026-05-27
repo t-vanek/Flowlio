@@ -5,6 +5,7 @@ using Flowlio.Application.Statements;
 using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Server.Auth;
+using Flowlio.Server.Validation;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -19,7 +20,7 @@ public static class ApiEndpoints
 {
     public static void MapApiEndpoints(this IEndpointRouteBuilder app)
     {
-        var api = app.MapGroup("/api").RequireAuthorization("api");
+        var api = app.MapGroup("/api").RequireAuthorization("api").AddEndpointFilter<ValidationEndpointFilter>();
         api.MapGet("/me", GetMe);
         api.MapGet("/accounts", GetAccounts);
         api.MapGet("/accounts/archived", GetArchivedAccounts);

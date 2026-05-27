@@ -14,6 +14,11 @@ public class FamilyConfiguration : IEntityTypeConfiguration<Family>
         b.HasMany(x => x.Members).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Accounts).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Categories).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Family_Name", "char_length(btrim(\"Name\")) > 0");
+            t.HasCheckConstraint("CK_Family_BaseCurrency", "char_length(\"BaseCurrency\") = 3");
+        });
     }
 }
 
@@ -91,6 +96,11 @@ public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
         b.HasMany(x => x.Cards).WithOne(x => x.BankAccount!).HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
         b.HasIndex(x => x.OwnerMemberId);
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_BankAccount_Name", "char_length(btrim(\"Name\")) > 0");
+            t.HasCheckConstraint("CK_BankAccount_Currency", "char_length(\"Currency\") = 3");
+        });
     }
 }
 
@@ -124,6 +134,13 @@ public class BankCardConfiguration : IEntityTypeConfiguration<BankCard>
 
         b.HasIndex(x => x.BankAccountId);
         b.HasIndex(x => x.HolderMemberId);
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_BankCard_ExpiryMonth", "\"ExpiryMonth\" BETWEEN 1 AND 12");
+            t.HasCheckConstraint("CK_BankCard_ExpiryYear", "\"ExpiryYear\" BETWEEN 2000 AND 2100");
+            t.HasCheckConstraint("CK_BankCard_MonthlyLimit", "\"MonthlyLimit\" IS NULL OR \"MonthlyLimit\" >= 0");
+            t.HasCheckConstraint("CK_BankCard_Last4", "\"Last4\" IS NULL OR \"Last4\" ~ '^[0-9]{1,4}$'");
+        });
     }
 }
 
@@ -175,6 +192,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         // Prevents re-importing the same booked entry into the same account.
         b.HasIndex(x => new { x.BankAccountId, x.DedupHash }).IsUnique();
         b.HasIndex(x => new { x.FamilyId, x.BookingDate });
+        b.ToTable(t => t.HasCheckConstraint("CK_Transaction_Currency", "char_length(\"Currency\") = 3"));
     }
 }
 
@@ -190,6 +208,11 @@ public class RecurringPaymentConfiguration : IEntityTypeConfiguration<RecurringP
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_RecurringPayment_ExpectedAmount", "\"ExpectedAmount\" >= 0");
+            t.HasCheckConstraint("CK_RecurringPayment_DayOfMonth", "\"DayOfMonth\" IS NULL OR \"DayOfMonth\" BETWEEN 1 AND 31");
+        });
     }
 }
 
@@ -205,6 +228,7 @@ public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
+        b.ToTable(t => t.HasCheckConstraint("CK_Subscription_Amount", "\"Amount\" >= 0"));
     }
 }
 
