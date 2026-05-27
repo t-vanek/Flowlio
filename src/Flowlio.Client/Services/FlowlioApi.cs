@@ -1,52 +1,12 @@
 using System.Net.Http.Json;
-using Flowlio.Client.Auth;
 using Flowlio.Domain;
 using Flowlio.Shared;
 
 namespace Flowlio.Client.Services;
 
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
-public sealed class FlowlioApi(HttpClient http, TokenProvider tokens, JwtAuthStateProvider authState)
+public sealed class FlowlioApi(HttpClient http)
 {
-    public async Task<bool> LoginAsync(string username, string password)
-    {
-        var form = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = username,
-            ["password"] = password,
-            ["scope"] = "profile email offline_access flowlio.api",
-        });
-
-        var response = await http.PostAsync("connect/token", form);
-        if (!response.IsSuccessStatusCode)
-            return false;
-
-        var payload = await response.Content.ReadFromJsonAsync<TokenResponse>();
-        if (payload?.AccessToken is null)
-            return false;
-
-        await tokens.SetTokensAsync(payload.AccessToken, payload.RefreshToken);
-        authState.NotifyChanged();
-        return true;
-    }
-
-    public async Task LogoutAsync()
-    {
-        await tokens.ClearAsync();
-        authState.NotifyChanged();
-    }
-
-    public async Task<(bool Success, string? Error)> RegisterAsync(RegisterRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/auth/register", request);
-        if (response.IsSuccessStatusCode)
-            return (true, null);
-
-        var problem = await response.Content.ReadAsStringAsync();
-        return (false, problem);
-    }
-
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");
 
@@ -88,14 +48,5 @@ public sealed class FlowlioApi(HttpClient http, TokenProvider tokens, JwtAuthSta
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<ImportResultDto>()
             : null;
-    }
-
-    private sealed record TokenResponse
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("access_token")]
-        public string? AccessToken { get; init; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("refresh_token")]
-        public string? RefreshToken { get; init; }
     }
 }

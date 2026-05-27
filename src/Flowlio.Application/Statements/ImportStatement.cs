@@ -2,6 +2,8 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Domain;
 using Flowlio.Shared;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
+using Wolverine.Attributes;
 
 namespace Flowlio.Application.Statements;
 
@@ -17,12 +19,14 @@ public sealed record ImportStatementCommand
 
 public sealed class ImportStatementHandler
 {
+    [Transactional]
     public static async Task<ImportResultDto> Handle(
         ImportStatementCommand command,
         IAppDbContext db,
         IStatementParserFactory parserFactory,
         ICurrentFamily currentFamily,
         ICurrentUser currentUser,
+        IMessageContext messaging,
         CancellationToken ct)
     {
         var familyId = await currentFamily.RequireAsync(ct);
@@ -112,6 +116,17 @@ public sealed class ImportStatementHandler
         batch.ImportedCount = imported;
         batch.DuplicateCount = duplicates;
         await db.SaveChangesAsync(ct);
+
+        // Fan out the completion via the transactional outbox: the event is stored together with the
+        // transactions above and delivered to RabbitMQ only after commit (guaranteed, crash-safe).
+        await messaging.PublishAsync(new StatementImported
+        {
+            FamilyId = familyId,
+            BankAccountId = account.Id,
+            ImportBatchId = batch.Id,
+            ImportedCount = imported,
+            DuplicateCount = duplicates,
+        });
 
         return new ImportResultDto
         {

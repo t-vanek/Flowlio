@@ -1,6 +1,8 @@
 @inherits LayoutComponentBase
-@inject FlowlioApi Api
+@implements IAsyncDisposable
 @inject NavigationManager Navigation
+@inject LiveNotificationService Live
+@inject IToastService Toasts
 
 <FluentDesignTheme Mode="DesignThemeModes.System" StorageName="flowlio-theme" />
 
@@ -22,7 +24,7 @@
             <AuthorizeView>
                 <Authorized>
                     <span class="topbar-user">@context.User.Identity?.Name</span>
-                    <FluentButton Appearance="Appearance.Stealth" OnClick="LogoutAsync">Odhlásit</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="BeginLogout">Odhlásit</FluentButton>
                 </Authorized>
             </AuthorizeView>
         </header>
@@ -34,9 +36,33 @@
 </div>
 
 @code {
-    private async Task LogoutAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await Api.LogoutAsync();
-        Navigation.NavigateTo("login");
+        if (!firstRender)
+            return;
+
+        Live.ImportCompleted += OnImportCompleted;
+        try
+        {
+            await Live.StartAsync();
+        }
+        catch
+        {
+            // The hub is unavailable when not authenticated yet; the connection is retried on next load.
+        }
+    }
+
+    private void OnImportCompleted(ImportCompletedNotification notification)
+    {
+        InvokeAsync(() =>
+            Toasts.ShowSuccess($"Import dokončen: {notification.ImportedCount} nových, {notification.DuplicateCount} duplicit."));
+    }
+
+    private void BeginLogout() => Navigation.NavigateToLogout("authentication/logout");
+
+    public async ValueTask DisposeAsync()
+    {
+        Live.ImportCompleted -= OnImportCompleted;
+        await Live.DisposeAsync();
     }
 }

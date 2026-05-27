@@ -2,13 +2,6 @@ using Flowlio.Domain;
 
 namespace Flowlio.Shared;
 
-public sealed record RegisterRequest
-{
-    public string Email { get; init; } = "";
-    public string Password { get; init; } = "";
-    public string? DisplayName { get; init; }
-}
-
 public sealed record BankAccountDto
 {
     public Guid Id { get; init; }
