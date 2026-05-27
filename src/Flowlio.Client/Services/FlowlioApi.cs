@@ -228,6 +228,9 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> ForcePasswordChangeAsync(Guid userId) =>
         (await http.PostAsync($"api/admin/users/{userId}/force-password-change", null)).IsSuccessStatusCode;
 
+    public async Task<bool> DisableUser2faAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/disable-2fa", null)).IsSuccessStatusCode;
+
     public async Task<bool> ForceLogoutAsync(Guid userId) =>
         (await http.PostAsync($"api/admin/users/{userId}/force-logout", null)).IsSuccessStatusCode;
 

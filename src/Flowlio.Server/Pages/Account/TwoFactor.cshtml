@@ -1,0 +1,88 @@
+@page
+@model Flowlio.Server.Pages.Account.TwoFactorModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zabezpečení – Flowlio</title>
+    <style>
+        body { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; margin: 0; min-height: 100vh;
+               background: linear-gradient(135deg,#1e3a8a,#2563eb); display:flex; align-items:flex-start; justify-content:center; }
+        .card { background:#fff; padding:32px; border-radius:14px; width:100%; max-width:480px; margin:40px 16px;
+                box-shadow:0 20px 50px rgba(0,0,0,.25); }
+        .logo { font-size:22px; font-weight:800; color:#2563eb; margin-bottom:18px; }
+        h1 { font-size:24px; margin:0 0 6px; }
+        h2 { font-size:17px; margin:22px 0 8px; }
+        p.muted { color:#64748b; font-size:14px; }
+        code { background:#f1f5f9; padding:6px 10px; border-radius:6px; display:inline-block; font-size:15px; letter-spacing:2px; }
+        .uri { word-break:break-all; font-size:12px; color:#475569; background:#f8fafc; padding:8px; border-radius:6px; }
+        label { display:block; font-size:13px; color:#475569; margin:12px 0 4px; }
+        input[type=text] { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:15px; }
+        button { margin-top:14px; padding:10px 16px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+        button.secondary { background:#64748b; }
+        .ok { background:#dcfce7; color:#166534; padding:10px; border-radius:8px; margin-top:14px; font-size:14px; }
+        .err { background:#fee2e2; color:#b91c1c; padding:10px; border-radius:8px; margin-top:14px; font-size:14px; }
+        .codes { background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px; padding:12px; margin-top:10px;
+                 font-family:monospace; columns:2; }
+        .switch { margin-top:22px; font-size:14px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">₣ Flowlio</div>
+        <h1>Zabezpečení účtu</h1>
+        <p class="muted">Dvoufaktorové ověření (autentizační aplikace).</p>
+
+        @if (Model.Status is not null)
+        {
+            <div class="ok">@Model.Status</div>
+        }
+        @if (Model.Error is not null)
+        {
+            <div class="err">@Model.Error</div>
+        }
+
+        @if (Model.RecoveryCodes is { Length: > 0 })
+        {
+            <h2>Záchranné kódy</h2>
+            <p class="muted">Každý kód lze použít jednou, pokud ztratíte přístup k aplikaci. Uložte si je nyní.</p>
+            <div class="codes">
+                @foreach (var code in Model.RecoveryCodes)
+                {
+                    <div>@code</div>
+                }
+            </div>
+        }
+
+        @if (Model.Is2faEnabled)
+        {
+            <h2>Stav: zapnuto</h2>
+            <form method="post" asp-page-handler="Regenerate">
+                <button type="submit">Vygenerovat nové záchranné kódy</button>
+            </form>
+            <form method="post" asp-page-handler="Disable">
+                <button type="submit" class="secondary">Vypnout 2FA</button>
+            </form>
+        }
+        else
+        {
+            <h2>Nastavení autentizační aplikace</h2>
+            <p class="muted">1. Otevřete aplikaci (Google Authenticator, Microsoft Authenticator…) a přidejte účet ručně tímto klíčem:</p>
+            <p><code>@Model.SharedKey</code></p>
+            <p class="muted">Nebo vložte odkaz:</p>
+            <div class="uri">@Model.AuthenticatorUri</div>
+            <form method="post" asp-page-handler="Enable">
+                <label for="VerificationCode">2. Zadejte vygenerovaný kód pro potvrzení</label>
+                <input id="VerificationCode" name="VerificationCode" type="text" autocomplete="one-time-code" />
+                <button type="submit">Zapnout 2FA</button>
+            </form>
+        }
+
+        <div class="switch"><a href="/">Zpět do aplikace</a></div>
+    </div>
+</body>
+</html>

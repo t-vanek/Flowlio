@@ -101,6 +101,10 @@ else
                                 {
                                     <span class="muted">· vyžadována změna hesla</span>
                                 }
+                                @if (u.TwoFactorEnabled)
+                                {
+                                    <span class="muted">· 2FA</span>
+                                }
                             </div>
                             <div class="muted">
                                 @u.Email
@@ -157,6 +161,10 @@ else
                                     @if (_canPasswords)
                                     {
                                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ForcePwdAsync(u))">Vynutit změnu hesla</FluentButton>
+                                        @if (u.TwoFactorEnabled)
+                                        {
+                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => Disable2faAsync(u))">Vypnout 2FA</FluentButton>
+                                        }
                                     }
                                     @if (_canForceLogout)
                                     {
@@ -693,6 +701,9 @@ else
 
     private Task ForcePwdAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.ForcePasswordChangeAsync(u.Id), "Při příštím přihlášení bude vyžadována změna hesla.");
+
+    private Task Disable2faAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.DisableUser2faAsync(u.Id), "Dvoufaktorové ověření vypnuto.");
 
     private Task ForceLogoutAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");

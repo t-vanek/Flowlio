@@ -335,6 +335,7 @@ public sealed record AdminUserDto
     /// <summary>When the lockout ends; <c>DateTimeOffset.MaxValue</c> indicates an indefinite block.</summary>
     public DateTimeOffset? LockoutEndUtc { get; init; }
     public bool MustChangePassword { get; init; }
+    public bool TwoFactorEnabled { get; init; }
     public bool IsCurrentUser { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 

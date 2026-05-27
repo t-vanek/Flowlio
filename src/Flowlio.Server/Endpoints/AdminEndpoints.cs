@@ -31,6 +31,7 @@ public static class AdminEndpoints
         admin.MapPost("/users/{userId:guid}/restore", RestoreUser);
         admin.MapPost("/users/{userId:guid}/password", SetPassword);
         admin.MapPost("/users/{userId:guid}/force-password-change", ForcePasswordChange);
+        admin.MapPost("/users/{userId:guid}/disable-2fa", DisableTwoFactor);
         admin.MapPost("/users/{userId:guid}/force-logout", ForceLogout);
         admin.MapDelete("/users/{userId:guid}", DeleteUser);
         admin.MapPost("/users/{userId:guid}/undelete", UndeleteUser);
@@ -252,6 +253,24 @@ public static class AdminEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> DisableTwoFactor(
+        Guid userId, UserManager<ApplicationUser> userManager, ICurrentSystemAccess sys, AccountNotifier notifier,
+        IAuditLog audit, CancellationToken ct)
+    {
+        if (!await sys.CanAsync(SystemPermission.ManageUserPasswords, ct))
+            return Forbidden();
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return Results.NotFound();
+
+        await userManager.SetTwoFactorEnabledAsync(user, false);
+        await userManager.ResetAuthenticatorKeyAsync(user);
+        await notifier.NotifyAsync(user, "Dvoufaktorové ověření vypnuto – Flowlio",
+            "Administrátor vypnul dvoufaktorové ověření na vašem účtu.", "warning", ct);
+        await audit.RecordAsync("user.disable-2fa", "User", userId.ToString(), user.Email, details: "Vypnuto 2FA", cancellationToken: ct);
+        return Results.NoContent();
+    }
+
     private static async Task<IResult> ForceLogout(
         Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
         ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
@@ -390,6 +409,7 @@ public static class AdminEndpoints
                 IsLockedOut = u.LockoutEnd is { } end && end > now,
                 LockoutEndUtc = u.LockoutEnd,
                 MustChangePassword = u.MustChangePassword,
+                TwoFactorEnabled = u.TwoFactorEnabled,
                 IsCurrentUser = u.Id == current.UserId,
                 CreatedAt = u.CreatedAt,
                 DeletedAtUtc = u.DeletedAt,

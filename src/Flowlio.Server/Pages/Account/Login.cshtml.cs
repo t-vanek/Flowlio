@@ -21,6 +21,9 @@ public class LoginModel(SignInManager<ApplicationUser> signInManager) : PageMode
         if (result.Succeeded)
             return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
 
+        if (result.RequiresTwoFactor)
+            return RedirectToPage("/Account/LoginWith2fa", new { returnUrl = ReturnUrl });
+
         Error = result.IsLockedOut
             ? "Účet je dočasně zablokován kvůli příliš mnoha pokusům."
             : "Neplatný e-mail nebo heslo.";
