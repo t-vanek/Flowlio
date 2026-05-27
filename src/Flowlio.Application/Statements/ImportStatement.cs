@@ -23,7 +23,7 @@ public sealed class ImportStatementHandler
     public static async Task<ImportResultDto> Handle(
         ImportStatementCommand command,
         IAppDbContext db,
-        IStatementParserFactory parserFactory,
+        IStatementImporter importer,
         ICurrentFamily currentFamily,
         ICurrentUser currentUser,
         IMessageContext messaging,
@@ -50,9 +50,8 @@ public sealed class ImportStatementHandler
         ParsedStatement statement;
         try
         {
-            var parser = parserFactory.Resolve(command.Bank, command.Format);
             using var stream = new MemoryStream(command.Content);
-            statement = parser.Parse(stream, command.FileName);
+            statement = importer.Parse(stream, command.FileName, command.Bank, command.Format);
         }
         catch (Exception ex)
         {
@@ -133,6 +132,12 @@ public sealed class ImportStatementHandler
             ImportBatchId = batch.Id,
             ImportedCount = imported,
             DuplicateCount = duplicates,
+            SkippedCount = statement.SkippedRowCount,
+            Warnings = statement.Diagnostics
+                .Where(d => d.Severity >= ParseSeverity.Warning)
+                .Select(d => d.Line is { } line ? $"Řádek {line}: {d.Message}" : d.Message)
+                .Take(20)
+                .ToList(),
             Status = ImportStatus.Completed,
         };
     }

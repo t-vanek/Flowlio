@@ -95,6 +95,13 @@ public sealed record ImportResultDto
     public Guid ImportBatchId { get; init; }
     public int ImportedCount { get; init; }
     public int DuplicateCount { get; init; }
+
+    /// <summary>Rows that looked like data but could not be parsed (bad date/amount, missing columns).</summary>
+    public int SkippedCount { get; init; }
+
+    /// <summary>Human-readable warnings from parsing (capped), shown so dropped rows are not invisible.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
     public ImportStatus Status { get; init; }
     public string? Error { get; init; }
 }

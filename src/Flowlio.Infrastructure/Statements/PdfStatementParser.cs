@@ -1,22 +1,18 @@
 using System.Text.RegularExpressions;
 using Flowlio.Application.Statements;
-using Flowlio.Domain;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace Flowlio.Infrastructure.Statements;
 
 /// <summary>
-/// Heuristic PDF statement parser. Extracts text in reading order with PdfPig and pulls out lines that
-/// contain a date and an amount. PDF layouts vary widely between banks, so this is a best-effort
-/// starting point; structured per-bank templates can be layered on top later. When the PDF has no
-/// extractable text (a scan), OCR is required — see <c>OcrStatementParser</c>.
+/// Heuristic, experimental PDF statement parser. Extracts text in reading order with PdfPig and pulls out
+/// lines that contain a date and an amount. PDF layouts vary widely between banks, so this is a best-effort
+/// fallback; the importer flags its output as experimental. When the PDF has no extractable text (a scan),
+/// OCR would be required.
 /// </summary>
-public sealed partial class PdfStatementParser : IStatementParser
+internal sealed partial class PdfStatementParser
 {
-    public BankProvider Bank => BankProvider.Other;
-    public ImportFormat Format => ImportFormat.Pdf;
-
     public ParsedStatement Parse(Stream content, string fileName)
     {
         using var ms = new MemoryStream();

@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Flowlio.Infrastructure.Statements;
 
 /// <summary>Helpers for normalizing statement header names and parsing Czech-formatted numbers/dates.</summary>
-internal static class StatementText
+internal static partial class StatementText
 {
     /// <summary>Lowercases, trims and strips diacritics so "Č&#237;slo &#250;čtu" matches "cislo uctu".</summary>
     public static string Normalize(string? value)
@@ -28,6 +29,12 @@ internal static class StatementText
         amount = 0m;
         if (string.IsNullOrWhiteSpace(raw))
             return false;
+
+        // A plain invariant number with no grouping (e.g. "-149", "1500.5") comes from XLSX numeric cells;
+        // parse it directly so the dot is never mistaken for a thousands separator.
+        var trimmed = raw.Trim();
+        if (PlainDecimal().IsMatch(trimmed))
+            return decimal.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out amount);
 
         var cleaned = raw
             .Replace(" ", string.Empty) // non-breaking space
@@ -65,4 +72,7 @@ internal static class StatementText
             ? fallback
             : null;
     }
+
+    [GeneratedRegex(@"^[-+]?\d+(\.\d+)?$")]
+    private static partial Regex PlainDecimal();
 }
