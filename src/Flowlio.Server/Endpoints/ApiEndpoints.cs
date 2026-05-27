@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Wolverine;
+using static Flowlio.Server.Auth.MemberAuthorization;
 
 namespace Flowlio.Server.Endpoints;
 
@@ -16,6 +17,7 @@ public static class ApiEndpoints
     public static void MapApiEndpoints(this IEndpointRouteBuilder app)
     {
         var api = app.MapGroup("/api").RequireAuthorization("api");
+        api.MapGet("/me", GetMe);
         api.MapGet("/accounts", GetAccounts);
         api.MapPost("/accounts", CreateAccount);
         api.MapGet("/categories", GetCategories);
@@ -23,6 +25,19 @@ public static class ApiEndpoints
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         api.MapFamilyEndpoints();
+    }
+
+    private static async Task<CurrentUserDto> GetMe(
+        ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        return new CurrentUserDto
+        {
+            MemberId = me.Id,
+            DisplayName = me.DisplayName,
+            Role = me.Role,
+            Permissions = RolePermissions.For(me.Role).ToList(),
+        };
     }
 
     private static async Task<IReadOnlyList<BankAccountDto>> GetAccounts(
@@ -74,6 +89,9 @@ public static class ApiEndpoints
         CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var member = await family.RequireMemberAsync(ct);
+        if (!member.Can(Permission.ManageAccounts))
+            return Forbidden();
+
         var ownerMemberId = request.OwnerMemberId ?? member.Id;
 
         var owner = await db.FamilyMembers
@@ -222,9 +240,14 @@ public static class ApiEndpoints
         [FromForm] Guid accountId,
         [FromForm] BankProvider bank,
         [FromForm] ImportFormat format,
+        ICurrentFamily family,
         IMessageBus bus,
         CancellationToken ct)
     {
+        var me = await family.RequireMemberAsync(ct);
+        if (!me.Can(Permission.ImportStatements))
+            return Forbidden();
+
         if (file.Length == 0)
             return Results.BadRequest("Soubor je prázdný.");
 

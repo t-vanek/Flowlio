@@ -1,12 +1,15 @@
 @page "/accounts"
 @attribute [Authorize]
 @inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
 
 <PageTitle>Účty – Flowlio</PageTitle>
 
 <h1 class="page-title">Účty</h1>
 
 <div class="panel-grid">
+    @if (_canManageAccounts)
+    {
     <FluentCard Class="panel">
         <h2 class="panel-title">Nový účet</h2>
         <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
@@ -32,6 +35,7 @@
             <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
         </FluentStack>
     </FluentCard>
+    }
 
     <FluentCard Class="panel">
         <h2 class="panel-title">Moje účty</h2>
@@ -94,30 +98,36 @@
                                 {
                                     <div class="account-row">
                                         <div>@g.MemberName <span class="muted">· @LevelLabel(g.Level)</span></div>
-                                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RevokeAccessAsync(a.Id, g.FamilyMemberId))">Odebrat</FluentButton>
+                                        @if (_canManageAccess)
+                                        {
+                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RevokeAccessAsync(a.Id, g.FamilyMemberId))">Odebrat</FluentButton>
+                                        }
                                     </div>
                                 }
                             }
 
-                            @if (GrantCandidates(a).Any())
+                            @if (_canManageAccess)
                             {
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                    <FluentSelect TOption="string" @bind-Value="_grantMemberValue" Label="Člen">
-                                        @foreach (var m in GrantCandidates(a))
-                                        {
-                                            <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
-                                        }
-                                    </FluentSelect>
-                                    <FluentSelect TOption="string" @bind-Value="_grantLevelValue" Label="Úroveň">
-                                        <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Disponent).ToString())">Disponent</FluentOption>
-                                        <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Viewer).ToString())">Jen čtení</FluentOption>
-                                    </FluentSelect>
-                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => GrantAccessAsync(a.Id))">Sdílet</FluentButton>
-                                </FluentStack>
-                            }
-                            else
-                            {
-                                <p class="muted">Pro sdílení nejdřív přidejte další členy na stránce „Rodina".</p>
+                                @if (GrantCandidates(a).Any())
+                                {
+                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                        <FluentSelect TOption="string" @bind-Value="_grantMemberValue" Label="Člen">
+                                            @foreach (var m in GrantCandidates(a))
+                                            {
+                                                <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                            }
+                                        </FluentSelect>
+                                        <FluentSelect TOption="string" @bind-Value="_grantLevelValue" Label="Úroveň">
+                                            <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Disponent).ToString())">Disponent</FluentOption>
+                                            <FluentOption TOption="string" Value="@(((int)AccountAccessLevel.Viewer).ToString())">Jen čtení</FluentOption>
+                                        </FluentSelect>
+                                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => GrantAccessAsync(a.Id))">Sdílet</FluentButton>
+                                    </FluentStack>
+                                }
+                                else
+                                {
+                                    <p class="muted">Pro sdílení nejdřív přidejte další členy na stránce „Rodina".</p>
+                                }
                             }
                         }
 
@@ -152,40 +162,46 @@
                                                 }
                                             </div>
                                         </div>
-                                        <div>
-                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleCardStatusAsync(c))">
-                                                @(c.Status == CardStatus.Active ? "Zablokovat" : "Aktivovat")
-                                            </FluentButton>
-                                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteCardAsync(c.Id))">Smazat</FluentButton>
-                                        </div>
+                                        @if (_canManageCards)
+                                        {
+                                            <div>
+                                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleCardStatusAsync(c))">
+                                                    @(c.Status == CardStatus.Active ? "Zablokovat" : "Aktivovat")
+                                                </FluentButton>
+                                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteCardAsync(c.Id))">Smazat</FluentButton>
+                                            </div>
+                                        }
                                     </div>
                                 }
                             }
 
-                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                                <FluentTextField @bind-Value="_cardName" Label="Jméno na kartě" Style="width:100%" Placeholder="JANA NOVAKOVA" />
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                    <FluentSelect TOption="string" @bind-Value="_cardTypeValue" Label="Typ">
-                                        <FluentOption TOption="string" Value="@(((int)CardType.Debit).ToString())">Debetní</FluentOption>
-                                        <FluentOption TOption="string" Value="@(((int)CardType.Credit).ToString())">Kreditní</FluentOption>
-                                        <FluentOption TOption="string" Value="@(((int)CardType.Prepaid).ToString())">Předplacená</FluentOption>
-                                    </FluentSelect>
-                                    <FluentTextField @bind-Value="_cardLast4" Label="Poslední 4 číslice" Placeholder="1234" />
-                                    <FluentNumberField @bind-Value="_cardExpMonth" Label="Měsíc" Style="width:90px" />
-                                    <FluentNumberField @bind-Value="_cardExpYear" Label="Rok" Style="width:110px" />
+                            @if (_canManageCards)
+                            {
+                                <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                                    <FluentTextField @bind-Value="_cardName" Label="Jméno na kartě" Style="width:100%" Placeholder="JANA NOVAKOVA" />
+                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                        <FluentSelect TOption="string" @bind-Value="_cardTypeValue" Label="Typ">
+                                            <FluentOption TOption="string" Value="@(((int)CardType.Debit).ToString())">Debetní</FluentOption>
+                                            <FluentOption TOption="string" Value="@(((int)CardType.Credit).ToString())">Kreditní</FluentOption>
+                                            <FluentOption TOption="string" Value="@(((int)CardType.Prepaid).ToString())">Předplacená</FluentOption>
+                                        </FluentSelect>
+                                        <FluentTextField @bind-Value="_cardLast4" Label="Poslední 4 číslice" Placeholder="1234" />
+                                        <FluentNumberField @bind-Value="_cardExpMonth" Label="Měsíc" Style="width:90px" />
+                                        <FluentNumberField @bind-Value="_cardExpYear" Label="Rok" Style="width:110px" />
+                                    </FluentStack>
+                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                        <FluentSelect TOption="string" @bind-Value="_cardHolderValue" Label="Držitel">
+                                            <FluentOption TOption="string" Value="">(bez přiřazení)</FluentOption>
+                                            @foreach (var m in _members ?? [])
+                                            {
+                                                <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                            }
+                                        </FluentSelect>
+                                        <FluentNumberField @bind-Value="_cardLimit" Label="Měsíční limit (0 = bez)" Style="width:160px" />
+                                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => CreateCardAsync(a.Id))">Přidat kartu</FluentButton>
+                                    </FluentStack>
                                 </FluentStack>
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                    <FluentSelect TOption="string" @bind-Value="_cardHolderValue" Label="Držitel">
-                                        <FluentOption TOption="string" Value="">(bez přiřazení)</FluentOption>
-                                        @foreach (var m in _members ?? [])
-                                        {
-                                            <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
-                                        }
-                                    </FluentSelect>
-                                    <FluentNumberField @bind-Value="_cardLimit" Label="Měsíční limit (0 = bez)" Style="width:160px" />
-                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => CreateCardAsync(a.Id))">Přidat kartu</FluentButton>
-                                </FluentStack>
-                            </FluentStack>
+                            }
                         }
 
                         @if (_manageError is not null)
@@ -226,10 +242,19 @@
     private string _cardHolderValue = "";
     private decimal _cardLimit;
 
+    private bool _canManageAccounts;
+    private bool _canManageAccess;
+    private bool _canManageCards;
+
     private IEnumerable<FamilyMemberDto> OwnerCandidates => _members ?? [];
 
     protected override async Task OnInitializedAsync()
     {
+        var me = await CurrentUser.GetAsync();
+        _canManageAccounts = me?.Can(Permission.ManageAccounts) ?? false;
+        _canManageAccess = me?.Can(Permission.ManageAccountAccess) ?? false;
+        _canManageCards = me?.Can(Permission.ManageCards) ?? false;
+
         _members = await Api.GetMembersAsync();
         await LoadAsync();
     }

@@ -33,6 +33,7 @@ builder.Services
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("Flowlio"));
 
 builder.Services.AddScoped<FlowlioApi>();
+builder.Services.AddScoped<CurrentUserState>();
 builder.Services.AddScoped<LiveNotificationService>();
 
 await builder.Build().RunAsync();

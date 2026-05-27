@@ -7,6 +7,9 @@ namespace Flowlio.Client.Services;
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
 public sealed class FlowlioApi(HttpClient http)
 {
+    public Task<CurrentUserDto?> GetMeAsync() =>
+        http.GetFromJsonAsync<CurrentUserDto>("api/me");
+
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");
 
@@ -74,8 +77,13 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    public async Task<IReadOnlyList<InvitationDto>> GetInvitationsAsync() =>
-        await http.GetFromJsonAsync<List<InvitationDto>>("api/invitations") ?? [];
+    public async Task<IReadOnlyList<InvitationDto>> GetInvitationsAsync()
+    {
+        var response = await http.GetAsync("api/invitations");
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<List<InvitationDto>>() ?? []
+            : [];
+    }
 
     public async Task<bool> RevokeInvitationAsync(Guid invitationId) =>
         (await http.PostAsync($"api/invitations/{invitationId}/revoke", null)).IsSuccessStatusCode;

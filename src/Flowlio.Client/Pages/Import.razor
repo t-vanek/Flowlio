@@ -1,6 +1,7 @@
 @page "/import"
 @attribute [Authorize]
 @inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
 
 <PageTitle>Import výpisu – Flowlio</PageTitle>
 
@@ -11,7 +12,11 @@
         <h2 class="panel-title">Nahrát výpis z účtu</h2>
         <p class="muted">Vyberte účet, banku a soubor (CSV nebo PDF). Transakce se naparsují, deduplikují a roztřídí.</p>
 
-        @if (_accounts is null)
+        @if (!_canImport)
+        {
+            <FluentMessageBar Intent="MessageIntent.Warning">Na import výpisů nemáte oprávnění.</FluentMessageBar>
+        }
+        else if (_accounts is null)
         {
             <FluentProgressRing />
         }
@@ -79,9 +84,14 @@
     private IBrowserFile? _file;
     private ImportResultDto? _result;
     private bool _busy;
+    private bool _canImport;
 
     protected override async Task OnInitializedAsync()
     {
+        _canImport = await CurrentUser.CanAsync(Permission.ImportStatements);
+        if (!_canImport)
+            return;
+
         _accounts = await Api.GetAccountsAsync();
         if (_accounts.Count > 0)
         {
