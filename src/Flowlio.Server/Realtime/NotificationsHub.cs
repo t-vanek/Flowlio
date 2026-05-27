@@ -15,6 +15,9 @@ public sealed class NotificationsHub(ApplicationDbContext db) : Hub
     /// <summary>Event name the client listens for to re-fetch its effective permissions.</summary>
     public const string AccessChanged = "AccessChanged";
 
+    /// <summary>Event name carrying a human-readable notice the client shows as a toast.</summary>
+    public const string Notice = "Notice";
+
     public static string FamilyGroup(Guid familyId) => $"family:{familyId}";
     public static string UserGroup(Guid userId) => $"user:{userId}";
 

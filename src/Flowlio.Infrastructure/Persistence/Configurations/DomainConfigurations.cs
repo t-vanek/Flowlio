@@ -160,6 +160,7 @@ public class RecurringPaymentConfiguration : IEntityTypeConfiguration<RecurringP
         b.Property(x => x.CounterpartyMatch).HasMaxLength(200);
         b.Property(x => x.VariableSymbolMatch).HasMaxLength(20);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }
@@ -174,6 +175,7 @@ public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
         b.Property(x => x.Currency).HasMaxLength(3);
         b.Property(x => x.Notes).HasMaxLength(1000);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }
@@ -195,6 +197,7 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
     {
         b.Property(x => x.Pattern).HasMaxLength(200).IsRequired();
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }

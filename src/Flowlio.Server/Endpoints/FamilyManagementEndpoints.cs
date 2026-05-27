@@ -106,13 +106,9 @@ public static class FamilyManagementEndpoints
         if (!string.Equals(request.ConfirmName?.Trim(), fam.Name, StringComparison.Ordinal))
             return Results.BadRequest("Pro potvrzení zadejte přesný název rodiny.");
 
-        // Family-scoped data without a cascade path from Family is removed explicitly first;
-        // members, accounts (and their transactions/cards), categories, invitations and role
-        // permissions are removed by the database cascade when the family row is deleted.
-        await db.RecurringPayments.Where(r => r.FamilyId == fam.Id).ExecuteDeleteAsync(ct);
-        await db.Subscriptions.Where(s => s.FamilyId == fam.Id).ExecuteDeleteAsync(ct);
-        await db.CategorizationRules.Where(r => r.FamilyId == fam.Id).ExecuteDeleteAsync(ct);
-
+        // All family-scoped data (members, accounts and their transactions/cards, categories,
+        // recurring payments, subscriptions, rules, invitations, role permissions) is removed by
+        // the database cascade when the family row is deleted.
         db.Families.Remove(fam);
         await db.SaveChangesAsync(ct);
         return Results.NoContent();

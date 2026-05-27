@@ -41,6 +41,7 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<InvitationService>();
+builder.Services.AddScoped<AccountNotifier>();
 
 // Redis-backed distributed cache (read-through views) and shared Data Protection key ring so
 // auth/antiforgery cookies stay valid across restarts and multiple instances.

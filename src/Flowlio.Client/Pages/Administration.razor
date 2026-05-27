@@ -54,6 +54,7 @@ else
 
         <FluentCard Class="panel">
             <h2 class="panel-title">Uživatelské účty</h2>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleDeletedAsync">@(_showDeleted ? "Skrýt smazané" : "Zobrazit smazané")</FluentButton>
             @if (_usersMessage is not null)
             {
                 <FluentMessageBar Intent="@_usersIntent">@_usersMessage</FluentMessageBar>
@@ -130,6 +131,37 @@ else
                 }
             }
         </FluentCard>
+
+        @if (_showDeleted)
+        {
+            <FluentCard Class="panel">
+                <h2 class="panel-title">Smazané účty</h2>
+                @if (_deletedUsers is null)
+                {
+                    <FluentProgressRing />
+                }
+                else if (_deletedUsers.Count == 0)
+                {
+                    <p class="muted">Žádné smazané účty.</p>
+                }
+                else
+                {
+                    @foreach (var u in _deletedUsers)
+                    {
+                        <div class="account-row">
+                            <div>
+                                <div class="account-name">@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)</div>
+                                <div class="muted">@u.Email · smazáno @u.DeletedAtUtc?.LocalDateTime.ToString("d.M.yyyy")</div>
+                            </div>
+                            <div>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => UndeleteAsync(u))">Obnovit účet</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => PurgeAsync(u))">Trvale odstranit</FluentButton>
+                            </div>
+                        </div>
+                    }
+                }
+            </FluentCard>
+        }
     }
 
     @if (_tab == Tab.Roles && _canRoles)
@@ -248,6 +280,8 @@ else
     private string _pwdValue = "";
     private string? _usersMessage;
     private MessageIntent _usersIntent = MessageIntent.Success;
+    private bool _showDeleted;
+    private IReadOnlyList<AdminUserDto>? _deletedUsers;
 
     private FamilyRolesDto? _roles;
     private readonly Dictionary<MemberRole, HashSet<Permission>> _rolePerms = new();
@@ -396,7 +430,32 @@ else
         RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");
 
     private Task DeleteUserAsync(AdminUserDto u) =>
-        RunUserActionAsync(() => Api.DeleteUserAsync(u.Id), "Účet smazán.");
+        RunUserActionAsync(() => Api.DeleteUserAsync(u.Id), "Účet smazán (lze obnovit).");
+
+    private async Task ToggleDeletedAsync()
+    {
+        _showDeleted = !_showDeleted;
+        if (_showDeleted)
+            _deletedUsers = await Api.GetDeletedUsersAsync();
+    }
+
+    private async Task ReloadDeletedAsync()
+    {
+        if (_showDeleted)
+            _deletedUsers = await Api.GetDeletedUsersAsync();
+    }
+
+    private async Task UndeleteAsync(AdminUserDto u)
+    {
+        await RunUserActionAsync(() => Api.UndeleteUserAsync(u.Id), "Účet obnoven.");
+        await ReloadDeletedAsync();
+    }
+
+    private async Task PurgeAsync(AdminUserDto u)
+    {
+        await RunUserActionAsync(() => Api.PurgeUserAsync(u.Id), "Účet trvale odstraněn.");
+        await ReloadDeletedAsync();
+    }
 
     private async Task SetPasswordAsync(AdminUserDto u)
     {

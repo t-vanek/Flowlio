@@ -332,6 +332,9 @@ public sealed record AdminUserDto
     public bool MustChangePassword { get; init; }
     public bool IsCurrentUser { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>Set when the account is soft-deleted (shown only in the deleted-accounts view).</summary>
+    public DateTimeOffset? DeletedAtUtc { get; init; }
     public IReadOnlyList<string> Families { get; init; } = [];
 }
 

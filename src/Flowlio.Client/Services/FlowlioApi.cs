@@ -203,4 +203,18 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<bool> DeleteUserAsync(Guid userId) =>
         (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;
+
+    public async Task<IReadOnlyList<AdminUserDto>> GetDeletedUsersAsync()
+    {
+        var response = await http.GetAsync("api/admin/users/deleted");
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
+            : [];
+    }
+
+    public async Task<bool> UndeleteUserAsync(Guid userId) =>
+        (await http.PostAsync($"api/admin/users/{userId}/undelete", null)).IsSuccessStatusCode;
+
+    public async Task<bool> PurgeUserAsync(Guid userId) =>
+        (await http.DeleteAsync($"api/admin/users/{userId}/purge")).IsSuccessStatusCode;
 }
