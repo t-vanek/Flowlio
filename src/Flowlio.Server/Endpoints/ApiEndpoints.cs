@@ -3,7 +3,10 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
+using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Auth;
 using Flowlio.Shared;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -25,18 +28,33 @@ public static class ApiEndpoints
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         api.MapFamilyEndpoints();
+        api.MapRolesEndpoints();
+        api.MapFamilyManagementEndpoints();
+        app.MapAdminEndpoints();
     }
 
     private static async Task<CurrentUserDto> GetMe(
-        ICurrentFamily family, CancellationToken ct)
+        ICurrentUser currentUser, UserManager<ApplicationUser> userManager, ICurrentFamily family,
+        IConfiguration config, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
+        var permissions = await family.GetPermissionsAsync(ct);
+
+        var isAdmin = false;
+        if (currentUser.UserId is { } userId)
+        {
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            isAdmin = user is not null && await userManager.IsInRoleAsync(user, AdminRoles.Administrator);
+        }
+
         return new CurrentUserDto
         {
             MemberId = me.Id,
             DisplayName = me.DisplayName,
             Role = me.Role,
-            Permissions = RolePermissions.For(me.Role).ToList(),
+            IsAdmin = isAdmin,
+            Permissions = permissions.ToList(),
+            PollIntervalSeconds = config.GetValue("Auth:PollIntervalSeconds", 60),
         };
     }
 
@@ -89,7 +107,7 @@ public static class ApiEndpoints
         CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var member = await family.RequireMemberAsync(ct);
-        if (!member.Can(Permission.ManageAccounts))
+        if (!await family.CanAsync(Permission.ManageAccounts, ct))
             return Forbidden();
 
         var ownerMemberId = request.OwnerMemberId ?? member.Id;
@@ -244,8 +262,7 @@ public static class ApiEndpoints
         IMessageBus bus,
         CancellationToken ct)
     {
-        var me = await family.RequireMemberAsync(ct);
-        if (!me.Can(Permission.ImportStatements))
+        if (!await family.CanAsync(Permission.ImportStatements, ct))
             return Forbidden();
 
         if (file.Length == 0)

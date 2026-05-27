@@ -33,6 +33,17 @@ public class FamilyMemberConfiguration : IEntityTypeConfiguration<FamilyMember>
     }
 }
 
+public class FamilyRolePermissionConfiguration : IEntityTypeConfiguration<FamilyRolePermission>
+{
+    public void Configure(EntityTypeBuilder<FamilyRolePermission> b)
+    {
+        b.HasOne(x => x.Family).WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+
+        // Each (family, role, permission) grant is stored at most once.
+        b.HasIndex(x => new { x.FamilyId, x.Role, x.Permission }).IsUnique();
+    }
+}
+
 public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
 {
     public void Configure(EntityTypeBuilder<BankAccount> b)
@@ -149,6 +160,7 @@ public class RecurringPaymentConfiguration : IEntityTypeConfiguration<RecurringP
         b.Property(x => x.CounterpartyMatch).HasMaxLength(200);
         b.Property(x => x.VariableSymbolMatch).HasMaxLength(20);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }
@@ -163,6 +175,7 @@ public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
         b.Property(x => x.Currency).HasMaxLength(3);
         b.Property(x => x.Notes).HasMaxLength(1000);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }
@@ -184,6 +197,7 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
     {
         b.Property(x => x.Pattern).HasMaxLength(200).IsRequired();
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
     }
 }

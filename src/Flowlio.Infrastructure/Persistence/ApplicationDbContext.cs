@@ -17,6 +17,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<Family> Families => Set<Family>();
     public DbSet<FamilyMember> FamilyMembers => Set<FamilyMember>();
+    public DbSet<FamilyRolePermission> FamilyRolePermissions => Set<FamilyRolePermission>();
     public DbSet<FamilyInvitation> FamilyInvitations => Set<FamilyInvitation>();
     public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
     public DbSet<AccountAccess> AccountAccesses => Set<AccountAccess>();
@@ -32,5 +33,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        // Soft-deleted accounts are hidden from all queries (sign-in, lookups, listings); the admin
+        // "deleted users" view and restore/purge use IgnoreQueryFilters explicitly.
+        builder.Entity<ApplicationUser>().HasQueryFilter(u => u.DeletedAt == null);
     }
 }

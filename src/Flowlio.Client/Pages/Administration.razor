@@ -1,0 +1,560 @@
+@page "/administration"
+@attribute [Authorize]
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+
+<PageTitle>Administrace – Flowlio</PageTitle>
+
+<h1 class="page-title">Administrace</h1>
+
+@if (_me is null)
+{
+    <FluentProgressRing />
+}
+else if (!_isAdmin && !_canRoles && !_canFamily)
+{
+    <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
+}
+else
+{
+    <div class="admin-tabs">
+        @if (_isAdmin)
+        {
+            <FluentButton Appearance="@TabAppearance(Tab.Users)" OnClick="@(() => _tab = Tab.Users)">Uživatelské účty</FluentButton>
+        }
+        @if (_canRoles)
+        {
+            <FluentButton Appearance="@TabAppearance(Tab.Roles)" OnClick="@(() => _tab = Tab.Roles)">Role a oprávnění</FluentButton>
+        }
+        @if (_canFamily)
+        {
+            <FluentButton Appearance="@TabAppearance(Tab.Family)" OnClick="@(() => _tab = Tab.Family)">Rodina</FluentButton>
+        }
+    </div>
+
+    @if (_tab == Tab.Users && _isAdmin)
+    {
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Nový uživatel</h2>
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                <FluentTextField @bind-Value="_newEmail" Label="E-mail" Style="width:100%" Placeholder="novy@example.com" />
+                <FluentTextField @bind-Value="_newName" Label="Jméno (volitelné)" Style="width:100%" />
+                <FluentTextField @bind-Value="_newPassword" TextFieldType="TextFieldType.Password" Label="Počáteční heslo" Style="width:100%" />
+                <label class="perm-item">
+                    <input type="checkbox" checked="@_newIsAdmin" @onchange="@(e => _newIsAdmin = (bool)(e.Value ?? false))" />
+                    <span>Administrátor</span>
+                </label>
+                <label class="perm-item">
+                    <input type="checkbox" checked="@_newMustChange" @onchange="@(e => _newMustChange = (bool)(e.Value ?? false))" />
+                    <span>Vynutit změnu hesla při prvním přihlášení</span>
+                </label>
+                <FluentButton Appearance="Appearance.Accent" OnClick="CreateUserAsync">Vytvořit uživatele</FluentButton>
+            </FluentStack>
+        </FluentCard>
+
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Uživatelské účty</h2>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleDeletedAsync">@(_showDeleted ? "Skrýt smazané" : "Zobrazit smazané")</FluentButton>
+            @if (_usersMessage is not null)
+            {
+                <FluentMessageBar Intent="@_usersIntent">@_usersMessage</FluentMessageBar>
+            }
+            @if (_users is null)
+            {
+                <FluentProgressRing />
+            }
+            else
+            {
+                @foreach (var u in _users)
+                {
+                    <div class="account-row">
+                        <div>
+                            <div class="account-name">
+                                @(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)
+                                @if (u.IsCurrentUser)
+                                {
+                                    <span class="muted">(vy)</span>
+                                }
+                                @if (u.IsAdmin)
+                                {
+                                    <span class="muted">· administrátor</span>
+                                }
+                                @if (u.IsLockedOut)
+                                {
+                                    <span class="muted">· @LockLabel(u)</span>
+                                }
+                                @if (u.MustChangePassword)
+                                {
+                                    <span class="muted">· vyžadována změna hesla</span>
+                                }
+                            </div>
+                            <div class="muted">
+                                @u.Email
+                                @if (u.Families.Count > 0)
+                                {
+                                    <text> · @string.Join(", ", u.Families)</text>
+                                }
+                            </div>
+                        </div>
+                        <div>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleUser(u.Id))">
+                                @(_userExpanded == u.Id ? "Skrýt" : "Spravovat")
+                            </FluentButton>
+                        </div>
+                    </div>
+
+                    @if (_userExpanded == u.Id)
+                    {
+                        <div class="member-edit">
+                            @if (u.IsCurrentUser)
+                            {
+                                <p class="muted">Vlastní účet nelze spravovat zde.</p>
+                            }
+                            else
+                            {
+                                <div class="admin-tabs">
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => SetAdminAsync(u, !u.IsAdmin))">@(u.IsAdmin ? "Odebrat admina" : "Udělat adminem")</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => LockAsync(u))">Zamknout 24 h</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => BlockAsync(u))">Blokovat</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreAsync(u))">Obnovit</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ForcePwdAsync(u))">Vynutit změnu hesla</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ForceLogoutAsync(u))">Vynutit odhlášení</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteUserAsync(u))">Smazat</FluentButton>
+                                </div>
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top:10px;">
+                                    <FluentTextField @bind-Value="_pwdValue" TextFieldType="TextFieldType.Password" Label="Nové heslo" />
+                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SetPasswordAsync(u))">Nastavit heslo</FluentButton>
+                                </FluentStack>
+                            }
+                        </div>
+                    }
+                }
+            }
+        </FluentCard>
+
+        @if (_showDeleted)
+        {
+            <FluentCard Class="panel">
+                <h2 class="panel-title">Smazané účty</h2>
+                @if (_deletedUsers is null)
+                {
+                    <FluentProgressRing />
+                }
+                else if (_deletedUsers.Count == 0)
+                {
+                    <p class="muted">Žádné smazané účty.</p>
+                }
+                else
+                {
+                    @foreach (var u in _deletedUsers)
+                    {
+                        <div class="account-row">
+                            <div>
+                                <div class="account-name">@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)</div>
+                                <div class="muted">@u.Email · smazáno @u.DeletedAtUtc?.LocalDateTime.ToString("d.M.yyyy")</div>
+                            </div>
+                            <div>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => UndeleteAsync(u))">Obnovit účet</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => PurgeAsync(u))">Trvale odstranit</FluentButton>
+                            </div>
+                        </div>
+                    }
+                }
+            </FluentCard>
+        }
+    }
+
+    @if (_tab == Tab.Roles && _canRoles)
+    {
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Role a oprávnění</h2>
+            <p class="muted">Nastavte, co smí jednotlivé role v rodině. Vlastník má vždy všechna oprávnění.</p>
+            @if (_roles is null)
+            {
+                <FluentProgressRing />
+            }
+            else
+            {
+                @foreach (var r in _roles.Roles)
+                {
+                    <div class="role-block">
+                        <h3 class="panel-title">@RoleLabel(r.Role) @(r.Editable ? "" : "(neměnné)")</h3>
+                        <div class="perm-grid">
+                            @foreach (var p in _roles.AllPermissions)
+                            {
+                                <label class="perm-item">
+                                    <input type="checkbox"
+                                           checked="@HasPerm(r.Role, p)"
+                                           disabled="@(!r.Editable)"
+                                           @onchange="@(e => TogglePerm(r.Role, p, (bool)(e.Value ?? false)))" />
+                                    <span>@PermLabel(p)</span>
+                                </label>
+                            }
+                        </div>
+                        @if (r.Editable)
+                        {
+                            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveRoleAsync(r.Role))">Uložit @RoleLabel(r.Role)</FluentButton>
+                        }
+                    </div>
+                }
+            }
+            @if (_rolesMessage is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Success">@_rolesMessage</FluentMessageBar>
+            }
+        </FluentCard>
+    }
+
+    @if (_tab == Tab.Family && _canFamily)
+    {
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Rodina</h2>
+            @if (_family is null)
+            {
+                <FluentProgressRing />
+            }
+            else
+            {
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                    <FluentTextField @bind-Value="_familyName" Label="Název rodiny" Style="width:100%" />
+                    <FluentTextField @bind-Value="_baseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SaveFamilyAsync">Uložit změny</FluentButton>
+                    <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
+                </FluentStack>
+
+                @if (_isOwner)
+                {
+                    <h3 class="panel-title" style="margin-top:20px;">Převod vlastnictví</h3>
+                    @if (TransferCandidates.Any())
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                            <FluentSelect TOption="string" @bind-Value="_transferValue" Label="Nový vlastník">
+                                @foreach (var m in TransferCandidates)
+                                {
+                                    <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                                }
+                            </FluentSelect>
+                            <FluentButton Appearance="Appearance.Accent" OnClick="TransferAsync">Převést vlastnictví</FluentButton>
+                        </FluentStack>
+                        <p class="muted">Stanete se dospělým členem; nový vlastník získá plnou kontrolu.</p>
+                    }
+                    else
+                    {
+                        <p class="muted">Pro převod potřebujete dalšího aktivního dospělého člena s vlastním přihlášením.</p>
+                    }
+
+                    <h3 class="panel-title" style="margin-top:20px;">Smazat rodinu</h3>
+                    <p class="muted">Nevratně smaže rodinu i všechna data (účty, transakce, karty). Pro potvrzení opište název „@_family.Name".</p>
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                        <FluentTextField @bind-Value="_deleteConfirm" Label="Název rodiny" />
+                        <FluentButton Appearance="Appearance.Accent" OnClick="DeleteFamilyAsync" Disabled="@(_deleteConfirm != _family.Name)">Smazat rodinu</FluentButton>
+                    </FluentStack>
+                }
+
+                @if (_familyMessage is not null)
+                {
+                    <FluentMessageBar Intent="@_familyIntent">@_familyMessage</FluentMessageBar>
+                }
+            }
+        </FluentCard>
+    }
+}
+
+@code {
+    private enum Tab { Users, Roles, Family }
+
+    private CurrentUserDto? _me;
+    private bool _isAdmin;
+    private bool _canRoles;
+    private bool _canFamily;
+    private bool _isOwner;
+    private Tab _tab;
+
+    private IReadOnlyList<AdminUserDto>? _users;
+    private Guid? _userExpanded;
+    private string _newEmail = "";
+    private string _newName = "";
+    private string _newPassword = "";
+    private bool _newIsAdmin;
+    private bool _newMustChange = true;
+    private string _pwdValue = "";
+    private string? _usersMessage;
+    private MessageIntent _usersIntent = MessageIntent.Success;
+    private bool _showDeleted;
+    private IReadOnlyList<AdminUserDto>? _deletedUsers;
+
+    private FamilyRolesDto? _roles;
+    private readonly Dictionary<MemberRole, HashSet<Permission>> _rolePerms = new();
+    private string? _rolesMessage;
+
+    private FamilyDto? _family;
+    private IReadOnlyList<FamilyMemberDto>? _members;
+    private string _familyName = "";
+    private string _baseCurrency = "CZK";
+    private string _transferValue = "";
+    private string _deleteConfirm = "";
+    private string? _familyMessage;
+    private MessageIntent _familyIntent = MessageIntent.Success;
+
+    private IEnumerable<FamilyMemberDto> TransferCandidates =>
+        (_members ?? []).Where(m => m.Role == MemberRole.Adult && m.IsActive && m.Status == MemberStatus.Active);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = await CurrentUser.GetAsync();
+        if (_me is null)
+            return;
+
+        ApplyPermissions();
+        EnsureValidTab();
+
+        if (_isAdmin)
+            _users = await Api.GetAdminUsersAsync();
+        if (_canRoles)
+            await LoadRolesAsync();
+        if (_canFamily)
+            await LoadFamilyAsync();
+    }
+
+    private void ApplyPermissions()
+    {
+        _isAdmin = _me?.IsAdmin ?? false;
+        _canRoles = _me?.Can(Permission.ManageRoles) ?? false;
+        _canFamily = _me?.Can(Permission.ManageFamily) ?? false;
+        _isOwner = _me?.Role == MemberRole.Owner;
+    }
+
+    private void EnsureValidTab()
+    {
+        if (_tab == Tab.Users && _isAdmin) return;
+        if (_tab == Tab.Roles && _canRoles) return;
+        if (_tab == Tab.Family && _canFamily) return;
+        _tab = _isAdmin ? Tab.Users : _canRoles ? Tab.Roles : Tab.Family;
+    }
+
+    private async Task LoadRolesAsync()
+    {
+        _roles = await Api.GetRolesAsync();
+        _rolePerms.Clear();
+        if (_roles is not null)
+            foreach (var r in _roles.Roles)
+                _rolePerms[r.Role] = r.Permissions.ToHashSet();
+    }
+
+    private async Task LoadFamilyAsync()
+    {
+        _family = await Api.GetFamilyAsync();
+        _members = await Api.GetMembersAsync();
+        if (_family is not null)
+        {
+            _familyName = _family.Name;
+            _baseCurrency = _family.BaseCurrency;
+        }
+        _transferValue = TransferCandidates.FirstOrDefault()?.Id.ToString() ?? "";
+    }
+
+    private bool HasPerm(MemberRole role, Permission p) =>
+        _rolePerms.TryGetValue(role, out var set) && set.Contains(p);
+
+    private void TogglePerm(MemberRole role, Permission p, bool on)
+    {
+        if (!_rolePerms.TryGetValue(role, out var set))
+            _rolePerms[role] = set = new HashSet<Permission>();
+        if (on) set.Add(p); else set.Remove(p);
+    }
+
+    private async Task SaveRoleAsync(MemberRole role)
+    {
+        _rolesMessage = null;
+        var perms = _rolePerms.TryGetValue(role, out var set) ? set.ToList() : [];
+        if (await Api.UpdateRoleAsync(role, perms))
+            _rolesMessage = $"Oprávnění role {RoleLabel(role)} uložena.";
+        await LoadRolesAsync();
+    }
+
+    private void ToggleUser(Guid id) => _userExpanded = _userExpanded == id ? null : id;
+
+    private async Task RunUserActionAsync(Func<Task<bool>> action, string okMessage)
+    {
+        var ok = await action();
+        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
+        _usersMessage = ok ? okMessage : "Operace se nezdařila.";
+        _users = await Api.GetAdminUsersAsync();
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newEmail) || string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _usersIntent = MessageIntent.Error;
+            _usersMessage = "Zadejte e-mail a počáteční heslo.";
+            return;
+        }
+        var ok = await Api.CreateUserAsync(new CreateUserRequest
+        {
+            Email = _newEmail,
+            DisplayName = string.IsNullOrWhiteSpace(_newName) ? null : _newName,
+            Password = _newPassword,
+            IsAdmin = _newIsAdmin,
+            MustChangePassword = _newMustChange,
+        });
+        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
+        _usersMessage = ok ? "Uživatel vytvořen." : "Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).";
+        if (ok)
+        {
+            _newEmail = "";
+            _newName = "";
+            _newPassword = "";
+            _newIsAdmin = false;
+            _newMustChange = true;
+        }
+        _users = await Api.GetAdminUsersAsync();
+    }
+
+    private Task SetAdminAsync(AdminUserDto u, bool isAdmin) =>
+        RunUserActionAsync(() => Api.SetUserAdminAsync(u.Id, isAdmin), isAdmin ? "Admin udělen." : "Admin odebrán.");
+
+    private Task LockAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.LockUserAsync(u.Id, 24 * 60), "Účet zamčen na 24 hodin.");
+
+    private Task BlockAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.BlockUserAsync(u.Id), "Účet zablokován.");
+
+    private Task RestoreAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.RestoreUserAsync(u.Id), "Účet obnoven.");
+
+    private Task ForcePwdAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.ForcePasswordChangeAsync(u.Id), "Při příštím přihlášení bude vyžadována změna hesla.");
+
+    private Task ForceLogoutAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");
+
+    private Task DeleteUserAsync(AdminUserDto u) =>
+        RunUserActionAsync(() => Api.DeleteUserAsync(u.Id), "Účet smazán (lze obnovit).");
+
+    private async Task ToggleDeletedAsync()
+    {
+        _showDeleted = !_showDeleted;
+        if (_showDeleted)
+            _deletedUsers = await Api.GetDeletedUsersAsync();
+    }
+
+    private async Task ReloadDeletedAsync()
+    {
+        if (_showDeleted)
+            _deletedUsers = await Api.GetDeletedUsersAsync();
+    }
+
+    private async Task UndeleteAsync(AdminUserDto u)
+    {
+        await RunUserActionAsync(() => Api.UndeleteUserAsync(u.Id), "Účet obnoven.");
+        await ReloadDeletedAsync();
+    }
+
+    private async Task PurgeAsync(AdminUserDto u)
+    {
+        await RunUserActionAsync(() => Api.PurgeUserAsync(u.Id), "Účet trvale odstraněn.");
+        await ReloadDeletedAsync();
+    }
+
+    private async Task SetPasswordAsync(AdminUserDto u)
+    {
+        if (string.IsNullOrWhiteSpace(_pwdValue))
+        {
+            _usersIntent = MessageIntent.Error;
+            _usersMessage = "Zadejte nové heslo.";
+            return;
+        }
+        var ok = await Api.SetUserPasswordAsync(u.Id, new AdminSetPasswordRequest { NewPassword = _pwdValue, MustChangePassword = true });
+        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
+        _usersMessage = ok ? "Heslo nastaveno; uživatel si jej při přihlášení změní." : "Heslo se nepodařilo nastavit (slabé heslo?).";
+        if (ok)
+            _pwdValue = "";
+        _users = await Api.GetAdminUsersAsync();
+    }
+
+    private static string LockLabel(AdminUserDto u) =>
+        u.LockoutEndUtc >= DateTimeOffset.MaxValue.AddDays(-1)
+            ? "blokováno"
+            : $"zamčeno do {u.LockoutEndUtc?.LocalDateTime:d.M.yyyy HH:mm}";
+
+    private async Task SaveFamilyAsync()
+    {
+        _familyMessage = null;
+        var ok = await Api.UpdateFamilyAsync(new UpdateFamilyRequest { Name = _familyName, BaseCurrency = _baseCurrency });
+        _familyIntent = ok ? MessageIntent.Success : MessageIntent.Error;
+        _familyMessage = ok ? "Rodina uložena." : "Uložení se nezdařilo.";
+        await LoadFamilyAsync();
+    }
+
+    private async Task TransferAsync()
+    {
+        _familyMessage = null;
+        if (!Guid.TryParse(_transferValue, out var id))
+            return;
+
+        var ok = await Api.TransferOwnershipAsync(id);
+        if (!ok)
+        {
+            _familyIntent = MessageIntent.Error;
+            _familyMessage = "Převod se nezdařil.";
+            return;
+        }
+
+        // The current user is no longer the owner: invalidate the cached permissions so the
+        // navigation and admin tabs update immediately, then re-evaluate this page.
+        _me = await CurrentUser.RefreshAsync();
+        ApplyPermissions();
+        EnsureValidTab();
+
+        _familyIntent = MessageIntent.Success;
+        _familyMessage = "Vlastnictví převedeno. Vaše role je nyní Dospělý.";
+
+        if (_canFamily)
+            await LoadFamilyAsync();
+    }
+
+    private async Task DeleteFamilyAsync()
+    {
+        _familyMessage = null;
+        if (_family is null || _deleteConfirm != _family.Name)
+            return;
+        var ok = await Api.DeleteFamilyAsync(_deleteConfirm);
+        if (ok)
+        {
+            _familyIntent = MessageIntent.Success;
+            _familyMessage = "Rodina byla smazána.";
+            _deleteConfirm = "";
+            await LoadFamilyAsync();
+        }
+        else
+        {
+            _familyIntent = MessageIntent.Error;
+            _familyMessage = "Smazání se nezdařilo.";
+        }
+    }
+
+    private Appearance TabAppearance(Tab tab) => _tab == tab ? Appearance.Accent : Appearance.Stealth;
+
+    private static string RoleLabel(MemberRole role) => role switch
+    {
+        MemberRole.Owner => "Vlastník",
+        MemberRole.Adult => "Dospělý",
+        MemberRole.Viewer => "Pozorovatel",
+        MemberRole.Child => "Dítě",
+        _ => role.ToString(),
+    };
+
+    private static string PermLabel(Permission p) => p switch
+    {
+        Permission.ViewFinances => "Zobrazení financí",
+        Permission.ManageAccounts => "Správa účtů",
+        Permission.ImportStatements => "Import výpisů",
+        Permission.ManageAccountAccess => "Sdílení účtů (disponenti)",
+        Permission.ManageCards => "Správa karet",
+        Permission.ManageMembers => "Správa členů",
+        Permission.ManageRoles => "Správa rolí a oprávnění",
+        Permission.ManageFamily => "Správa rodiny",
+        _ => p.ToString(),
+    };
+}

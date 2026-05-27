@@ -24,6 +24,12 @@ public class FamilyMember : AuditableEntity
 
     public MemberRole Role { get; set; } = MemberRole.Adult;
 
+    /// <summary>
+    /// When <c>false</c> the member is suspended: they keep their profile and history but are denied
+    /// every action in the family until reactivated by an owner.
+    /// </summary>
+    public bool IsActive { get; set; } = true;
+
     /// <summary>For <see cref="MemberRole.Child"/> members, the guardian (parent) member who controls them.</summary>
     public Guid? GuardianMemberId { get; set; }
     public FamilyMember? Guardian { get; set; }

@@ -231,3 +231,10 @@ html, body {
 .auth-title { font-size: 24px; margin: 0 0 4px; }
 .auth-subtitle { color: #64748b; margin: 0 0 22px; }
 .auth-switch { text-align: center; font-size: 14px; color: #64748b; }
+/* Administration */
+.admin-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.role-block { padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.role-block:first-of-type { border-top: none; }
+.perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; margin: 8px 0 12px; }
+.perm-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.member-edit { padding: 12px; margin: 4px 0 12px; background: #f8fafc; border-radius: 8px; }

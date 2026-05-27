@@ -129,7 +129,14 @@ public sealed record CurrentUserDto
     public Guid MemberId { get; init; }
     public string DisplayName { get; init; } = "";
     public MemberRole Role { get; init; }
+
+    /// <summary>Whether the user holds the system-wide administrator role (cross-family user management).</summary>
+    public bool IsAdmin { get; init; }
+
     public IReadOnlyList<Permission> Permissions { get; init; } = [];
+
+    /// <summary>How often the client should re-poll for access changes as a fallback to live push (seconds).</summary>
+    public int PollIntervalSeconds { get; init; } = 60;
 
     public bool Can(Permission permission) => Permissions.Contains(permission);
 }
@@ -152,6 +159,18 @@ public sealed record FamilyMemberDto
     public Guid? GuardianMemberId { get; init; }
     public string? GuardianName { get; init; }
     public bool IsCurrentUser { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
+/// <summary>Owner-initiated edit of an existing member's profile and role.</summary>
+public sealed record UpdateMemberRequest
+{
+    public string DisplayName { get; init; } = "";
+    public string? Email { get; init; }
+    public MemberRole Role { get; init; } = MemberRole.Adult;
+
+    /// <summary>Controlling guardian; required when <see cref="Role"/> is <see cref="MemberRole.Child"/>.</summary>
+    public Guid? GuardianMemberId { get; init; }
 }
 
 public sealed record CreateMemberRequest
@@ -244,4 +263,107 @@ public sealed record UpdateCardRequest
     public int ExpiryYear { get; init; }
     public CardStatus Status { get; init; }
     public decimal? MonthlyLimit { get; init; }
+}
+
+// ---- Roles & permissions (per-family, editable by the owner) ----------------
+
+public sealed record RolePermissionsDto
+{
+    public MemberRole Role { get; init; }
+    public IReadOnlyList<Permission> Permissions { get; init; } = [];
+
+    /// <summary>Whether the owner may edit this role's permissions (false for the Owner role).</summary>
+    public bool Editable { get; init; }
+}
+
+public sealed record FamilyRolesDto
+{
+    /// <summary>Every permission that exists, so the client can render the full matrix.</summary>
+    public IReadOnlyList<Permission> AllPermissions { get; init; } = [];
+    public IReadOnlyList<RolePermissionsDto> Roles { get; init; } = [];
+}
+
+public sealed record UpdateRolePermissionsRequest
+{
+    public IReadOnlyList<Permission> Permissions { get; init; } = [];
+}
+
+// ---- Family management ------------------------------------------------------
+
+public sealed record FamilyDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public string BaseCurrency { get; init; } = "CZK";
+    public int MemberCount { get; init; }
+    public Guid? OwnerMemberId { get; init; }
+    public string? OwnerName { get; init; }
+}
+
+public sealed record UpdateFamilyRequest
+{
+    public string Name { get; init; } = "";
+    public string BaseCurrency { get; init; } = "CZK";
+}
+
+public sealed record TransferOwnershipRequest
+{
+    public Guid NewOwnerMemberId { get; init; }
+}
+
+/// <summary>Deletes the whole family; <see cref="ConfirmName"/> must match the family name exactly.</summary>
+public sealed record DeleteFamilyRequest
+{
+    public string ConfirmName { get; init; } = "";
+}
+
+// ---- System administration (cross-family user accounts) ---------------------
+
+public sealed record AdminUserDto
+{
+    public Guid Id { get; init; }
+    public string? Email { get; init; }
+    public string? DisplayName { get; init; }
+    public bool IsAdmin { get; init; }
+    public bool IsLockedOut { get; init; }
+
+    /// <summary>When the lockout ends; <c>DateTimeOffset.MaxValue</c> indicates an indefinite block.</summary>
+    public DateTimeOffset? LockoutEndUtc { get; init; }
+    public bool MustChangePassword { get; init; }
+    public bool IsCurrentUser { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>Set when the account is soft-deleted (shown only in the deleted-accounts view).</summary>
+    public DateTimeOffset? DeletedAtUtc { get; init; }
+    public IReadOnlyList<string> Families { get; init; } = [];
+}
+
+public sealed record CreateUserRequest
+{
+    public string Email { get; init; } = "";
+    public string? DisplayName { get; init; }
+    public string Password { get; init; } = "";
+    public bool IsAdmin { get; init; }
+
+    /// <summary>Require the user to choose a new password on first sign-in.</summary>
+    public bool MustChangePassword { get; init; } = true;
+}
+
+public sealed record SetUserAdminRequest
+{
+    public bool IsAdmin { get; init; }
+}
+
+/// <summary>Temporary lock; the account unlocks itself after the given number of minutes.</summary>
+public sealed record LockUserRequest
+{
+    public int Minutes { get; init; } = 60;
+}
+
+public sealed record AdminSetPasswordRequest
+{
+    public string NewPassword { get; init; } = "";
+
+    /// <summary>Also require the user to change this password on next sign-in.</summary>
+    public bool MustChangePassword { get; init; } = true;
 }

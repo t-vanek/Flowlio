@@ -8,6 +8,7 @@ using Flowlio.Server;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Endpoints;
 using Flowlio.Server.Realtime;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using JasperFx.Resources;
@@ -29,6 +30,9 @@ var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
 var rabbitConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
     ?? throw new InvalidOperationException("Connection string 'RabbitMq' is not configured.");
 
+var accessTokenLifetime = TimeSpan.FromMinutes(builder.Configuration.GetValue("Auth:AccessTokenMinutes", 15));
+var refreshTokenLifetime = TimeSpan.FromDays(builder.Configuration.GetValue("Auth:RefreshTokenDays", 14));
+
 var redis = ConnectionMultiplexer.Connect(redisConnectionString);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
@@ -37,6 +41,7 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<InvitationService>();
+builder.Services.AddScoped<AccountNotifier>();
 
 // Redis-backed distributed cache (read-through views) and shared Data Protection key ring so
 // auth/antiforgery cookies stay valid across restarts and multiple instances.
@@ -89,6 +94,11 @@ builder.Services.AddOpenIddict()
 
         options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, DbInitializer.ApiScope, DbInitializer.SmtpScope);
 
+        // Short-lived access tokens keep a lock/delete from lingering; refresh tokens are validated
+        // against the user (lockout) on every renewal, so revoked access propagates within the window.
+        options.SetAccessTokenLifetime(accessTokenLifetime);
+        options.SetRefreshTokenLifetime(refreshTokenLifetime);
+
         // Development certificates; replace with managed certificates in production.
         options.AddDevelopmentEncryptionCertificate().AddDevelopmentSigningCertificate();
         options.DisableAccessTokenEncryption();
@@ -119,7 +129,17 @@ builder.Services.AddAuthorization(options =>
         policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
     });
+
+    options.AddPolicy(AdminRoles.AdminPolicy, policy =>
+    {
+        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.AddRequirements(new AdminRequirement());
+    });
 });
+
+// DB-backed admin check so role changes take effect immediately (no token refresh required).
+builder.Services.AddScoped<IAuthorizationHandler, AdminAuthorizationHandler>();
 
 builder.Services.AddControllers();
 builder.Services.AddRazorPages();
@@ -166,6 +186,20 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Translate a suspended-membership signal raised deep in the request into a clean 403.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (FamilyAccessDeniedException ex)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { detail = ex.Message });
+    }
+});
 
 app.MapControllers();
 app.MapRazorPages();

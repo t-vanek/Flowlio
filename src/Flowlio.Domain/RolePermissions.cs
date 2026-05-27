@@ -1,13 +1,20 @@
 namespace Flowlio.Domain;
 
 /// <summary>
-/// The single source of truth mapping each <see cref="MemberRole"/> to the set of
-/// <see cref="Permission"/>s it grants. Both the API (enforcement) and the client
-/// (hiding unavailable actions) derive their behaviour from this table.
+/// The <em>default</em> mapping of each <see cref="MemberRole"/> to the set of
+/// <see cref="Permission"/>s it grants. New families are seeded from this table
+/// (see <see cref="FamilyRolePermission.CreateDefaults"/>); afterwards each family's owner may
+/// customise the permissions of the non-owner roles, so runtime enforcement reads the
+/// per-family overrides rather than this table. The <see cref="MemberRole.Owner"/> always holds
+/// every permission and is never editable.
 /// </summary>
 public static class RolePermissions
 {
     private static readonly IReadOnlySet<Permission> All = Enum.GetValues<Permission>().ToHashSet();
+
+    /// <summary>Roles whose permissions a family owner may customise (everything except Owner).</summary>
+    public static readonly IReadOnlyList<MemberRole> EditableRoles =
+        [MemberRole.Adult, MemberRole.Viewer, MemberRole.Child];
 
     private static readonly IReadOnlySet<Permission> Adult = new HashSet<Permission>
     {

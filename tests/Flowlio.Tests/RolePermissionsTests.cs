@@ -20,6 +20,18 @@ public class RolePermissionsTests
         Assert.True(RolePermissions.Has(MemberRole.Adult, Permission.ManageAccountAccess));
         Assert.True(RolePermissions.Has(MemberRole.Adult, Permission.ManageCards));
         Assert.False(RolePermissions.Has(MemberRole.Adult, Permission.ManageMembers));
+        Assert.False(RolePermissions.Has(MemberRole.Adult, Permission.ManageRoles));
+        Assert.False(RolePermissions.Has(MemberRole.Adult, Permission.ManageFamily));
+    }
+
+    [Fact]
+    public void Default_grants_cover_only_editable_non_owner_roles()
+    {
+        var defaults = FamilyRolePermission.CreateDefaults(Guid.NewGuid()).ToList();
+
+        Assert.DoesNotContain(defaults, r => r.Role == MemberRole.Owner);
+        Assert.All(defaults, r => Assert.Contains(r.Role, RolePermissions.EditableRoles));
+        Assert.Contains(defaults, r => r.Role == MemberRole.Adult && r.Permission == Permission.ManageAccounts);
     }
 
     [Theory]
