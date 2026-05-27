@@ -622,7 +622,7 @@ else
         _members = await Api.GetMembersAsync();
         if (_family is not null)
         {
-            _familyModel = new UpdateFamilyRequest { Name = _family.Name, BaseCurrency = _family.BaseCurrency };
+            _familyModel = new UpdateFamilyRequest { Name = _family.Name, BaseCurrency = _family.BaseCurrency, Version = _family.Version };
             _deleteModel = new DeleteFamilyRequest();
         }
         _transferValue = TransferCandidates.FirstOrDefault()?.Id.ToString() ?? "";
@@ -825,9 +825,14 @@ else
     private async Task SaveFamilyAsync()
     {
         _familyMessage = null;
-        var ok = await Api.UpdateFamilyAsync(_familyModel);
-        _familyIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _familyMessage = ok ? "Rodina uložena." : "Uložení se nezdařilo.";
+        var result = await Api.UpdateFamilyAsync(_familyModel);
+        _familyIntent = result == SaveStatus.Success ? MessageIntent.Success : MessageIntent.Error;
+        _familyMessage = result switch
+        {
+            SaveStatus.Success => "Rodina uložena.",
+            SaveStatus.Conflict => "Rodina byla mezitím změněna jiným uživatelem. Načetl jsem aktuální verzi.",
+            _ => "Uložení se nezdařilo.",
+        };
         await LoadFamilyAsync();
     }
 

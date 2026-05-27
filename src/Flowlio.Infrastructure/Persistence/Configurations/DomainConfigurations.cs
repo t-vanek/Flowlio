@@ -14,6 +14,7 @@ public class FamilyConfiguration : IEntityTypeConfiguration<Family>
         b.HasMany(x => x.Members).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Accounts).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Categories).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        b.Property<uint>("xmin").IsRowVersion();
         b.ToTable(t =>
         {
             t.HasCheckConstraint("CK_Family_Name", "char_length(btrim(\"Name\")) > 0");
@@ -37,6 +38,8 @@ public class FamilyMemberConfiguration : IEntityTypeConfiguration<FamilyMember>
             .WithMany(x => x.Dependents)
             .HasForeignKey(x => x.GuardianMemberId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        b.Property<uint>("xmin").IsRowVersion();
     }
 }
 
@@ -116,6 +119,7 @@ public class AccountAccessConfiguration : IEntityTypeConfiguration<AccountAccess
         // A member has at most one access grant per account.
         b.HasIndex(x => new { x.BankAccountId, x.FamilyMemberId }).IsUnique();
         b.HasIndex(x => x.FamilyMemberId);
+        b.Property<uint>("xmin").IsRowVersion();
     }
 }
 
@@ -134,6 +138,7 @@ public class BankCardConfiguration : IEntityTypeConfiguration<BankCard>
 
         b.HasIndex(x => x.BankAccountId);
         b.HasIndex(x => x.HolderMemberId);
+        b.Property<uint>("xmin").IsRowVersion();
         b.ToTable(t =>
         {
             t.HasCheckConstraint("CK_BankCard_ExpiryMonth", "\"ExpiryMonth\" BETWEEN 1 AND 12");

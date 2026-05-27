@@ -1,8 +1,18 @@
+using System.Net;
 using System.Net.Http.Json;
 using Flowlio.Domain;
 using Flowlio.Shared;
 
 namespace Flowlio.Client.Services;
+
+/// <summary>Outcome of a write that participates in optimistic concurrency.</summary>
+public enum SaveStatus
+{
+    Success,
+    /// <summary>The row changed since it was loaded (HTTP 409); the caller should reload.</summary>
+    Conflict,
+    Failed,
+}
 
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
 public sealed class FlowlioApi(HttpClient http)
@@ -85,13 +95,8 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    public async Task<FamilyMemberDto?> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/members/{memberId}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<FamilyMemberDto>()
-            : null;
-    }
+    public async Task<SaveStatus> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/members/{memberId}", request));
 
     public async Task<bool> DeleteMemberAsync(Guid memberId) =>
         (await http.DeleteAsync($"api/members/{memberId}")).IsSuccessStatusCode;
@@ -147,13 +152,8 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    public async Task<BankCardDto?> UpdateCardAsync(Guid cardId, UpdateCardRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/cards/{cardId}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<BankCardDto>()
-            : null;
-    }
+    public async Task<SaveStatus> UpdateCardAsync(Guid cardId, UpdateCardRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/cards/{cardId}", request));
 
     public async Task<bool> DeleteCardAsync(Guid cardId) =>
         (await http.DeleteAsync($"api/cards/{cardId}")).IsSuccessStatusCode;
@@ -171,8 +171,13 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<FamilyDto?> GetFamilyAsync() =>
         http.GetFromJsonAsync<FamilyDto>("api/family");
 
-    public async Task<bool> UpdateFamilyAsync(UpdateFamilyRequest request) =>
-        (await http.PutAsJsonAsync("api/family", request)).IsSuccessStatusCode;
+    public async Task<SaveStatus> UpdateFamilyAsync(UpdateFamilyRequest request) =>
+        ToStatus(await http.PutAsJsonAsync("api/family", request));
+
+    private static SaveStatus ToStatus(HttpResponseMessage response) =>
+        response.IsSuccessStatusCode ? SaveStatus.Success
+        : response.StatusCode == HttpStatusCode.Conflict ? SaveStatus.Conflict
+        : SaveStatus.Failed;
 
     public async Task<bool> TransferOwnershipAsync(Guid newOwnerMemberId) =>
         (await http.PostAsJsonAsync("api/family/transfer-ownership", new TransferOwnershipRequest { NewOwnerMemberId = newOwnerMemberId })).IsSuccessStatusCode;

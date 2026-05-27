@@ -419,8 +419,9 @@
 
     private async Task ToggleCardStatusAsync(BankCardDto c)
     {
+        _manageError = null;
         var newStatus = c.Status == CardStatus.Active ? CardStatus.Blocked : CardStatus.Active;
-        await Api.UpdateCardAsync(c.Id, new UpdateCardRequest
+        var result = await Api.UpdateCardAsync(c.Id, new UpdateCardRequest
         {
             HolderMemberId = c.HolderMemberId,
             CardholderName = c.CardholderName,
@@ -430,7 +431,12 @@
             ExpiryYear = c.ExpiryYear,
             Status = newStatus,
             MonthlyLimit = c.MonthlyLimit,
+            Version = c.Version,
         });
+        if (result == SaveStatus.Conflict)
+            _manageError = "Karta byla mezitím změněna jiným uživatelem. Načetl jsem aktuální stav.";
+        else if (result != SaveStatus.Success)
+            _manageError = "Změnu karty se nepodařilo uložit.";
         if (_expanded is { } id)
             await ReloadManageAsync(id);
     }

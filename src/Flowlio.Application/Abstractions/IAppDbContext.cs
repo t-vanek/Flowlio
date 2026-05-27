@@ -26,4 +26,14 @@ public interface IAppDbContext
     DbSet<CategorizationRule> CategorizationRules { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Current value of the entity's row-version concurrency token (Postgres xmin).</summary>
+    uint GetRowVersion(object entity);
+
+    /// <summary>
+    /// Sets the original concurrency token used in the UPDATE's WHERE clause, so a save fails with a
+    /// <see cref="Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException"/> if the row changed since
+    /// the client loaded the given <paramref name="version"/>.
+    /// </summary>
+    void SetOriginalRowVersion(object entity, uint version);
 }

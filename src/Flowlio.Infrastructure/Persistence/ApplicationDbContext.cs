@@ -43,4 +43,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<FamilyMember>().HasQueryFilter(m => m.DeletedAt == null);
         builder.Entity<BankCard>().HasQueryFilter(c => c.DeletedAt == null);
     }
+
+    private const string RowVersion = "xmin";
+
+    public uint GetRowVersion(object entity) => (uint)Entry(entity).Property(RowVersion).CurrentValue!;
+
+    public void SetOriginalRowVersion(object entity, uint version) =>
+        Entry(entity).Property(RowVersion).OriginalValue = version;
 }

@@ -284,7 +284,7 @@
     {
         _error = null;
         _editingId = m.Id;
-        _editModel = new UpdateMemberRequest { DisplayName = m.DisplayName };
+        _editModel = new UpdateMemberRequest { DisplayName = m.DisplayName, Version = m.Version };
         _editEmail = m.Email ?? "";
         _editRoleValue = ((int)(m.Role == MemberRole.Owner ? MemberRole.Adult : m.Role)).ToString();
         _editGuardianValue = m.GuardianMemberId?.ToString()
@@ -314,7 +314,14 @@
         _editModel.GuardianMemberId = guardianId;
         var result = await Api.UpdateMemberAsync(m.Id, _editModel);
 
-        if (result is null)
+        if (result == SaveStatus.Conflict)
+        {
+            _error = "Člen byl mezitím změněn jiným uživatelem. Načetl jsem aktuální verzi, zkuste úpravu znovu.";
+            _editingId = null;
+            await LoadAsync();
+            return;
+        }
+        if (result != SaveStatus.Success)
         {
             _error = "Úpravu se nepodařilo uložit.";
             return;

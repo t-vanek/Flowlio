@@ -59,7 +59,7 @@ public static class FamilyEndpoints
         return members
             .OrderBy(m => m.Role)
             .ThenBy(m => m.DisplayName)
-            .Select(m => ToMemberDto(m, pending, names, me.Id))
+            .Select(m => ToMemberDto(m, pending, names, me.Id) with { Version = db.GetRowVersion(m) })
             .ToList();
     }
 
@@ -177,6 +177,7 @@ public static class FamilyEndpoints
         member.DisplayName = request.DisplayName.Trim();
         member.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         member.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SetOriginalRowVersion(member, request.Version);
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
         await audit.RecordAsync("member.update", "Member", member.Id.ToString(), member.DisplayName, me.FamilyId,
@@ -488,6 +489,7 @@ public static class FamilyEndpoints
                 ExpiryYear = c.ExpiryYear,
                 Status = c.Status,
                 MonthlyLimit = c.MonthlyLimit,
+                Version = EF.Property<uint>(c, "xmin"),
             })
             .ToListAsync(ct);
 
@@ -565,6 +567,7 @@ public static class FamilyEndpoints
         card.Status = request.Status;
         card.MonthlyLimit = request.MonthlyLimit;
         card.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SetOriginalRowVersion(card, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("card.update", "BankCard", card.Id.ToString(), card.CardholderName, me.FamilyId,
             "Upravena karta", ct);

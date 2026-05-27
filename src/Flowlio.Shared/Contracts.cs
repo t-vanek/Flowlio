@@ -209,6 +209,9 @@ public sealed record FamilyMemberDto
     public string? GuardianName { get; init; }
     public bool IsCurrentUser { get; init; }
     public bool IsActive { get; init; } = true;
+
+    /// <summary>Concurrency token (Postgres xmin) the client echoes back on update to detect concurrent edits.</summary>
+    public uint Version { get; init; }
 }
 
 /// <summary>Owner-initiated edit of an existing member's profile and role.</summary>
@@ -226,6 +229,9 @@ public sealed record UpdateMemberRequest
 
     /// <summary>Controlling guardian; required when <see cref="Role"/> is <see cref="MemberRole.Child"/>.</summary>
     public Guid? GuardianMemberId { get; set; }
+
+    /// <summary>Concurrency token loaded with the member; the update is rejected (409) if it no longer matches.</summary>
+    public uint Version { get; set; }
 }
 
 public sealed record CreateMemberRequest
@@ -301,6 +307,9 @@ public sealed record BankCardDto
     public int ExpiryYear { get; init; }
     public CardStatus Status { get; init; }
     public decimal? MonthlyLimit { get; init; }
+
+    /// <summary>Concurrency token (Postgres xmin) echoed back on update to detect concurrent edits.</summary>
+    public uint Version { get; init; }
 }
 
 public sealed record CreateCardRequest
@@ -349,6 +358,9 @@ public sealed record UpdateCardRequest
 
     [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Měsíční limit nesmí být záporný.")]
     public decimal? MonthlyLimit { get; set; }
+
+    /// <summary>Concurrency token loaded with the card; the update is rejected (409) if it no longer matches.</summary>
+    public uint Version { get; set; }
 }
 
 // ---- Roles & permissions (per-family, editable by the owner) ----------------
@@ -384,6 +396,9 @@ public sealed record FamilyDto
     public int MemberCount { get; init; }
     public Guid? OwnerMemberId { get; init; }
     public string? OwnerName { get; init; }
+
+    /// <summary>Concurrency token (Postgres xmin) echoed back on update to detect concurrent edits.</summary>
+    public uint Version { get; init; }
 }
 
 public sealed record UpdateFamilyRequest
@@ -395,6 +410,9 @@ public sealed record UpdateFamilyRequest
     [Required(ErrorMessage = "Měna je povinná.")]
     [RegularExpression(ValidationRules.CurrencyRegex, ErrorMessage = "Měna musí být třípísmenný kód (např. CZK).")]
     public string BaseCurrency { get; set; } = "CZK";
+
+    /// <summary>Concurrency token loaded with the family; the update is rejected (409) if it no longer matches.</summary>
+    public uint Version { get; set; }
 }
 
 public sealed record TransferOwnershipRequest
