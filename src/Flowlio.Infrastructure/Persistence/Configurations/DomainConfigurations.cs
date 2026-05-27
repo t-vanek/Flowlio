@@ -9,7 +9,7 @@ public class FamilyConfiguration : IEntityTypeConfiguration<Family>
     public void Configure(EntityTypeBuilder<Family> b)
     {
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-        b.Property(x => x.BaseCurrency).HasMaxLength(3);
+        b.Property(x => x.BaseCurrency).HasConversion<string>().HasMaxLength(3);
         b.HasMany(x => x.Members).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Accounts).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasMany(x => x.Categories).WithOne(x => x.Family!).HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
@@ -32,10 +32,12 @@ public class BankAccountConfiguration : IEntityTypeConfiguration<BankAccount>
     {
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.AccountNumber).HasMaxLength(64);
-        b.Property(x => x.Currency).HasMaxLength(3);
+        b.Property(x => x.Currency).HasConversion<string>().HasMaxLength(3);
         b.Property(x => x.OpeningBalance).HasPrecision(18, 2);
         b.HasMany(x => x.Transactions).WithOne(x => x.BankAccount!).HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.OwnerMember).WithMany(m => m.Accounts).HasForeignKey(x => x.OwnerMemberId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.FamilyId);
+        b.HasIndex(x => x.OwnerMemberId);
     }
 }
 
@@ -56,7 +58,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
     public void Configure(EntityTypeBuilder<Transaction> b)
     {
         b.Property(x => x.Amount).HasPrecision(18, 2);
-        b.Property(x => x.Currency).HasMaxLength(3);
+        b.Property(x => x.Currency).HasConversion<string>().HasMaxLength(3);
         b.Property(x => x.CounterpartyName).HasMaxLength(200);
         b.Property(x => x.CounterpartyAccount).HasMaxLength(64);
         b.Property(x => x.VariableSymbol).HasMaxLength(20);
@@ -81,7 +83,7 @@ public class RecurringPaymentConfiguration : IEntityTypeConfiguration<RecurringP
     {
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.ExpectedAmount).HasPrecision(18, 2);
-        b.Property(x => x.Currency).HasMaxLength(3);
+        b.Property(x => x.Currency).HasConversion<string>().HasMaxLength(3);
         b.Property(x => x.CounterpartyMatch).HasMaxLength(200);
         b.Property(x => x.VariableSymbolMatch).HasMaxLength(20);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
@@ -96,7 +98,7 @@ public class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.Provider).HasMaxLength(200);
         b.Property(x => x.Amount).HasPrecision(18, 2);
-        b.Property(x => x.Currency).HasMaxLength(3);
+        b.Property(x => x.Currency).HasConversion<string>().HasMaxLength(3);
         b.Property(x => x.Notes).HasMaxLength(1000);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         b.HasIndex(x => x.FamilyId);

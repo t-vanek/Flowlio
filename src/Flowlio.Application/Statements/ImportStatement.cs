@@ -97,7 +97,7 @@ public sealed class ImportStatementHandler
                 BookingDate = parsed.BookingDate,
                 ValueDate = parsed.ValueDate,
                 Amount = parsed.Amount,
-                Currency = parsed.Currency,
+                Currency = CurrencyExtensions.ParseOrDefault(parsed.Currency, account.Currency),
                 Direction = parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming,
                 CounterpartyName = parsed.CounterpartyName,
                 CounterpartyAccount = parsed.CounterpartyAccount,

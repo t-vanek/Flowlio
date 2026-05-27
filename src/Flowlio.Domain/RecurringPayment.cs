@@ -13,7 +13,7 @@ public class RecurringPayment : AuditableEntity
     public required string Name { get; set; }
 
     public decimal ExpectedAmount { get; set; }
-    public string Currency { get; set; } = "CZK";
+    public Currency Currency { get; set; } = Currency.CZK;
 
     public RecurrenceFrequency Frequency { get; set; } = RecurrenceFrequency.Monthly;
 

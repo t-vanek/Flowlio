@@ -13,7 +13,7 @@ public class Subscription : AuditableEntity
     public string? Provider { get; set; }
 
     public decimal Amount { get; set; }
-    public string Currency { get; set; } = "CZK";
+    public Currency Currency { get; set; } = Currency.CZK;
 
     public RecurrenceFrequency BillingCycle { get; set; } = RecurrenceFrequency.Monthly;
 

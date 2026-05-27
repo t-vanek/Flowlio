@@ -19,7 +19,7 @@ public class Transaction : AuditableEntity
     /// <summary>Signed amount: negative for outgoing, positive for incoming, in <see cref="Currency"/>.</summary>
     public decimal Amount { get; set; }
 
-    public string Currency { get; set; } = "CZK";
+    public Currency Currency { get; set; } = Currency.CZK;
 
     public TransactionDirection Direction { get; set; }
 

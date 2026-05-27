@@ -7,8 +7,8 @@ public class Family : AuditableEntity
 {
     public required string Name { get; set; }
 
-    /// <summary>ISO 4217 currency the family budgets in (e.g. CZK). Accounts may differ.</summary>
-    public string BaseCurrency { get; set; } = "CZK";
+    /// <summary>Currency the family budgets in. Individual accounts may differ.</summary>
+    public Currency BaseCurrency { get; set; } = Currency.CZK;
 
     public ICollection<FamilyMember> Members { get; set; } = [];
     public ICollection<BankAccount> Accounts { get; set; } = [];

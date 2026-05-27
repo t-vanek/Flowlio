@@ -9,22 +9,45 @@
 <div class="panel-grid">
     <FluentCard Class="panel">
         <h2 class="panel-title">Nový účet</h2>
-        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-            <FluentTextField @bind-Value="_name" Label="Název" Style="width:100%" Placeholder="Běžný účet" />
-            <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
-                @foreach (var b in Enum.GetValues<BankProvider>())
-                {
-                    <FluentOption TOption="string" Value="@(((int)b).ToString())">@BankLabel(b)</FluentOption>
-                }
-            </FluentSelect>
-            <FluentTextField @bind-Value="_accountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
-            <FluentNumberField @bind-Value="_openingBalance" Label="Počáteční zůstatek" Style="width:100%" />
-            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
-        </FluentStack>
+        @if (_members is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_members.Count == 0)
+        {
+            <FluentMessageBar Intent="MessageIntent.Warning">Nejdřív přidejte člena rodiny na stránce „Členové".</FluentMessageBar>
+        }
+        else
+        {
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentTextField @bind-Value="_name" Label="Název" Style="width:100%" Placeholder="Běžný účet" />
+                <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník (člen rodiny)" Style="width:100%">
+                    @foreach (var m in _members)
+                    {
+                        <FluentOption TOption="string" Value="@m.Id.ToString()">@m.DisplayName</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
+                    @foreach (var b in Enum.GetValues<BankProvider>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)b).ToString())">@Format.Bank(b)</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_currencyValue" Label="Měna" Style="width:100%">
+                    @foreach (var c in Enum.GetValues<Currency>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)c).ToString())">@c (@Format.Symbol(c))</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentTextField @bind-Value="_accountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
+                <FluentNumberField @bind-Value="_openingBalance" Label="Počáteční zůstatek" Style="width:100%" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
+            </FluentStack>
+        }
     </FluentCard>
 
     <FluentCard Class="panel">
-        <h2 class="panel-title">Moje účty</h2>
+        <h2 class="panel-title">Účty rodiny</h2>
         @if (_accounts is null)
         {
             <FluentProgressRing />
@@ -40,9 +63,9 @@
                 <div class="account-row">
                     <div>
                         <div class="account-name">@a.Name</div>
-                        <div class="muted">@BankLabel(a.Bank) · @a.AccountNumber</div>
+                        <div class="muted">@a.OwnerMemberName · @Format.Bank(a.Bank) · @a.Currency @(string.IsNullOrEmpty(a.AccountNumber) ? "" : "· " + a.AccountNumber)</div>
                     </div>
-                    <div class="account-balance">@Money(a.CurrentBalance)</div>
+                    <div class="account-balance">@Format.Money(a.CurrentBalance, a.Currency)</div>
                 </div>
             }
         }
@@ -51,19 +74,28 @@
 
 @code {
     private IReadOnlyList<BankAccountDto>? _accounts;
+    private IReadOnlyList<FamilyMemberDto>? _members;
     private string _name = "";
+    private string _ownerValue = "";
     private string _bankValue = "4";
+    private string _currencyValue = "0";
     private string _accountNumber = "";
     private decimal _openingBalance;
     private bool _busy;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
-    private async Task LoadAsync() => _accounts = await Api.GetAccountsAsync();
+    private async Task LoadAsync()
+    {
+        _members = await Api.GetMembersAsync();
+        _accounts = await Api.GetAccountsAsync();
+        if (_members.Count > 0 && string.IsNullOrEmpty(_ownerValue))
+            _ownerValue = _members[0].Id.ToString();
+    }
 
     private async Task CreateAsync()
     {
-        if (string.IsNullOrWhiteSpace(_name))
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrEmpty(_ownerValue))
             return;
 
         _busy = true;
@@ -72,9 +104,10 @@
             var request = new CreateBankAccountRequest
             {
                 Name = _name,
+                OwnerMemberId = Guid.Parse(_ownerValue),
                 Bank = (BankProvider)int.Parse(_bankValue),
                 AccountNumber = string.IsNullOrWhiteSpace(_accountNumber) ? null : _accountNumber,
-                Currency = "CZK",
+                Currency = (Currency)int.Parse(_currencyValue),
                 OpeningBalance = _openingBalance,
             };
             await Api.CreateAccountAsync(request);
@@ -88,18 +121,4 @@
             _busy = false;
         }
     }
-
-    private static string Money(decimal value) =>
-        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
-
-    private static string BankLabel(BankProvider bank) => bank switch
-    {
-        BankProvider.Csob => "ČSOB",
-        BankProvider.KomercniBanka => "Komerční banka",
-        BankProvider.CeskaSporitelna => "Česká spořitelna",
-        BankProvider.Fio => "Fio banka",
-        BankProvider.AirBank => "Air Bank",
-        BankProvider.Revolut => "Revolut",
-        _ => "Jiná banka",
-    };
 }

@@ -34,6 +34,14 @@ tests/
   Flowlio.Tests           Unit tests (statement parser, dedup)
 ```
 
+## Family model
+
+A **family** has **members** (each linked to a login or added as a standalone person with a role —
+owner / adult / viewer). **Bank accounts are owned by a member**, so the family can see whose account
+each one is. Accounts and transactions carry a first-class **`Currency`** (CZK, EUR, USD, GBP, PLN,
+CHF, HUF — stored as the ISO code) and a **`BankProvider`** (ČSOB, KB, ČS, Fio, Air Bank, Revolut),
+both surfaced as dropdowns in the UI.
+
 ## Messaging & caching
 
 - **RabbitMQ (via Wolverine):** when an import completes, the API publishes a `StatementImported`

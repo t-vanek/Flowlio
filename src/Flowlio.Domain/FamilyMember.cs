@@ -13,4 +13,7 @@ public class FamilyMember : AuditableEntity
 
     public required string DisplayName { get; set; }
     public MemberRole Role { get; set; } = MemberRole.Adult;
+
+    /// <summary>Bank accounts owned by this member.</summary>
+    public ICollection<BankAccount> Accounts { get; set; } = [];
 }

@@ -16,6 +16,8 @@ public static class ApiEndpoints
     public static void MapApiEndpoints(this IEndpointRouteBuilder app)
     {
         var api = app.MapGroup("/api").RequireAuthorization("api");
+        api.MapGet("/members", GetMembers);
+        api.MapPost("/members", CreateMember);
         api.MapGet("/accounts", GetAccounts);
         api.MapPost("/accounts", CreateAccount);
         api.MapGet("/categories", GetCategories);
@@ -24,11 +26,60 @@ public static class ApiEndpoints
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
     }
 
+    private static async Task<IReadOnlyList<FamilyMemberDto>> GetMembers(
+        IAppDbContext db, ICurrentFamily family, ICurrentUser currentUser, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        var members = await db.FamilyMembers
+            .Where(m => m.FamilyId == familyId)
+            .OrderBy(m => m.Role).ThenBy(m => m.DisplayName)
+            .Select(m => new FamilyMemberDto
+            {
+                Id = m.Id,
+                DisplayName = m.DisplayName,
+                Role = m.Role,
+                IsCurrentUser = m.UserId == currentUser.UserId,
+                AccountCount = m.Accounts.Count,
+            })
+            .ToListAsync(ct);
+        return members;
+    }
+
+    private static async Task<IResult> CreateMember(
+        CreateFamilyMemberRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+            return Results.BadRequest("Jméno člena je povinné.");
+
+        var familyId = await family.RequireAsync(ct);
+        var member = new FamilyMember
+        {
+            FamilyId = familyId,
+            DisplayName = request.DisplayName.Trim(),
+            Role = request.Role,
+            UserId = Guid.Empty, // not linked to a login yet
+        };
+        db.FamilyMembers.Add(member);
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new FamilyMemberDto
+        {
+            Id = member.Id,
+            DisplayName = member.DisplayName,
+            Role = member.Role,
+            IsCurrentUser = false,
+            AccountCount = 0,
+        });
+    }
+
     private static async Task<IReadOnlyList<BankAccountDto>> GetAccounts(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
-        var accounts = await db.BankAccounts.Where(a => a.FamilyId == familyId).ToListAsync(ct);
+        var accounts = await db.BankAccounts
+            .Include(a => a.OwnerMember)
+            .Where(a => a.FamilyId == familyId)
+            .ToListAsync(ct);
 
         var sums = await db.Transactions
             .Where(t => t.FamilyId == familyId)
@@ -37,17 +88,33 @@ public static class ApiEndpoints
             .ToDictionaryAsync(x => x.AccountId, x => x.Sum, ct);
 
         return accounts
-            .Select(a => mapper.ToDto(a) with { CurrentBalance = a.OpeningBalance + sums.GetValueOrDefault(a.Id) })
+            .Select(a => mapper.ToDto(a) with
+            {
+                CurrentBalance = a.OpeningBalance + sums.GetValueOrDefault(a.Id),
+                OwnerMemberName = a.OwnerMember?.DisplayName ?? "",
+            })
             .ToList();
     }
 
     private static async Task<IResult> CreateAccount(
-        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, ICurrentUser currentUser,
+        FlowlioMapper mapper, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
+
+        // The owner must be a member of this family; default to the current user's member.
+        var ownerMember = request.OwnerMemberId != Guid.Empty
+            ? await db.FamilyMembers.FirstOrDefaultAsync(m => m.Id == request.OwnerMemberId && m.FamilyId == familyId, ct)
+            : await db.FamilyMembers.FirstOrDefaultAsync(m => m.FamilyId == familyId && m.UserId == currentUser.UserId, ct);
+
+        if (ownerMember is null)
+            return Results.BadRequest("Vlastník účtu musí být člen rodiny.");
+
         var account = new BankAccount
         {
             FamilyId = familyId,
+            OwnerMemberId = ownerMember.Id,
+            OwnerMember = ownerMember,
             Name = request.Name,
             Bank = request.Bank,
             AccountNumber = request.AccountNumber,
@@ -56,7 +123,11 @@ public static class ApiEndpoints
         };
         db.BankAccounts.Add(account);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(mapper.ToDto(account) with { CurrentBalance = account.OpeningBalance });
+        return Results.Ok(mapper.ToDto(account) with
+        {
+            CurrentBalance = account.OpeningBalance,
+            OwnerMemberName = ownerMember.DisplayName,
+        });
     }
 
     private static async Task<IReadOnlyList<CategoryDto>> GetCategories(

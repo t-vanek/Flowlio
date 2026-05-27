@@ -10,6 +10,17 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");
 
+    public async Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync() =>
+        await http.GetFromJsonAsync<List<FamilyMemberDto>>("api/members") ?? [];
+
+    public async Task<FamilyMemberDto?> CreateMemberAsync(CreateFamilyMemberRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/members", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<FamilyMemberDto>()
+            : null;
+    }
+
     public async Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() =>
         await http.GetFromJsonAsync<List<BankAccountDto>>("api/accounts") ?? [];
 

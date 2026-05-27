@@ -9,6 +9,7 @@ namespace Flowlio.Application.Mapping;
 public partial class FlowlioMapper
 {
     [MapperIgnoreTarget(nameof(BankAccountDto.CurrentBalance))]
+    [MapperIgnoreTarget(nameof(BankAccountDto.OwnerMemberName))]
     public partial BankAccountDto ToDto(BankAccount entity);
 
     public partial CategoryDto ToDto(Category entity);

@@ -1,0 +1,81 @@
+@page "/members"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Členové – Flowlio</PageTitle>
+
+<h1 class="page-title">Členové rodiny</h1>
+
+<div class="panel-grid">
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Nový člen</h2>
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            <FluentTextField @bind-Value="_name" Label="Jméno" Style="width:100%" Placeholder="Např. Jana" />
+            <FluentSelect TOption="string" @bind-Value="_roleValue" Label="Role" Style="width:100%">
+                @foreach (var r in Enum.GetValues<MemberRole>())
+                {
+                    <FluentOption TOption="string" Value="@(((int)r).ToString())">@Format.Role(r)</FluentOption>
+                }
+            </FluentSelect>
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat člena</FluentButton>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Členové</h2>
+        @if (_members is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_members.Count == 0)
+        {
+            <p class="muted">Zatím žádní členové.</p>
+        }
+        else
+        {
+            @foreach (var m in _members)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">@m.DisplayName @(m.IsCurrentUser ? "(vy)" : "")</div>
+                        <div class="muted">@Format.Role(m.Role)</div>
+                    </div>
+                    <div class="muted">@m.AccountCount @(m.AccountCount == 1 ? "účet" : "účtů")</div>
+                </div>
+            }
+        }
+    </FluentCard>
+</div>
+
+@code {
+    private IReadOnlyList<FamilyMemberDto>? _members;
+    private string _name = "";
+    private string _roleValue = "1";
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _members = await Api.GetMembersAsync();
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+            return;
+
+        _busy = true;
+        try
+        {
+            await Api.CreateMemberAsync(new CreateFamilyMemberRequest
+            {
+                DisplayName = _name,
+                Role = (MemberRole)int.Parse(_roleValue),
+            });
+            _name = "";
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
