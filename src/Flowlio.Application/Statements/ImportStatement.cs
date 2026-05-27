@@ -2,6 +2,7 @@ using Flowlio.Application.Abstractions;
 using Flowlio.Domain;
 using Flowlio.Shared;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 
 namespace Flowlio.Application.Statements;
 
@@ -23,6 +24,7 @@ public sealed class ImportStatementHandler
         IStatementParserFactory parserFactory,
         ICurrentFamily currentFamily,
         ICurrentUser currentUser,
+        IMessageBus bus,
         CancellationToken ct)
     {
         var familyId = await currentFamily.RequireAsync(ct);
@@ -112,6 +114,16 @@ public sealed class ImportStatementHandler
         batch.ImportedCount = imported;
         batch.DuplicateCount = duplicates;
         await db.SaveChangesAsync(ct);
+
+        // Fan out the completion (RabbitMQ): invalidates cached views and notifies the family in real time.
+        await bus.PublishAsync(new StatementImported
+        {
+            FamilyId = familyId,
+            BankAccountId = account.Id,
+            ImportBatchId = batch.Id,
+            ImportedCount = imported,
+            DuplicateCount = duplicates,
+        });
 
         return new ImportResultDto
         {

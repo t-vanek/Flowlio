@@ -8,18 +8,35 @@ using Flowlio.Server;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Endpoints;
 using Flowlio.Server.Realtime;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
+using StackExchange.Redis;
 using Wolverine;
+using Wolverine.RabbitMQ;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
+    ?? throw new InvalidOperationException("Connection string 'Redis' is not configured.");
+var rabbitConnectionString = builder.Configuration.GetConnectionString("RabbitMq")
+    ?? throw new InvalidOperationException("Connection string 'RabbitMq' is not configured.");
+
+var redis = ConnectionMultiplexer.Connect(redisConnectionString);
+builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+
+// Redis-backed distributed cache (read-through views) and shared Data Protection key ring so
+// auth/antiforgery cookies stay valid across restarts and multiple instances.
+builder.Services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);
+builder.Services.AddDataProtection()
+    .PersistKeysToStackExchangeRedis(redis, "flowlio:dataprotection-keys");
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
     {
@@ -98,7 +115,9 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddRazorPages();
-builder.Services.AddSignalR();
+
+// Redis backplane lets SignalR broadcasts reach clients connected to any server instance.
+builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString);
 builder.Services.AddOpenApi();
 
 builder.Host.UseWolverine(opts =>
@@ -107,6 +126,11 @@ builder.Host.UseWolverine(opts =>
     // EF Core's DbContext is registered via factory delegates that Wolverine's code generation
     // cannot inline, so allow handlers to resolve those dependencies through service location.
     opts.ServiceLocationPolicy = JasperFx.CodeGeneration.Model.ServiceLocationPolicy.AlwaysAllowed;
+
+    // RabbitMQ transport: statement-import completion events are published and consumed asynchronously.
+    opts.UseRabbitMq(new Uri(rabbitConnectionString)).AutoProvision();
+    opts.PublishMessage<StatementImported>().ToRabbitQueue("flowlio.statement-imported");
+    opts.ListenToRabbitQueue("flowlio.statement-imported");
 });
 
 var app = builder.Build();

@@ -11,8 +11,9 @@ Because Flowlio is **not** certified for direct bank-API access, transactions ar
 - **Blazor WebAssembly** + **Microsoft FluentUI** (client)
 - **ASP.NET Core** host serving the WASM client and the API
 - **PostgreSQL** + **Entity Framework Core 10** (Npgsql)
-- **Wolverine** as the in-process command/message bus
-- **SignalR** for live updates
+- **Wolverine** as the command/message bus, with a **RabbitMQ** transport for async events
+- **Redis** for distributed caching, the SignalR backplane and the Data Protection key ring
+- **SignalR** for live updates (e.g. import-completed notifications)
 - **ASP.NET Core Identity** + **OpenIddict** for authentication — OAuth2 **authorization-code flow
   with PKCE** over HTTPS (no password grant)
 - **Riok.Mapperly** for entity ↔ DTO mapping
@@ -31,6 +32,15 @@ src/
 tests/
   Flowlio.Tests           Unit tests (statement parser, dedup)
 ```
+
+## Messaging & caching
+
+- **RabbitMQ (via Wolverine):** when an import completes, the API publishes a `StatementImported`
+  event to the `flowlio.statement-imported` queue. A handler consumes it asynchronously to invalidate
+  the cached dashboard and push a live SignalR notification to the family.
+- **Redis:** the dashboard summary is cached read-through (per family, 5-minute TTL) and evicted on
+  import; SignalR uses a Redis backplane so broadcasts reach clients on any instance; Data Protection
+  keys are persisted to Redis so auth/antiforgery cookies survive restarts and scale-out.
 
 ## Statement import
 
@@ -59,7 +69,7 @@ startup. Redirect URIs are configured under `Spa` in `appsettings.json`.
    ```bash
    dotnet dev-certs https --trust
    ```
-2. Start PostgreSQL:
+2. Start PostgreSQL, Redis and RabbitMQ:
    ```bash
    docker compose up -d
    ```

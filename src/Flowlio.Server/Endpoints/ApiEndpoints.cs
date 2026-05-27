@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
@@ -5,6 +6,7 @@ using Flowlio.Domain;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Wolverine;
 
 namespace Flowlio.Server.Endpoints;
@@ -107,9 +109,26 @@ public static class ApiEndpoints
     }
 
     private static async Task<DashboardSummaryDto> GetDashboard(
-        IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
+
+        var cacheKey = CacheKeys.Dashboard(familyId);
+        var cached = await cache.GetStringAsync(cacheKey, ct);
+        if (cached is not null)
+            return JsonSerializer.Deserialize<DashboardSummaryDto>(cached)!;
+
+        var summary = await BuildDashboardAsync(db, familyId, ct);
+
+        await cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(summary),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) }, ct);
+
+        return summary;
+    }
+
+    private static async Task<DashboardSummaryDto> BuildDashboardAsync(
+        IAppDbContext db, Guid familyId, CancellationToken ct)
+    {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var nextMonth = monthStart.AddMonths(1);
