@@ -523,6 +523,18 @@ public sealed record AdminUserDto
 
     /// <summary>System role names the account holds.</summary>
     public IReadOnlyList<string> Roles { get; init; } = [];
+
+    /// <summary>
+    /// Deadline by which the user must enrol in 2FA. Null = no deadline. Set when an
+    /// admin called the require-2fa endpoint. Login is blocked once this passes.
+    /// </summary>
+    public DateTimeOffset? Require2faByUtc { get; init; }
+}
+
+public sealed record Require2faRequest
+{
+    /// <summary>UTC deadline. Pass null to clear an existing requirement.</summary>
+    public DateTimeOffset? DeadlineUtc { get; init; }
 }
 
 public sealed record AdminUserPageDto

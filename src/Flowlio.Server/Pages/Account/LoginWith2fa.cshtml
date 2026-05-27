@@ -9,29 +9,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dvoufaktorové ověření – Flowlio</title>
-    <style>
-        body { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; margin: 0; min-height: 100vh;
-               display: flex; align-items: center; justify-content: center;
-               background: linear-gradient(135deg,#1e3a8a,#2563eb); }
-        .card { background:#fff; padding:32px; border-radius:14px; width:100%; max-width:380px;
-                box-shadow:0 20px 50px rgba(0,0,0,.25); }
-        .logo { font-size:22px; font-weight:800; color:#2563eb; margin-bottom:18px; }
-        h1 { font-size:22px; margin:0 0 8px; }
-        p.muted { color:#64748b; font-size:14px; margin:0 0 12px; }
-        label { display:block; font-size:13px; color:#475569; margin:12px 0 4px; }
-        input[type=text] { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #cbd5e1;
-                border-radius:8px; font-size:15px; }
-        .check { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; color:#475569; }
-        button { width:100%; margin-top:20px; padding:11px; border:0; border-radius:8px;
-                 background:#2563eb; color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
-        .err { background:#fee2e2; color:#b91c1c; padding:10px; border-radius:8px; margin-top:14px; font-size:14px; }
-    </style>
+    <link rel="stylesheet" href="~/css/account.css" />
 </head>
-<body>
-    <form class="card" method="post">
+<body style="align-items:center;">
+    <form class="card narrow" method="post">
         <div class="logo">₣ Flowlio</div>
         <h1>Dvoufaktorové ověření</h1>
-        <p class="muted">Zadejte kód z autentizační aplikace, nebo zaškrtněte záchranný kód.</p>
+        <p class="muted">Zadejte 6-místný kód z autentizační aplikace. Pokud k ní nemáte přístup, použijte záchranný kód.</p>
 
         @if (!string.IsNullOrEmpty(Model.Error))
         {
@@ -39,13 +23,14 @@
         }
 
         <label for="Code">Kód</label>
-        <input id="Code" name="Code" type="text" autocomplete="one-time-code" autofocus />
+        <input id="Code" name="Code" type="text" inputmode="numeric" pattern="[0-9 -]*"
+               autocomplete="one-time-code" autofocus />
 
         <label class="check"><input type="checkbox" name="IsRecoveryCode" value="true" /> Použít záchranný kód</label>
         <label class="check"><input type="checkbox" name="RememberMachine" value="true" /> Zapamatovat toto zařízení</label>
 
         <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
-        <button type="submit">Ověřit</button>
+        <button type="submit" class="block">Ověřit</button>
     </form>
 </body>
 </html>

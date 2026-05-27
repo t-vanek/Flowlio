@@ -264,15 +264,46 @@ public sealed class FlowlioApi(HttpClient http)
 
     // --- Audit log ---
 
-    public async Task<AuditPageDto?> GetAuditAsync(string? search = null, int page = 1)
+    public async Task<AuditPageDto?> GetAuditAsync(
+        string? search = null, string? action = null,
+        DateTimeOffset? from = null, DateTimeOffset? to = null,
+        int page = 1)
     {
-        var url = $"api/admin/audit?page={page}";
-        if (!string.IsNullOrWhiteSpace(search))
-            url += $"&search={Uri.EscapeDataString(search)}";
-        var response = await http.GetAsync(url);
+        var response = await http.GetAsync(BuildAuditUrl("api/admin/audit", search, action, from, to, page));
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<AuditPageDto>()
             : null;
+    }
+
+    public async Task<IReadOnlyList<string>> GetAuditActionsAsync()
+    {
+        var response = await http.GetAsync("api/admin/audit/actions");
+        if (!response.IsSuccessStatusCode) return [];
+        return await response.Content.ReadFromJsonAsync<List<string>>() ?? [];
+    }
+
+    /// <summary>Downloads the audit log as CSV (filtered by the same query as the listing).</summary>
+    public async Task<(byte[] Bytes, string FileName)?> ExportAuditCsvAsync(
+        string? search = null, string? action = null,
+        DateTimeOffset? from = null, DateTimeOffset? to = null)
+    {
+        var response = await http.GetAsync(BuildAuditUrl("api/admin/audit/export", search, action, from, to, page: null));
+        if (!response.IsSuccessStatusCode) return null;
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+            ?? $"flowlio-audit-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+        return (bytes, fileName);
+    }
+
+    private static string BuildAuditUrl(string path, string? search, string? action, DateTimeOffset? from, DateTimeOffset? to, int? page)
+    {
+        var qs = new List<string>();
+        if (page is int p) qs.Add($"page={p}");
+        if (!string.IsNullOrWhiteSpace(search)) qs.Add($"search={Uri.EscapeDataString(search)}");
+        if (!string.IsNullOrWhiteSpace(action)) qs.Add($"action={Uri.EscapeDataString(action)}");
+        if (from is { } f) qs.Add($"from={Uri.EscapeDataString(f.UtcDateTime.ToString("O"))}");
+        if (to is { } t)   qs.Add($"to={Uri.EscapeDataString(t.UtcDateTime.ToString("O"))}");
+        return qs.Count == 0 ? path : $"{path}?{string.Join('&', qs)}";
     }
 
     public async Task<bool> LockUserAsync(Guid userId, int minutes) =>
@@ -292,6 +323,10 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<bool> DisableUser2faAsync(Guid userId) =>
         (await http.PostAsync($"api/admin/users/{userId}/disable-2fa", null)).IsSuccessStatusCode;
+
+    public async Task<bool> Require2faAsync(Guid userId, DateTimeOffset? deadlineUtc) =>
+        (await http.PostAsJsonAsync($"api/admin/users/{userId}/require-2fa-by",
+            new Require2faRequest { DeadlineUtc = deadlineUtc })).IsSuccessStatusCode;
 
     public async Task<bool> ForceLogoutAsync(Guid userId) =>
         (await http.PostAsync($"api/admin/users/{userId}/force-logout", null)).IsSuccessStatusCode;
