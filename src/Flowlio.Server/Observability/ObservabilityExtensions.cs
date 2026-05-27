@@ -22,6 +22,8 @@ public static class ObservabilityExtensions
             ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
         var hasOtlp = !string.IsNullOrWhiteSpace(otlpEndpoint);
         var sentryDsn = builder.Configuration["Sentry:Dsn"];
+        if (string.IsNullOrWhiteSpace(sentryDsn))
+            sentryDsn = Environment.GetEnvironmentVariable("SENTRY_DSN");
         var hasSentry = !string.IsNullOrWhiteSpace(sentryDsn);
         var isDevelopment = builder.Environment.IsDevelopment();
         var serviceVersion = typeof(ObservabilityExtensions).Assembly.GetName().Version?.ToString() ?? "1.0.0";
