@@ -4,6 +4,7 @@ using Flowlio.Domain;
 using Flowlio.Server.Auth;
 using Flowlio.Shared;
 using Microsoft.EntityFrameworkCore;
+using static Flowlio.Server.Auth.MemberAuthorization;
 
 namespace Flowlio.Server.Endpoints;
 
@@ -62,7 +63,7 @@ public static class FamilyEndpoints
         HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (me.Role != MemberRole.Owner)
+        if (!me.Can(Permission.ManageMembers))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.DisplayName))
@@ -128,7 +129,7 @@ public static class FamilyEndpoints
         Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (me.Role != MemberRole.Owner)
+        if (!me.Can(Permission.ManageMembers))
             return Forbidden();
         if (memberId == me.Id)
             return Results.BadRequest("Sebe sama nelze odebrat.");
@@ -154,7 +155,7 @@ public static class FamilyEndpoints
         HttpRequest http, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (me.Role != MemberRole.Owner)
+        if (!me.Can(Permission.ManageMembers))
             return Forbidden();
 
         var member = await db.FamilyMembers
@@ -184,11 +185,14 @@ public static class FamilyEndpoints
 
     // ---- Invitations -------------------------------------------------------
 
-    private static async Task<IReadOnlyList<InvitationDto>> GetInvitations(
+    private static async Task<IResult> GetInvitations(
         IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        return await db.FamilyInvitations
+        if (!me.Can(Permission.ManageMembers))
+            return Forbidden();
+
+        var invitations = await db.FamilyInvitations
             .Where(i => i.FamilyId == me.FamilyId && i.Status == InvitationStatus.Pending)
             .OrderBy(i => i.CreatedAt)
             .Select(i => new InvitationDto
@@ -202,13 +206,14 @@ public static class FamilyEndpoints
                 ExpiresAt = i.ExpiresAt,
             })
             .ToListAsync(ct);
+        return Results.Ok(invitations);
     }
 
     private static async Task<IResult> RevokeInvitation(
         Guid invitationId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
-        if (me.Role != MemberRole.Owner)
+        if (!me.Can(Permission.ManageMembers))
             return Forbidden();
 
         var invitation = await db.FamilyInvitations
@@ -266,7 +271,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!await CanManageAccountAsync(me, account, db, ct))
+        if (!me.Can(Permission.ManageAccountAccess) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         if (request.MemberId == account.OwnerMemberId)
@@ -309,7 +314,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!await CanManageAccountAsync(me, account, db, ct))
+        if (!me.Can(Permission.ManageAccountAccess) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         var grant = await db.AccountAccesses
@@ -363,7 +368,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
             return Results.NotFound();
-        if (!await CanManageAccountAsync(me, account, db, ct))
+        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, account, db, ct))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.CardholderName))
@@ -401,7 +406,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(c => c.Id == cardId && c.BankAccount!.FamilyId == me.FamilyId, ct);
         if (card is null)
             return Results.NotFound();
-        if (!await CanManageAccountAsync(me, card.BankAccount!, db, ct))
+        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
             return Forbidden();
 
         if (string.IsNullOrWhiteSpace(request.CardholderName))
@@ -436,7 +441,7 @@ public static class FamilyEndpoints
             .FirstOrDefaultAsync(c => c.Id == cardId && c.BankAccount!.FamilyId == me.FamilyId, ct);
         if (card is null)
             return Results.NotFound();
-        if (!await CanManageAccountAsync(me, card.BankAccount!, db, ct))
+        if (!me.Can(Permission.ManageCards) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
             return Forbidden();
 
         db.BankCards.Remove(card);
@@ -533,7 +538,4 @@ public static class FamilyEndpoints
         }
         return false;
     }
-
-    private static IResult Forbidden() =>
-        Results.Problem(detail: "Na tuto akci nemáte oprávnění.", statusCode: StatusCodes.Status403Forbidden);
 }

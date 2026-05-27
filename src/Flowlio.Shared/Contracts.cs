@@ -123,6 +123,17 @@ public sealed record DashboardSummaryDto
     public IReadOnlyList<UpcomingPaymentDto> Upcoming { get; init; } = [];
 }
 
+/// <summary>The signed-in member together with the effective permissions their role grants.</summary>
+public sealed record CurrentUserDto
+{
+    public Guid MemberId { get; init; }
+    public string DisplayName { get; init; } = "";
+    public MemberRole Role { get; init; }
+    public IReadOnlyList<Permission> Permissions { get; init; } = [];
+
+    public bool Can(Permission permission) => Permissions.Contains(permission);
+}
+
 /// <summary>Whether a family member has their own login, a pending invite, or is guardian-managed.</summary>
 public enum MemberStatus
 {

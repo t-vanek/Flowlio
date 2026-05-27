@@ -1,12 +1,15 @@
 @page "/family"
 @attribute [Authorize]
 @inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
 
 <PageTitle>Rodina – Flowlio</PageTitle>
 
 <h1 class="page-title">Rodina</h1>
 
 <div class="panel-grid">
+    @if (_canManage)
+    {
     <FluentCard Class="panel">
         <h2 class="panel-title">Přidat člena</h2>
         <p class="muted">Pozvěte manžela/manželku jako dospělého, přidejte pozorovatele, nebo založte dětský účet pod opatrovníkem.</p>
@@ -47,6 +50,7 @@
             }
         </FluentStack>
     </FluentCard>
+    }
 
     <FluentCard Class="panel">
         <h2 class="panel-title">Členové rodiny</h2>
@@ -84,11 +88,11 @@
                         </div>
                     </div>
                     <div>
-                        @if (m.Status == MemberStatus.Pending)
+                        @if (_canManage && m.Status == MemberStatus.Pending)
                         {
                             <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ReinviteAsync(m.Id))">Znovu pozvat</FluentButton>
                         }
-                        @if (!m.IsCurrentUser && m.Role != MemberRole.Owner)
+                        @if (_canManage && !m.IsCurrentUser && m.Role != MemberRole.Owner)
                         {
                             <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(m.Id))">Odebrat</FluentButton>
                         }
@@ -124,13 +128,18 @@
     private bool _busy;
     private string? _error;
     private InvitationDto? _lastInvite;
+    private bool _canManage;
 
     private MemberRole SelectedRole => (MemberRole)int.Parse(_roleValue);
 
     private IEnumerable<FamilyMemberDto> Guardians =>
         _members?.Where(m => m.Role is MemberRole.Owner or MemberRole.Adult) ?? [];
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _canManage = await CurrentUser.CanAsync(Permission.ManageMembers);
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
