@@ -81,11 +81,13 @@ builder.Services.AddOpenIddict()
                .SetUserInfoEndpointUris("connect/userinfo");
 
         // Authorization-code flow with PKCE (mandatory) for the public SPA, plus refresh tokens.
+        // Client-credentials lets the server-side mailer mint its own access token for SMTP (XOAUTH2).
         options.AllowAuthorizationCodeFlow()
                .AllowRefreshTokenFlow()
+               .AllowClientCredentialsFlow()
                .RequireProofKeyForCodeExchange();
 
-        options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, DbInitializer.ApiScope);
+        options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, DbInitializer.ApiScope, DbInitializer.SmtpScope);
 
         // Development certificates; replace with managed certificates in production.
         options.AddDevelopmentEncryptionCertificate().AddDevelopmentSigningCertificate();

@@ -42,5 +42,27 @@ services:
       timeout: 10s
       retries: 5
 
+  # Local test SMTP server. Captures every message instead of delivering it and requires the client
+  # to authorize with an OAuth2 bearer token via XOAUTH2 (issued by OpenIddict — see the "Smtp"
+  # config). Web inbox: http://localhost:5080 — SMTP on localhost:2525.
+  smtp4dev:
+    image: rnwood/smtp4dev:v3
+    container_name: flowlio-smtp4dev
+    ports:
+      - "5080:80"
+      - "2525:25"
+    environment:
+      ServerOptions__HostName: flowlio-smtp4dev
+      ServerOptions__AllowRemoteConnections: "true"
+      ServerOptions__AuthenticationRequired: "true"
+      # Only XOAUTH2 is offered, so a valid OAuth2 token is mandatory (no password fallback).
+      ServerOptions__SmtpEnabledAuthTypesWhenNotSecureConnection: "XOAUTH2"
+      # The token is accepted as presented (catcher-friendly). For strict signature/issuer/audience
+      # validation against the running app, flip this to "false" and set the OAuth2* options below
+      # (the app must be reachable from the container, e.g. https://host.docker.internal:5443/).
+      ServerOptions__SmtpAllowAnyCredentials: "true"
+      # ServerOptions__OAuth2Authority: "https://host.docker.internal:5443/"
+      # ServerOptions__OAuth2Audience: "flowlio-smtp"
+
 volumes:
   flowlio-pgdata:
