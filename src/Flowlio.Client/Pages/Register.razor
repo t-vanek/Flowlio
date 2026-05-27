@@ -1,0 +1,66 @@
+@page "/register"
+@layout EmptyLayout
+@inject FlowlioApi Api
+@inject NavigationManager Navigation
+
+<PageTitle>Registrace – Flowlio</PageTitle>
+
+<div class="auth-shell">
+    <FluentCard Class="auth-card">
+        <div class="auth-logo">₣ Flowlio</div>
+        <h1 class="auth-title">Vytvořit účet</h1>
+        <p class="auth-subtitle">Začněte hlídat rodinný rozpočet.</p>
+
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="14">
+            <FluentTextField @bind-Value="_displayName" Label="Jméno" Style="width:100%" Placeholder="Např. Rodina Novákova" />
+            <FluentTextField @bind-Value="_email" Label="E-mail" Style="width:100%" />
+            <FluentTextField @bind-Value="_password" Label="Heslo (min. 8 znaků)" TextFieldType="TextFieldType.Password" Style="width:100%" />
+
+            @if (_error is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+            }
+
+            <FluentButton Appearance="Appearance.Accent" OnClick="SubmitAsync" Loading="_busy" Style="width:100%">
+                Zaregistrovat se
+            </FluentButton>
+
+            <div class="auth-switch">
+                Už máte účet? <a href="login">Přihlaste se</a>
+            </div>
+        </FluentStack>
+    </FluentCard>
+</div>
+
+@code {
+    private string _displayName = "";
+    private string _email = "";
+    private string _password = "";
+    private string? _error;
+    private bool _busy;
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var request = new RegisterRequest { Email = _email, Password = _password, DisplayName = _displayName };
+            var (success, error) = await Api.RegisterAsync(request);
+            if (!success)
+            {
+                _error = "Registrace se nezdařila. " + (error ?? "");
+                return;
+            }
+
+            if (await Api.LoginAsync(_email, _password))
+                Navigation.NavigateTo("");
+            else
+                Navigation.NavigateTo("login");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

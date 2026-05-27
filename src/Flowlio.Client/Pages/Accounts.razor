@@ -1,0 +1,105 @@
+@page "/accounts"
+@attribute [Authorize]
+@inject FlowlioApi Api
+
+<PageTitle>Účty – Flowlio</PageTitle>
+
+<h1 class="page-title">Účty</h1>
+
+<div class="panel-grid">
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Nový účet</h2>
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            <FluentTextField @bind-Value="_name" Label="Název" Style="width:100%" Placeholder="Běžný účet" />
+            <FluentSelect TOption="string" @bind-Value="_bankValue" Label="Banka" Style="width:100%">
+                @foreach (var b in Enum.GetValues<BankProvider>())
+                {
+                    <FluentOption TOption="string" Value="@(((int)b).ToString())">@BankLabel(b)</FluentOption>
+                }
+            </FluentSelect>
+            <FluentTextField @bind-Value="_accountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
+            <FluentNumberField @bind-Value="_openingBalance" Label="Počáteční zůstatek" Style="width:100%" />
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat účet</FluentButton>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Moje účty</h2>
+        @if (_accounts is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_accounts.Count == 0)
+        {
+            <p class="muted">Zatím žádné účty.</p>
+        }
+        else
+        {
+            @foreach (var a in _accounts)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">@a.Name</div>
+                        <div class="muted">@BankLabel(a.Bank) · @a.AccountNumber</div>
+                    </div>
+                    <div class="account-balance">@Money(a.CurrentBalance)</div>
+                </div>
+            }
+        }
+    </FluentCard>
+</div>
+
+@code {
+    private IReadOnlyList<BankAccountDto>? _accounts;
+    private string _name = "";
+    private string _bankValue = "4";
+    private string _accountNumber = "";
+    private decimal _openingBalance;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _accounts = await Api.GetAccountsAsync();
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+            return;
+
+        _busy = true;
+        try
+        {
+            var request = new CreateBankAccountRequest
+            {
+                Name = _name,
+                Bank = (BankProvider)int.Parse(_bankValue),
+                AccountNumber = string.IsNullOrWhiteSpace(_accountNumber) ? null : _accountNumber,
+                Currency = "CZK",
+                OpeningBalance = _openingBalance,
+            };
+            await Api.CreateAccountAsync(request);
+            _name = "";
+            _accountNumber = "";
+            _openingBalance = 0;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Money(decimal value) =>
+        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
+
+    private static string BankLabel(BankProvider bank) => bank switch
+    {
+        BankProvider.Csob => "ČSOB",
+        BankProvider.KomercniBanka => "Komerční banka",
+        BankProvider.CeskaSporitelna => "Česká spořitelna",
+        BankProvider.Fio => "Fio banka",
+        BankProvider.AirBank => "Air Bank",
+        BankProvider.Revolut => "Revolut",
+        _ => "Jiná banka",
+    };
+}
