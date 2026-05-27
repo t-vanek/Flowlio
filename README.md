@@ -3,7 +3,24 @@
 Modern personal finance app focused on family budgeting, recurring payments, subscriptions and expense tracking.
 
 Because Flowlio is **not** certified for direct bank-API access, transactions are brought in by
-**importing account statements** (CSV / PDF) rather than live banking connections.
+**importing account statements** (CSV / PDF) or **entered by hand** as manual movements — rather than
+through live banking connections.
+
+## Key features
+
+- **Family-scoped finances:** every account, transaction, card and budget belongs to a family
+  (tenant); members join with their own login or are managed by a guardian.
+- **Transactions:** statement import (CSV/PDF) with de-duplication and rule-based auto-categorization,
+  plus hand-entered movements and movement batches; filter by account, category, type and date range,
+  with server-side pagination.
+- **Accounts & cards:** bank accounts with owners, authorized users ("disponents") and per-account
+  access levels, payment cards, and child accounts under a guardian.
+- **Role-based access control:** per-family roles (Owner / Adult / Viewer / Child) with editable
+  permissions, plus cross-family **system roles** for administering login accounts.
+- **Administration:** user management (create, lock/block, password reset, force logout, soft-delete /
+  restore / purge), an **audit log** of security-relevant actions, and a dashboard summary.
+- **Data integrity:** layered validation, optimistic concurrency, soft delete / archive and cascading
+  deletes (see [Data integrity & safety](#data-integrity--safety)).
 
 ## Tech stack
 
@@ -21,6 +38,8 @@ Because Flowlio is **not** certified for direct bank-API access, transactions ar
   by OpenIddict via the **client-credentials** grant, with **smtp4dev** as the local test inbox
 - **Riok.Mapperly** for entity ↔ DTO mapping
 - **PdfPig** for PDF statement text extraction (Tesseract OCR planned for scanned PDFs)
+- **OpenTelemetry** (traces + metrics) exported via OTLP, with **Jaeger**, **Prometheus** and
+  **Grafana** for the local observability stack; optional **Sentry** error reporting
 
 ## Solution layout
 
@@ -28,12 +47,13 @@ Because Flowlio is **not** certified for direct bank-API access, transactions ar
 src/
   Flowlio.Domain          Entities, enums (pure domain)
   Flowlio.Application     Wolverine handlers, statement parsing contracts, Mapperly mappers
-  Flowlio.Infrastructure  EF Core context, Identity, OpenIddict store, CSV/PDF parsers
-  Flowlio.Shared          DTOs shared between client and server
-  Flowlio.Server          ASP.NET Core host: API, auth, SignalR, serves the WASM client
+  Flowlio.Infrastructure  EF Core context, migrations, Identity, OpenIddict store, CSV/PDF parsers
+  Flowlio.Shared          DTOs (with DataAnnotations) shared between client and server
+  Flowlio.Server          ASP.NET Core host: minimal-API endpoints, auth, SignalR, serves the WASM client
   Flowlio.Client          Blazor WebAssembly + FluentUI
 tests/
   Flowlio.Tests           Unit tests (statement parser, dedup)
+observability/            otel-collector, Prometheus and Grafana provisioning
 ```
 
 ## Messaging & caching
@@ -51,11 +71,52 @@ tests/
   import; SignalR uses a Redis backplane so broadcasts reach clients on any instance; Data Protection
   keys are persisted to Redis so auth/antiforgery cookies survive restarts and scale-out.
 
-## Statement import
+## Transactions
 
-`Flowlio.Infrastructure/Statements` contains a profile-driven CSV parser with best-effort layouts for
-**ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**, plus a heuristic PDF parser.
-Imported rows are de-duplicated (per account fingerprint) and auto-categorized via user rules.
+- **Statement import:** `Flowlio.Infrastructure/Statements` contains a profile-driven CSV parser with
+  best-effort layouts for **ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**, plus a
+  heuristic PDF parser. Imported rows are de-duplicated (per account fingerprint) and auto-categorized
+  via user rules.
+- **Manual movements:** transactions can also be entered by hand and grouped into a labelled
+  **movement batch**. Every batch (`ImportBatch`) records its `BatchOrigin` — `FileImport` for a parsed
+  statement or `Manual` for hand-entered movements — so the source of any transaction stays traceable.
+  Creating, editing and deleting transactions/batches requires the `ManageTransactions` permission.
+- **Browsing:** the transaction list supports free-text search plus filters by account, category, type
+  (income / expense) and booking-date range, with server-side pagination and a page-size selector.
+
+## Families, roles & access control
+
+- **Families are the tenant.** A user's family is provisioned on first sign-in with a default category
+  set and role permissions. Members either have their own login (via invitation) or are guardian-managed
+  (e.g. young children).
+- **Family roles** — `Owner`, `Adult`, `Viewer`, `Child` — map to editable sets of `Permission`s
+  (view finances, manage accounts / cards / members / roles / family, import statements, manage
+  transactions, grant per-account access). The API authorizes by permission, not by role name; the
+  Owner always holds every permission.
+- **Per-account access:** non-owner members can be granted **disponent** or read-only access to an
+  account; payment cards can be assigned to members, including spending limits for children.
+- **System roles** are cross-family and govern administration of login accounts (view, create, manage
+  roles, lockout, passwords, force logout, delete, manage system roles, view the audit log). The
+  built-in `Administrator` role always holds every system permission and is immutable.
+
+## Data integrity & safety
+
+- **Layered validation:** request DTOs in `Flowlio.Shared` carry DataAnnotations (one source of truth);
+  the Blazor forms validate them with `EditForm` for inline feedback, a server-side endpoint filter
+  re-validates every request (the client is bypassable), and PostgreSQL `CHECK` constraints back the key
+  invariants (currency length, card expiry / limit, non-empty names, non-negative amounts, …).
+- **Optimistic concurrency:** family, member, card and account-access edits use the Postgres `xmin`
+  system column as a row-version token. A stale update fails with **HTTP 409** instead of silently
+  overwriting a concurrent change, and the UI prompts to reload. (Login accounts keep Identity's
+  `ConcurrencyStamp`.)
+- **Soft delete & archive:** login accounts, bank accounts, family members and cards are soft-deleted
+  (hidden by global query filters) rather than removed, so history and references survive; accounts can
+  be archived and restored, and deleted users can be restored or permanently purged.
+- **Cascading deletes:** deleting a family cascades to all of its data; deleting an account cascades to
+  its transactions, cards and access grants. The append-only audit log is deliberately preserved.
+- **Audit log:** security- and administration-relevant actions (account/member/card/role changes,
+  access grants, family changes, user administration) are recorded to an append-only log, viewable by
+  holders of the `ViewAuditLog` system permission.
 
 ## Authentication
 
@@ -97,17 +158,30 @@ By default smtp4dev accepts the presented token (catcher-friendly). To validate 
 issuer and audience against the running app, set `SmtpAllowAnyCredentials=false` and the `OAuth2*` options
 in `docker-compose.yml` (the app must be reachable from the container, e.g. `https://host.docker.internal:5443/`).
 
+## Observability
+
+The app instruments traces and metrics with **OpenTelemetry** and exports them over OTLP. Point it at a
+collector via `OpenTelemetry:OtlpEndpoint` (or `OTEL_EXPORTER_OTLP_ENDPOINT`), e.g.
+`http://localhost:4317`. `docker compose` runs the full local stack — an OpenTelemetry collector that
+fans traces out to **Jaeger** and exposes metrics for **Prometheus**, with **Grafana** on top:
+
+- **Jaeger (traces):** http://localhost:16686
+- **Grafana:** http://localhost:3000
+- **Prometheus:** http://localhost:9090
+
+Errors can optionally be reported to **Sentry** by setting `SENTRY_DSN` (see the `Sentry` config).
+
 ## Running locally
 
 1. Trust the ASP.NET HTTPS development certificate (once):
    ```bash
    dotnet dev-certs https --trust
    ```
-2. Start PostgreSQL, Redis, RabbitMQ and the smtp4dev test inbox:
+2. Start PostgreSQL, Redis, RabbitMQ, the smtp4dev test inbox and the observability stack:
    ```bash
    docker compose up -d
    ```
-   The smtp4dev web inbox is then at **http://localhost:5080**.
+   The smtp4dev web inbox is then at **http://localhost:5080** (Jaeger / Grafana / Prometheus as above).
 3. Run the server (applies EF migrations and seeds the OIDC client + a demo user on first start):
    ```bash
    dotnet run --project src/Flowlio.Server --launch-profile https
@@ -129,3 +203,5 @@ dotnet test
 
 - Tesseract OCR for scanned PDF statements is stubbed (`ImportFormat.PdfOcr`) pending the native library.
 - Bank CSV/PDF profiles are a starting point and may need tuning against specific export variants.
+</content>
+</invoke>
