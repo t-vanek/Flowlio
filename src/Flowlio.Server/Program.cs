@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using JasperFx.Resources;
+using Microsoft.EntityFrameworkCore;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using StackExchange.Redis;
@@ -204,6 +205,12 @@ app.Use(async (context, next) =>
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new { detail = ex.Message });
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        // Optimistic concurrency: the row changed since the client loaded it.
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new { detail = "Data byla mezitím změněna jiným uživatelem. Načtěte je prosím znovu." });
     }
 });
 

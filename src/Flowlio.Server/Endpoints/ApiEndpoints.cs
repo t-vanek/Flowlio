@@ -5,6 +5,7 @@ using Flowlio.Application.Statements;
 using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Server.Auth;
+using Flowlio.Server.Validation;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -19,10 +20,13 @@ public static class ApiEndpoints
 {
     public static void MapApiEndpoints(this IEndpointRouteBuilder app)
     {
-        var api = app.MapGroup("/api").RequireAuthorization("api");
+        var api = app.MapGroup("/api").RequireAuthorization("api").AddEndpointFilter<ValidationEndpointFilter>();
         api.MapGet("/me", GetMe);
         api.MapGet("/accounts", GetAccounts);
+        api.MapGet("/accounts/archived", GetArchivedAccounts);
         api.MapPost("/accounts", CreateAccount);
+        api.MapDelete("/accounts/{accountId:guid}", ArchiveAccount);
+        api.MapPost("/accounts/{accountId:guid}/restore", RestoreAccount);
         api.MapGet("/categories", GetCategories);
         api.MapGet("/transactions", GetTransactions);
         api.MapPost("/transactions", CreateTransaction);
@@ -115,7 +119,8 @@ public static class ApiEndpoints
     }
 
     private static async Task<IResult> CreateAccount(
-        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+        CreateBankAccountRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
+        IAuditLog audit, CancellationToken ct)
     {
         var member = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageAccounts, ct))
@@ -140,12 +145,75 @@ public static class ApiEndpoints
         };
         db.BankAccounts.Add(account);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account.create", "BankAccount", account.Id.ToString(), account.Name, member.FamilyId,
+            $"Vytvořen účet ({account.Bank})", ct);
         return Results.Ok(mapper.ToDto(account) with
         {
             CurrentBalance = account.OpeningBalance,
             OwnerName = owner.DisplayName,
             IsChildAccount = owner.Role == MemberRole.Child,
         });
+    }
+
+    private static async Task<IReadOnlyList<ArchivedAccountDto>> GetArchivedAccounts(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        return await db.BankAccounts
+            .IgnoreQueryFilters()
+            .Where(a => a.FamilyId == familyId && a.DeletedAt != null)
+            .OrderByDescending(a => a.DeletedAt)
+            .Select(a => new ArchivedAccountDto
+            {
+                Id = a.Id,
+                Name = a.Name,
+                Bank = a.Bank,
+                AccountNumber = a.AccountNumber,
+                Currency = a.Currency,
+                ArchivedAt = a.DeletedAt!.Value,
+            })
+            .ToListAsync(ct);
+    }
+
+    // Archiving (soft delete) keeps an account and its imported transactions for history while hiding it
+    // from listings, dashboards and import; restoring brings it back.
+    private static async Task<IResult> ArchiveAccount(
+        Guid accountId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+    {
+        var member = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageAccounts, ct))
+            return Forbidden();
+
+        var account = await db.BankAccounts
+            .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == member.FamilyId, ct);
+        if (account is null)
+            return Results.NotFound();
+
+        account.DeletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account.archive", "BankAccount", account.Id.ToString(), account.Name, member.FamilyId,
+            "Účet archivován", ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> RestoreAccount(
+        Guid accountId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+    {
+        var member = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageAccounts, ct))
+            return Forbidden();
+
+        var account = await db.BankAccounts
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == member.FamilyId && a.DeletedAt != null, ct);
+        if (account is null)
+            return Results.NotFound();
+
+        account.DeletedAt = null;
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account.restore", "BankAccount", account.Id.ToString(), account.Name, member.FamilyId,
+            "Účet obnoven", ct);
+        return Results.NoContent();
     }
 
     private static async Task<IReadOnlyList<CategoryDto>> GetCategories(
@@ -161,7 +229,8 @@ public static class ApiEndpoints
 
     private static async Task<TransactionPageDto> GetTransactions(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct,
-        Guid? accountId = null, string? search = null, int page = 1, int pageSize = 50)
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
     {
         var familyId = await family.RequireAsync(ct);
         page = Math.Max(1, page);
@@ -169,10 +238,25 @@ public static class ApiEndpoints
 
         var query = db.Transactions
             .Include(t => t.Category)
-            .Where(t => t.FamilyId == familyId);
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null);
 
         if (accountId is { } acc)
             query = query.Where(t => t.BankAccountId == acc);
+
+        if (categoryId is { } cat)
+            query = query.Where(t => t.CategoryId == cat);
+
+        if (dateFrom is { } from)
+            query = query.Where(t => t.BookingDate >= from);
+
+        if (dateTo is { } to)
+            query = query.Where(t => t.BookingDate <= to);
+
+        // Income vs. expense is read from the amount sign, matching the dashboard's classification.
+        if (direction is { } dir)
+            query = dir == TransactionDirection.Incoming
+                ? query.Where(t => t.Amount > 0)
+                : query.Where(t => t.Amount < 0);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -223,19 +307,26 @@ public static class ApiEndpoints
         var nextMonth = monthStart.AddMonths(1);
         var horizon = today.AddDays(30);
 
+        // Archived accounts are excluded from the opening balance (query filter) and from every
+        // transaction roll-up below, so the dashboard reflects only live accounts.
         var openingTotal = await db.BankAccounts.Where(a => a.FamilyId == familyId).SumAsync(a => a.OpeningBalance, ct);
-        var movementTotal = await db.Transactions.Where(t => t.FamilyId == familyId).SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
+        var movementTotal = await db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null)
+            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
 
         var income = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.Amount > 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
+                        && t.Amount > 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
             .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
 
         var expense = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.Amount < 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
+                        && t.Amount < 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
             .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
 
         var topCategories = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.Amount < 0 && t.CategoryId != null
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
+                        && t.Amount < 0 && t.CategoryId != null
                         && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
             .GroupBy(t => new { t.Category!.Name, t.Category.Color })
             .Select(g => new CategorySpendDto { CategoryName = g.Key.Name, Color = g.Key.Color, Amount = -g.Sum(x => x.Amount) })

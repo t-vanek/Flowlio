@@ -3,6 +3,7 @@ using System;
 using Flowlio.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Flowlio.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260527134616_AddSoftDeleteAccountsMembersCards")]
+    partial class AddSoftDeleteAccountsMembersCards
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -42,12 +45,6 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -160,12 +157,7 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerMemberId");
 
-                    b.ToTable("BankAccounts", t =>
-                        {
-                            t.HasCheckConstraint("CK_BankAccount_Currency", "char_length(\"Currency\") = 3");
-
-                            t.HasCheckConstraint("CK_BankAccount_Name", "char_length(btrim(\"Name\")) > 0");
-                        });
+                    b.ToTable("BankAccounts");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.BankCard", b =>
@@ -214,28 +206,13 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
                     b.HasKey("Id");
 
                     b.HasIndex("BankAccountId");
 
                     b.HasIndex("HolderMemberId");
 
-                    b.ToTable("BankCards", t =>
-                        {
-                            t.HasCheckConstraint("CK_BankCard_ExpiryMonth", "\"ExpiryMonth\" BETWEEN 1 AND 12");
-
-                            t.HasCheckConstraint("CK_BankCard_ExpiryYear", "\"ExpiryYear\" BETWEEN 2000 AND 2100");
-
-                            t.HasCheckConstraint("CK_BankCard_Last4", "\"Last4\" IS NULL OR \"Last4\" ~ '^[0-9]{1,4}$'");
-
-                            t.HasCheckConstraint("CK_BankCard_MonthlyLimit", "\"MonthlyLimit\" IS NULL OR \"MonthlyLimit\" >= 0");
-                        });
+                    b.ToTable("BankCards");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.CategorizationRule", b =>
@@ -348,20 +325,9 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
                     b.HasKey("Id");
 
-                    b.ToTable("Families", t =>
-                        {
-                            t.HasCheckConstraint("CK_Family_BaseCurrency", "char_length(\"BaseCurrency\") = 3");
-
-                            t.HasCheckConstraint("CK_Family_Name", "char_length(btrim(\"Name\")) > 0");
-                        });
+                    b.ToTable("Families");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.FamilyInvitation", b =>
@@ -455,12 +421,6 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
                     b.HasKey("Id");
 
                     b.HasIndex("GuardianMemberId");
@@ -523,6 +483,7 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("FileName")
+                        .IsRequired()
                         .HasMaxLength(260)
                         .HasColumnType("character varying(260)");
 
@@ -533,13 +494,6 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("ImportedCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Label")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<int>("Origin")
                         .HasColumnType("integer");
 
                     b.Property<int>("Status")
@@ -618,12 +572,7 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FamilyId");
 
-                    b.ToTable("RecurringPayments", t =>
-                        {
-                            t.HasCheckConstraint("CK_RecurringPayment_DayOfMonth", "\"DayOfMonth\" IS NULL OR \"DayOfMonth\" BETWEEN 1 AND 31");
-
-                            t.HasCheckConstraint("CK_RecurringPayment_ExpectedAmount", "\"ExpectedAmount\" >= 0");
-                        });
+                    b.ToTable("RecurringPayments");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.Subscription", b =>
@@ -681,10 +630,7 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FamilyId");
 
-                    b.ToTable("Subscriptions", t =>
-                        {
-                            t.HasCheckConstraint("CK_Subscription_Amount", "\"Amount\" >= 0");
-                        });
+                    b.ToTable("Subscriptions");
                 });
 
             modelBuilder.Entity("Flowlio.Domain.SystemRolePermission", b =>
@@ -793,10 +739,7 @@ namespace Flowlio.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FamilyId", "BookingDate");
 
-                    b.ToTable("Transactions", t =>
-                        {
-                            t.HasCheckConstraint("CK_Transaction_Currency", "char_length(\"Currency\") = 3");
-                        });
+                    b.ToTable("Transactions");
                 });
 
             modelBuilder.Entity("Flowlio.Infrastructure.Identity.ApplicationUser", b =>

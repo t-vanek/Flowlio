@@ -21,7 +21,8 @@ public static class AdminEndpoints
 {
     public static void MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        var admin = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy);
+        var admin = app.MapGroup("/api/admin").RequireAuthorization(AdminRoles.AdminPolicy)
+            .AddEndpointFilter<Validation.ValidationEndpointFilter>();
         admin.MapGet("/users", GetUsers);
         admin.MapGet("/users/deleted", GetDeletedUsers);
         admin.MapPost("/users", CreateUser);
@@ -40,25 +41,37 @@ public static class AdminEndpoints
 
     private static async Task<IResult> GetUsers(
         UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
-        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
+        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct,
+        int page = 1, int pageSize = 25)
     {
         if (!await sys.CanAsync(SystemPermission.ViewUsers, ct))
             return Forbidden();
-        var users = await userManager.Users.OrderBy(u => u.Email).ToListAsync(ct);
-        return Results.Ok(await ToDtosAsync(users, userManager, roleManager, db, current, ct));
+        return Results.Ok(await PageUsersAsync(userManager.Users, userManager, roleManager, db, current, page, pageSize, ct));
     }
 
     private static async Task<IResult> GetDeletedUsers(
         UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
-        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct)
+        IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct,
+        int page = 1, int pageSize = 25)
     {
         if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
             return Forbidden();
-        var deleted = await userManager.Users.IgnoreQueryFilters()
-            .Where(u => u.DeletedAt != null)
-            .OrderBy(u => u.Email)
-            .ToListAsync(ct);
-        return Results.Ok(await ToDtosAsync(deleted, userManager, roleManager, db, current, ct));
+        var deleted = userManager.Users.IgnoreQueryFilters().Where(u => u.DeletedAt != null);
+        return Results.Ok(await PageUsersAsync(deleted, userManager, roleManager, db, current, page, pageSize, ct));
+    }
+
+    private static async Task<AdminUserPageDto> PageUsersAsync(
+        IQueryable<ApplicationUser> source, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
+        IAppDbContext db, ICurrentUser current, int page, int pageSize, CancellationToken ct)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var ordered = source.OrderBy(u => u.Email);
+        var total = await ordered.CountAsync(ct);
+        var users = await ordered.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var dtos = await ToDtosAsync(users, userManager, roleManager, db, current, ct);
+        return new AdminUserPageDto { Items = dtos, TotalCount = total, Page = page, PageSize = pageSize };
     }
 
     private static async Task<IResult> CreateUser(

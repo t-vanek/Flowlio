@@ -1,8 +1,18 @@
+using System.Net;
 using System.Net.Http.Json;
 using Flowlio.Domain;
 using Flowlio.Shared;
 
 namespace Flowlio.Client.Services;
+
+/// <summary>Outcome of a write that participates in optimistic concurrency.</summary>
+public enum SaveStatus
+{
+    Success,
+    /// <summary>The row changed since it was loaded (HTTP 409); the caller should reload.</summary>
+    Conflict,
+    Failed,
+}
 
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
 public sealed class FlowlioApi(HttpClient http)
@@ -24,14 +34,33 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
+    public async Task<IReadOnlyList<ArchivedAccountDto>> GetArchivedAccountsAsync() =>
+        await http.GetFromJsonAsync<List<ArchivedAccountDto>>("api/accounts/archived") ?? [];
+
+    public async Task<bool> ArchiveAccountAsync(Guid accountId) =>
+        (await http.DeleteAsync($"api/accounts/{accountId}")).IsSuccessStatusCode;
+
+    public async Task<bool> RestoreAccountAsync(Guid accountId) =>
+        (await http.PostAsync($"api/accounts/{accountId}/restore", null)).IsSuccessStatusCode;
+
     public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() =>
         await http.GetFromJsonAsync<List<CategoryDto>>("api/categories") ?? [];
 
-    public async Task<TransactionPageDto?> GetTransactionsAsync(Guid? accountId = null, string? search = null, int page = 1)
+    public async Task<TransactionPageDto?> GetTransactionsAsync(
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
     {
-        var url = $"api/transactions?page={page}";
+        var url = $"api/transactions?page={page}&pageSize={pageSize}";
         if (accountId is { } id)
             url += $"&accountId={id}";
+        if (categoryId is { } cid)
+            url += $"&categoryId={cid}";
+        if (dateFrom is { } from)
+            url += $"&dateFrom={from:yyyy-MM-dd}";
+        if (dateTo is { } to)
+            url += $"&dateTo={to:yyyy-MM-dd}";
+        if (direction is { } dir)
+            url += $"&direction={dir}";
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search)}";
         return await http.GetFromJsonAsync<TransactionPageDto>(url);
@@ -104,13 +133,8 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    public async Task<FamilyMemberDto?> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/members/{memberId}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<FamilyMemberDto>()
-            : null;
-    }
+    public async Task<SaveStatus> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/members/{memberId}", request));
 
     public async Task<bool> DeleteMemberAsync(Guid memberId) =>
         (await http.DeleteAsync($"api/members/{memberId}")).IsSuccessStatusCode;
@@ -166,13 +190,8 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    public async Task<BankCardDto?> UpdateCardAsync(Guid cardId, UpdateCardRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/cards/{cardId}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<BankCardDto>()
-            : null;
-    }
+    public async Task<SaveStatus> UpdateCardAsync(Guid cardId, UpdateCardRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/cards/{cardId}", request));
 
     public async Task<bool> DeleteCardAsync(Guid cardId) =>
         (await http.DeleteAsync($"api/cards/{cardId}")).IsSuccessStatusCode;
@@ -190,8 +209,13 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<FamilyDto?> GetFamilyAsync() =>
         http.GetFromJsonAsync<FamilyDto>("api/family");
 
-    public async Task<bool> UpdateFamilyAsync(UpdateFamilyRequest request) =>
-        (await http.PutAsJsonAsync("api/family", request)).IsSuccessStatusCode;
+    public async Task<SaveStatus> UpdateFamilyAsync(UpdateFamilyRequest request) =>
+        ToStatus(await http.PutAsJsonAsync("api/family", request));
+
+    private static SaveStatus ToStatus(HttpResponseMessage response) =>
+        response.IsSuccessStatusCode ? SaveStatus.Success
+        : response.StatusCode == HttpStatusCode.Conflict ? SaveStatus.Conflict
+        : SaveStatus.Failed;
 
     public async Task<bool> TransferOwnershipAsync(Guid newOwnerMemberId) =>
         (await http.PostAsJsonAsync("api/family/transfer-ownership", new TransferOwnershipRequest { NewOwnerMemberId = newOwnerMemberId })).IsSuccessStatusCode;
@@ -207,12 +231,12 @@ public sealed class FlowlioApi(HttpClient http)
 
     // --- System administration (admin only) ---
 
-    public async Task<IReadOnlyList<AdminUserDto>> GetAdminUsersAsync()
+    public async Task<AdminUserPageDto?> GetAdminUsersAsync(int page = 1, int pageSize = 25)
     {
-        var response = await http.GetAsync("api/admin/users");
+        var response = await http.GetAsync($"api/admin/users?page={page}&pageSize={pageSize}");
         return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
-            : [];
+            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
+            : null;
     }
 
     public async Task<bool> CreateUserAsync(CreateUserRequest request) =>
@@ -275,12 +299,12 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteUserAsync(Guid userId) =>
         (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;
 
-    public async Task<IReadOnlyList<AdminUserDto>> GetDeletedUsersAsync()
+    public async Task<AdminUserPageDto?> GetDeletedUsersAsync(int page = 1, int pageSize = 25)
     {
-        var response = await http.GetAsync("api/admin/users/deleted");
+        var response = await http.GetAsync($"api/admin/users/deleted?page={page}&pageSize={pageSize}");
         return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<List<AdminUserDto>>() ?? []
-            : [];
+            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
+            : null;
     }
 
     public async Task<bool> UndeleteUserAsync(Guid userId) =>

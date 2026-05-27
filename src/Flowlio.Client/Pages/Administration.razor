@@ -46,20 +46,29 @@ else
         {
             <FluentCard Class="panel">
                 <h2 class="panel-title">Nový uživatel</h2>
-                <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
-                    <FluentTextField @bind-Value="_newEmail" Label="E-mail" Style="width:100%" Placeholder="novy@example.com" />
-                    <FluentTextField @bind-Value="_newName" Label="Jméno (volitelné)" Style="width:100%" />
-                    <FluentTextField @bind-Value="_newPassword" TextFieldType="TextFieldType.Password" Label="Počáteční heslo" Style="width:100%" />
-                    <label class="perm-item">
-                        <input type="checkbox" checked="@_newIsAdmin" @onchange="@(e => _newIsAdmin = (bool)(e.Value ?? false))" />
-                        <span>Administrátor</span>
-                    </label>
-                    <label class="perm-item">
-                        <input type="checkbox" checked="@_newMustChange" @onchange="@(e => _newMustChange = (bool)(e.Value ?? false))" />
-                        <span>Vynutit změnu hesla při prvním přihlášení</span>
-                    </label>
-                    <FluentButton Appearance="Appearance.Accent" OnClick="CreateUserAsync">Vytvořit uživatele</FluentButton>
-                </FluentStack>
+                <EditForm Model="_newUser" OnValidSubmit="CreateUserAsync">
+                    <DataAnnotationsValidator />
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                        <div>
+                            <FluentTextField @bind-Value="_newUser.Email" Label="E-mail" Style="width:100%" Placeholder="novy@example.com" />
+                            <FluentValidationMessage For="@(() => _newUser.Email)" />
+                        </div>
+                        <FluentTextField @bind-Value="_newUser.DisplayName" Label="Jméno (volitelné)" Style="width:100%" />
+                        <div>
+                            <FluentTextField @bind-Value="_newUser.Password" TextFieldType="TextFieldType.Password" Label="Počáteční heslo" Style="width:100%" />
+                            <FluentValidationMessage For="@(() => _newUser.Password)" />
+                        </div>
+                        <label class="perm-item">
+                            <input type="checkbox" checked="@_newUser.IsAdmin" @onchange="@(e => _newUser.IsAdmin = (bool)(e.Value ?? false))" />
+                            <span>Administrátor</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" checked="@_newUser.MustChangePassword" @onchange="@(e => _newUser.MustChangePassword = (bool)(e.Value ?? false))" />
+                            <span>Vynutit změnu hesla při prvním přihlášení</span>
+                        </label>
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Vytvořit uživatele</FluentButton>
+                    </FluentStack>
+                </EditForm>
             </FluentCard>
         }
 
@@ -79,7 +88,7 @@ else
             }
             else
             {
-                @foreach (var u in _users)
+                @foreach (var u in _users.Items)
                 {
                     <div class="account-row">
                         <div>
@@ -178,15 +187,29 @@ else
 
                                 @if (_canPasswords)
                                 {
-                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top:10px;">
-                                        <FluentTextField @bind-Value="_pwdValue" TextFieldType="TextFieldType.Password" Label="Nové heslo" />
-                                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SetPasswordAsync(u))">Nastavit heslo</FluentButton>
-                                    </FluentStack>
+                                    <EditForm Model="_passwordModel" OnValidSubmit="@(() => SetPasswordAsync(u))">
+                                        <DataAnnotationsValidator />
+                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top:10px;">
+                                            <div>
+                                                <FluentTextField @bind-Value="_passwordModel.NewPassword" TextFieldType="TextFieldType.Password" Label="Nové heslo" />
+                                                <FluentValidationMessage For="@(() => _passwordModel.NewPassword)" />
+                                            </div>
+                                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Nastavit heslo</FluentButton>
+                                        </FluentStack>
+                                    </EditForm>
                                 }
                             }
                         </div>
                     }
                 }
+            }
+            @if (_users is not null && _users.TotalCount > _users.PageSize)
+            {
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_usersPage <= 1)" OnClick="@(() => ChangeUsersPageAsync(-1))">Předchozí</FluentButton>
+                    <span class="muted">Strana @_users.Page z @UsersTotalPages · celkem @_users.TotalCount</span>
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="@(_usersPage >= UsersTotalPages)" OnClick="@(() => ChangeUsersPageAsync(1))">Další</FluentButton>
+                </FluentStack>
             }
         </FluentCard>
 
@@ -198,13 +221,13 @@ else
                 {
                     <FluentProgressRing />
                 }
-                else if (_deletedUsers.Count == 0)
+                else if (_deletedUsers.Items.Count == 0)
                 {
                     <p class="muted">Žádné smazané účty.</p>
                 }
                 else
                 {
-                    @foreach (var u in _deletedUsers)
+                    @foreach (var u in _deletedUsers.Items)
                     {
                         <div class="account-row">
                             <div>
@@ -217,6 +240,14 @@ else
                             </div>
                         </div>
                     }
+                    @if (_deletedUsers.TotalCount > _deletedUsers.PageSize)
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Style="margin-top:10px;">
+                            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_deletedPage <= 1)" OnClick="@(() => ChangeDeletedPageAsync(-1))">Předchozí</FluentButton>
+                            <span class="muted">Strana @_deletedUsers.Page z @DeletedTotalPages · celkem @_deletedUsers.TotalCount</span>
+                            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_deletedPage >= DeletedTotalPages)" OnClick="@(() => ChangeDeletedPageAsync(1))">Další</FluentButton>
+                        </FluentStack>
+                    }
                 }
             </FluentCard>
         }
@@ -226,10 +257,16 @@ else
     {
         <FluentCard Class="panel">
             <h2 class="panel-title">Nová role účtů</h2>
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                <FluentTextField @bind-Value="_newRoleName" Label="Název role" Placeholder="např. Podpora" />
-                <FluentButton Appearance="Appearance.Accent" OnClick="CreateSystemRoleAsync">Vytvořit roli</FluentButton>
-            </FluentStack>
+            <EditForm Model="_newRoleModel" OnValidSubmit="CreateSystemRoleAsync">
+                <DataAnnotationsValidator />
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                    <div>
+                        <FluentTextField @bind-Value="_newRoleModel.Name" Label="Název role" Placeholder="např. Podpora" />
+                        <FluentValidationMessage For="@(() => _newRoleModel.Name)" />
+                    </div>
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Vytvořit roli</FluentButton>
+                </FluentStack>
+            </EditForm>
         </FluentCard>
 
         <FluentCard Class="panel">
@@ -259,12 +296,18 @@ else
                         </div>
                         @if (!role.IsAdministrator)
                         {
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveSysRoleAsync(role.RoleId))">Uložit oprávnění</FluentButton>
-                                <FluentTextField @bind-Value="_renameValue" Label="Přejmenovat na" />
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RenameSysRoleAsync(role.RoleId))">Přejmenovat</FluentButton>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteSysRoleAsync(role.RoleId))">Smazat roli</FluentButton>
-                            </FluentStack>
+                            <EditForm Model="_renameModel" OnValidSubmit="@(() => RenameSysRoleAsync(role.RoleId))">
+                                <DataAnnotationsValidator />
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Accent" OnClick="@(() => SaveSysRoleAsync(role.RoleId))">Uložit oprávnění</FluentButton>
+                                    <div>
+                                        <FluentTextField @bind-Value="_renameModel.Name" Label="Přejmenovat na" />
+                                        <FluentValidationMessage For="@(() => _renameModel.Name)" />
+                                    </div>
+                                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth">Přejmenovat</FluentButton>
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Stealth" OnClick="@(() => DeleteSysRoleAsync(role.RoleId))">Smazat roli</FluentButton>
+                                </FluentStack>
+                            </EditForm>
                         }
                     </div>
                 }
@@ -369,12 +412,21 @@ else
             }
             else
             {
-                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                    <FluentTextField @bind-Value="_familyName" Label="Název rodiny" Style="width:100%" />
-                    <FluentTextField @bind-Value="_baseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
-                    <FluentButton Appearance="Appearance.Accent" OnClick="SaveFamilyAsync">Uložit změny</FluentButton>
-                    <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
-                </FluentStack>
+                <EditForm Model="_familyModel" OnValidSubmit="SaveFamilyAsync">
+                    <DataAnnotationsValidator />
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <div>
+                            <FluentTextField @bind-Value="_familyModel.Name" Label="Název rodiny" Style="width:100%" />
+                            <FluentValidationMessage For="@(() => _familyModel.Name)" />
+                        </div>
+                        <div>
+                            <FluentTextField @bind-Value="_familyModel.BaseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
+                            <FluentValidationMessage For="@(() => _familyModel.BaseCurrency)" />
+                        </div>
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit změny</FluentButton>
+                        <p class="muted">Počet členů: @_family.MemberCount · vlastník: @_family.OwnerName</p>
+                    </FluentStack>
+                </EditForm>
 
                 @if (_isOwner)
                 {
@@ -399,10 +451,13 @@ else
 
                     <h3 class="panel-title" style="margin-top:20px;">Smazat rodinu</h3>
                     <p class="muted">Nevratně smaže rodinu i všechna data (účty, transakce, karty). Pro potvrzení opište název „@_family.Name".</p>
-                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
-                        <FluentTextField @bind-Value="_deleteConfirm" Label="Název rodiny" />
-                        <FluentButton Appearance="Appearance.Accent" OnClick="DeleteFamilyAsync" Disabled="@(_deleteConfirm != _family.Name)">Smazat rodinu</FluentButton>
-                    </FluentStack>
+                    <EditForm Model="_deleteModel" OnValidSubmit="DeleteFamilyAsync">
+                        <DataAnnotationsValidator />
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                            <FluentTextField @bind-Value="_deleteModel.ConfirmName" Label="Název rodiny" />
+                            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Disabled="@(_deleteModel.ConfirmName != _family.Name)">Smazat rodinu</FluentButton>
+                        </FluentStack>
+                    </EditForm>
                 }
 
                 @if (_familyMessage is not null)
@@ -432,24 +487,28 @@ else
     private bool _isOwner;
     private Tab _tab;
 
-    private IReadOnlyList<AdminUserDto>? _users;
+    private const int AdminPageSize = 25;
+    private AdminUserPageDto? _users;
+    private int _usersPage = 1;
     private Guid? _userExpanded;
     private HashSet<string> _editUserRoles = new();
-    private string _newEmail = "";
-    private string _newName = "";
-    private string _newPassword = "";
-    private bool _newIsAdmin;
-    private bool _newMustChange = true;
-    private string _pwdValue = "";
+    private CreateUserRequest _newUser = new();
+    private AdminSetPasswordRequest _passwordModel = new();
     private string? _usersMessage;
     private MessageIntent _usersIntent = MessageIntent.Success;
     private bool _showDeleted;
-    private IReadOnlyList<AdminUserDto>? _deletedUsers;
+    private AdminUserPageDto? _deletedUsers;
+    private int _deletedPage = 1;
+
+    private int UsersTotalPages => _users is null || _users.PageSize == 0
+        ? 1 : Math.Max(1, (int)Math.Ceiling((double)_users.TotalCount / _users.PageSize));
+    private int DeletedTotalPages => _deletedUsers is null || _deletedUsers.PageSize == 0
+        ? 1 : Math.Max(1, (int)Math.Ceiling((double)_deletedUsers.TotalCount / _deletedUsers.PageSize));
 
     private SystemRolesDto? _systemRoles;
     private readonly Dictionary<Guid, HashSet<SystemPermission>> _sysRolePerms = new();
-    private string _newRoleName = "";
-    private string _renameValue = "";
+    private CreateSystemRoleRequest _newRoleModel = new();
+    private RenameSystemRoleRequest _renameModel = new();
     private string? _sysRolesMessage;
     private MessageIntent _sysRolesIntent = MessageIntent.Success;
 
@@ -463,10 +522,9 @@ else
 
     private FamilyDto? _family;
     private IReadOnlyList<FamilyMemberDto>? _members;
-    private string _familyName = "";
-    private string _baseCurrency = "CZK";
+    private UpdateFamilyRequest _familyModel = new();
     private string _transferValue = "";
-    private string _deleteConfirm = "";
+    private DeleteFamilyRequest _deleteModel = new();
     private string? _familyMessage;
     private MessageIntent _familyIntent = MessageIntent.Success;
 
@@ -484,7 +542,7 @@ else
 
         if (_canUsers)
         {
-            _users = await Api.GetAdminUsersAsync();
+            await LoadUsersAsync();
             await LoadSystemRolesAsync();
         }
         if (_canAudit)
@@ -564,8 +622,8 @@ else
         _members = await Api.GetMembersAsync();
         if (_family is not null)
         {
-            _familyName = _family.Name;
-            _baseCurrency = _family.BaseCurrency;
+            _familyModel = new UpdateFamilyRequest { Name = _family.Name, BaseCurrency = _family.BaseCurrency, Version = _family.Version };
+            _deleteModel = new DeleteFamilyRequest();
         }
         _transferValue = TransferCandidates.FirstOrDefault()?.Id.ToString() ?? "";
     }
@@ -611,10 +669,8 @@ else
 
     private async Task CreateSystemRoleAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newRoleName))
-            return;
-        await RunSysRolesActionAsync(() => Api.CreateSystemRoleAsync(_newRoleName), "Role vytvořena.");
-        _newRoleName = "";
+        await RunSysRolesActionAsync(() => Api.CreateSystemRoleAsync(_newRoleModel.Name), "Role vytvořena.");
+        _newRoleModel = new();
     }
 
     private Task SaveSysRoleAsync(Guid roleId) =>
@@ -624,10 +680,8 @@ else
 
     private async Task RenameSysRoleAsync(Guid roleId)
     {
-        if (string.IsNullOrWhiteSpace(_renameValue))
-            return;
-        await RunSysRolesActionAsync(() => Api.RenameSystemRoleAsync(roleId, _renameValue), "Role přejmenována.");
-        _renameValue = "";
+        await RunSysRolesActionAsync(() => Api.RenameSystemRoleAsync(roleId, _renameModel.Name), "Role přejmenována.");
+        _renameModel = new();
     }
 
     private Task DeleteSysRoleAsync(Guid roleId) =>
@@ -658,36 +712,52 @@ else
         var ok = await action();
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? okMessage : "Operace se nezdařila.";
-        _users = await Api.GetAdminUsersAsync();
+        await LoadUsersAsync();
+    }
+
+    // Reload the current page; if it fell past the end (e.g. after a delete), step back to the last page.
+    private async Task LoadUsersAsync()
+    {
+        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        if (_usersPage > UsersTotalPages)
+        {
+            _usersPage = UsersTotalPages;
+            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        }
+    }
+
+    private Task ChangeUsersPageAsync(int delta)
+    {
+        _usersPage = Math.Clamp(_usersPage + delta, 1, UsersTotalPages);
+        return LoadUsersAsync();
+    }
+
+    private async Task LoadDeletedAsync()
+    {
+        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        if (_deletedPage > DeletedTotalPages)
+        {
+            _deletedPage = DeletedTotalPages;
+            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        }
+    }
+
+    private Task ChangeDeletedPageAsync(int delta)
+    {
+        _deletedPage = Math.Clamp(_deletedPage + delta, 1, DeletedTotalPages);
+        return LoadDeletedAsync();
     }
 
     private async Task CreateUserAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newEmail) || string.IsNullOrWhiteSpace(_newPassword))
-        {
-            _usersIntent = MessageIntent.Error;
-            _usersMessage = "Zadejte e-mail a počáteční heslo.";
-            return;
-        }
-        var ok = await Api.CreateUserAsync(new CreateUserRequest
-        {
-            Email = _newEmail,
-            DisplayName = string.IsNullOrWhiteSpace(_newName) ? null : _newName,
-            Password = _newPassword,
-            IsAdmin = _newIsAdmin,
-            MustChangePassword = _newMustChange,
-        });
+        if (string.IsNullOrWhiteSpace(_newUser.DisplayName))
+            _newUser.DisplayName = null;
+        var ok = await Api.CreateUserAsync(_newUser);
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? "Uživatel vytvořen." : "Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).";
         if (ok)
-        {
-            _newEmail = "";
-            _newName = "";
-            _newPassword = "";
-            _newIsAdmin = false;
-            _newMustChange = true;
-        }
-        _users = await Api.GetAdminUsersAsync();
+            _newUser = new();
+        await LoadUsersAsync();
     }
 
     private Task LockAsync(AdminUserDto u) =>
@@ -715,13 +785,13 @@ else
     {
         _showDeleted = !_showDeleted;
         if (_showDeleted)
-            _deletedUsers = await Api.GetDeletedUsersAsync();
+            await LoadDeletedAsync();
     }
 
     private async Task ReloadDeletedAsync()
     {
         if (_showDeleted)
-            _deletedUsers = await Api.GetDeletedUsersAsync();
+            await LoadDeletedAsync();
     }
 
     private async Task UndeleteAsync(AdminUserDto u)
@@ -738,18 +808,12 @@ else
 
     private async Task SetPasswordAsync(AdminUserDto u)
     {
-        if (string.IsNullOrWhiteSpace(_pwdValue))
-        {
-            _usersIntent = MessageIntent.Error;
-            _usersMessage = "Zadejte nové heslo.";
-            return;
-        }
-        var ok = await Api.SetUserPasswordAsync(u.Id, new AdminSetPasswordRequest { NewPassword = _pwdValue, MustChangePassword = true });
+        var ok = await Api.SetUserPasswordAsync(u.Id, _passwordModel);
         _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
         _usersMessage = ok ? "Heslo nastaveno; uživatel si jej při přihlášení změní." : "Heslo se nepodařilo nastavit (slabé heslo?).";
         if (ok)
-            _pwdValue = "";
-        _users = await Api.GetAdminUsersAsync();
+            _passwordModel = new();
+        await LoadUsersAsync();
     }
 
     private static string LockLabel(AdminUserDto u) =>
@@ -761,9 +825,14 @@ else
     private async Task SaveFamilyAsync()
     {
         _familyMessage = null;
-        var ok = await Api.UpdateFamilyAsync(new UpdateFamilyRequest { Name = _familyName, BaseCurrency = _baseCurrency });
-        _familyIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _familyMessage = ok ? "Rodina uložena." : "Uložení se nezdařilo.";
+        var result = await Api.UpdateFamilyAsync(_familyModel);
+        _familyIntent = result == SaveStatus.Success ? MessageIntent.Success : MessageIntent.Error;
+        _familyMessage = result switch
+        {
+            SaveStatus.Success => "Rodina uložena.",
+            SaveStatus.Conflict => "Rodina byla mezitím změněna jiným uživatelem. Načetl jsem aktuální verzi.",
+            _ => "Uložení se nezdařilo.",
+        };
         await LoadFamilyAsync();
     }
 
@@ -795,14 +864,14 @@ else
     private async Task DeleteFamilyAsync()
     {
         _familyMessage = null;
-        if (_family is null || _deleteConfirm != _family.Name)
+        if (_family is null || _deleteModel.ConfirmName != _family.Name)
             return;
-        var ok = await Api.DeleteFamilyAsync(_deleteConfirm);
+        var ok = await Api.DeleteFamilyAsync(_deleteModel.ConfirmName);
         if (ok)
         {
             _familyIntent = MessageIntent.Success;
             _familyMessage = "Rodina byla smazána.";
-            _deleteConfirm = "";
+            _deleteModel = new();
             await LoadFamilyAsync();
         }
         else

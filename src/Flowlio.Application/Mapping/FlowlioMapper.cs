@@ -16,6 +16,7 @@ public partial class FlowlioMapper
     public partial BankAccountDto ToDto(BankAccount entity);
 
     [MapperIgnoreTarget(nameof(BankCardDto.HolderName))]
+    [MapperIgnoreTarget(nameof(BankCardDto.Version))]
     public partial BankCardDto ToDto(BankCard entity);
 
     public partial CategoryDto ToDto(Category entity);

@@ -59,7 +59,7 @@ public static class FamilyEndpoints
         return members
             .OrderBy(m => m.Role)
             .ThenBy(m => m.DisplayName)
-            .Select(m => ToMemberDto(m, pending, names, me.Id))
+            .Select(m => ToMemberDto(m, pending, names, me.Id) with { Version = db.GetRowVersion(m) })
             .ToList();
     }
 
@@ -177,6 +177,7 @@ public static class FamilyEndpoints
         member.DisplayName = request.DisplayName.Trim();
         member.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
         member.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SetOriginalRowVersion(member, request.Version);
         await db.SaveChangesAsync(ct);
         await hub.NotifyFamilyAsync(me.FamilyId, ct);
         await audit.RecordAsync("member.update", "Member", member.Id.ToString(), member.DisplayName, me.FamilyId,
@@ -267,7 +268,8 @@ public static class FamilyEndpoints
             return Results.BadRequest("Člen je opatrovníkem dětského účtu. Nejprve přiřaďte dítě jinému opatrovníkovi.");
 
         var name = member.DisplayName;
-        db.FamilyMembers.Remove(member);
+        member.DeletedAt = DateTimeOffset.UtcNow;
+        member.IsActive = false;
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("member.delete", "Member", memberId.ToString(), name, me.FamilyId, "Odebrán člen", ct);
         return Results.NoContent();
@@ -275,7 +277,7 @@ public static class FamilyEndpoints
 
     private static async Task<IResult> ReinviteMember(
         Guid memberId, IAppDbContext db, ICurrentFamily family, InvitationService invitations,
-        HttpRequest http, CancellationToken ct)
+        HttpRequest http, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -299,6 +301,8 @@ public static class FamilyEndpoints
         var (invitation, url) = NewInvitation(member, http);
         db.FamilyInvitations.Add(invitation);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("member.reinvite", "Member", member.Id.ToString(), member.DisplayName, me.FamilyId,
+            "Znovu odeslána pozvánka", ct);
 
         var familyName = await FamilyNameAsync(db, me.FamilyId, ct);
         await invitations.SendInvitationEmailAsync(member.Email!, member.DisplayName, familyName, url, ct);
@@ -333,7 +337,7 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> RevokeInvitation(
-        Guid invitationId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid invitationId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageMembers, ct))
@@ -346,6 +350,8 @@ public static class FamilyEndpoints
 
         invitation.Status = InvitationStatus.Revoked;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("invitation.revoke", "Invitation", invitation.Id.ToString(), invitation.Email, me.FamilyId,
+            "Pozvánka zrušena", ct);
         return Results.NoContent();
     }
 
@@ -387,7 +393,7 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> GrantAccountAccess(
-        Guid accountId, GrantAccessRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid accountId, GrantAccessRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var account = await db.BankAccounts
@@ -418,6 +424,8 @@ public static class FamilyEndpoints
             grant.UpdatedAt = DateTimeOffset.UtcNow;
         }
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account-access.grant", "BankAccount", accountId.ToString(), account.Name, me.FamilyId,
+            $"Přístup pro {member.DisplayName} ({grant.Level})", ct);
 
         return Results.Ok(new AccountAccessDto
         {
@@ -430,7 +438,7 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> RevokeAccountAccess(
-        Guid accountId, Guid memberId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid accountId, Guid memberId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var account = await db.BankAccounts
@@ -445,8 +453,12 @@ public static class FamilyEndpoints
         if (grant is null)
             return Results.NotFound();
 
+        var memberName = await db.FamilyMembers
+            .Where(m => m.Id == memberId).Select(m => m.DisplayName).FirstOrDefaultAsync(ct);
         db.AccountAccesses.Remove(grant);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("account-access.revoke", "BankAccount", accountId.ToString(), account.Name, me.FamilyId,
+            $"Odebrán přístup členu {memberName}", ct);
         return Results.NoContent();
     }
 
@@ -477,6 +489,7 @@ public static class FamilyEndpoints
                 ExpiryYear = c.ExpiryYear,
                 Status = c.Status,
                 MonthlyLimit = c.MonthlyLimit,
+                Version = EF.Property<uint>(c, "xmin"),
             })
             .ToListAsync(ct);
 
@@ -484,7 +497,8 @@ public static class FamilyEndpoints
     }
 
     private static async Task<IResult> CreateCard(
-        Guid accountId, CreateCardRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+        Guid accountId, CreateCardRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
+        IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var account = await db.BankAccounts
@@ -516,12 +530,15 @@ public static class FamilyEndpoints
         };
         db.BankCards.Add(card);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("card.create", "BankCard", card.Id.ToString(), card.CardholderName, me.FamilyId,
+            $"Přidána karta k účtu {account.Name}", ct);
 
         return Results.Ok(mapper.ToDto(card) with { HolderName = holderName });
     }
 
     private static async Task<IResult> UpdateCard(
-        Guid cardId, UpdateCardRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+        Guid cardId, UpdateCardRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
+        IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var card = await db.BankCards
@@ -550,13 +567,16 @@ public static class FamilyEndpoints
         card.Status = request.Status;
         card.MonthlyLimit = request.MonthlyLimit;
         card.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SetOriginalRowVersion(card, request.Version);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("card.update", "BankCard", card.Id.ToString(), card.CardholderName, me.FamilyId,
+            "Upravena karta", ct);
 
         return Results.Ok(mapper.ToDto(card) with { HolderName = holderName });
     }
 
     private static async Task<IResult> DeleteCard(
-        Guid cardId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid cardId, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         var card = await db.BankCards
@@ -567,8 +587,11 @@ public static class FamilyEndpoints
         if (!await family.CanAsync(Permission.ManageCards, ct) || !await CanManageAccountAsync(me, card.BankAccount!, db, ct))
             return Forbidden();
 
-        db.BankCards.Remove(card);
+        var cardholderName = card.CardholderName;
+        card.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("card.delete", "BankCard", cardId.ToString(), cardholderName, me.FamilyId,
+            "Smazána karta", ct);
         return Results.NoContent();
     }
 

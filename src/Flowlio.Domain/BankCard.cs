@@ -6,7 +6,7 @@ namespace Flowlio.Domain;
 /// A payment card issued on a bank account. Only the last four digits are stored — never the full
 /// PAN — so the card can be recognized without holding sensitive data.
 /// </summary>
-public class BankCard : AuditableEntity
+public class BankCard : AuditableEntity, ISoftDeletable
 {
     public Guid BankAccountId { get; set; }
     public BankAccount? BankAccount { get; set; }
@@ -30,4 +30,7 @@ public class BankCard : AuditableEntity
 
     /// <summary>Optional monthly spending limit, handy for children's cards.</summary>
     public decimal? MonthlyLimit { get; set; }
+
+    /// <summary>When set, the card is removed: hidden from listings but kept for history.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

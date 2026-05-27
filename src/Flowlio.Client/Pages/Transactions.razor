@@ -8,9 +8,36 @@
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:280px" />
-    <FluentButton Appearance="Appearance.Accent" OnClick="ReloadAsync">Hledat</FluentButton>
-    @if (_canManage && _accounts is { Count: > 0 })
+    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="min-width:240px" />
+
+    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet">
+        <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
+        @foreach (var a in _accounts)
+        {
+            <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+        }
+    </FluentSelect>
+
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie">
+        <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
+        @foreach (var c in _categories)
+        {
+            <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+        }
+    </FluentSelect>
+
+    <FluentSelect TOption="string" @bind-Value="_typeValue" Label="Typ">
+        <FluentOption TOption="string" Value="">Vše</FluentOption>
+        <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
+        <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
+    </FluentSelect>
+
+    <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
+    <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
+
+    <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
+    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+    @if (_canManage && _accounts.Count > 0)
     {
         <FluentButton Appearance="Appearance.Neutral" OnClick="OpenCreate">Přidat pohyb</FluentButton>
     }
@@ -24,7 +51,7 @@
             @if (_editId is null)
             {
                 <FluentSelect TOption="string" @bind-Value="_formAccount" Label="Účet" Style="width:100%">
-                    @foreach (var a in _accounts ?? [])
+                    @foreach (var a in _accounts)
                     {
                         <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
                     }
@@ -58,7 +85,7 @@
 
             <FluentSelect TOption="string" @bind-Value="_formCategory" Label="Kategorie" Style="width:100%">
                 <FluentOption TOption="string" Value="">(bez kategorie)</FluentOption>
-                @foreach (var c in _categories ?? [])
+                @foreach (var c in _categories)
                 {
                     <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
                 }
@@ -93,9 +120,9 @@ else
                 <tr>
                     <th>Datum</th>
                     <th>Protistrana</th>
+                    <th>Kategorie</th>
                     <th>Popis</th>
                     <th>VS</th>
-                    <th>Kategorie</th>
                     <th class="num">Částka</th>
                     @if (_canManage)
                     {
@@ -109,9 +136,9 @@ else
                     <tr>
                         <td>@t.BookingDate.ToString("d.M.yyyy")</td>
                         <td>@t.CounterpartyName</td>
+                        <td class="muted">@t.CategoryName</td>
                         <td class="muted">@t.Description</td>
                         <td>@t.VariableSymbol</td>
-                        <td class="muted">@t.CategoryName</td>
                         <td class="num @(t.Amount < 0 ? "expense" : "income")">@Money(t.Amount)</td>
                         @if (_canManage)
                         {
@@ -125,21 +152,43 @@ else
             </tbody>
         </table>
     </FluentCard>
-    <p class="muted">Zobrazeno @_page.Items.Count z @_page.TotalCount transakcí.</p>
+    <div class="toolbar" style="justify-content:space-between;">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber <= 1)" OnClick="@(() => ChangePageAsync(-1))">Předchozí</FluentButton>
+            <span class="muted">Strana @_page.Page z @TotalPages · celkem @_page.TotalCount</span>
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber >= TotalPages)" OnClick="@(() => ChangePageAsync(1))">Další</FluentButton>
+        </FluentStack>
+        <FluentSelect TOption="string" @bind-Value="_pageSizeValue" @bind-Value:after="PageSizeChangedAsync" Label="Na stránku">
+            <FluentOption TOption="string" Value="25">25</FluentOption>
+            <FluentOption TOption="string" Value="50">50</FluentOption>
+            <FluentOption TOption="string" Value="100">100</FluentOption>
+        </FluentSelect>
+    </div>
 }
 
 @code {
     private TransactionPageDto? _page;
-    private string _search = "";
+    private IReadOnlyList<BankAccountDto> _accounts = [];
+    private IReadOnlyList<CategoryDto> _categories = [];
     private bool _canManage;
-    private IReadOnlyList<BankAccountDto>? _accounts;
-    private IReadOnlyList<CategoryDto>? _categories;
 
+    // Filters
+    private string _search = "";
+    private string _accountValue = "";
+    private string _categoryValue = "";
+    private string _typeValue = "";
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+
+    // Pagination
+    private int _pageNumber = 1;
+    private string _pageSizeValue = "50";
+
+    // Manual movement editor
     private bool _showEditor;
     private bool _saving;
     private Guid? _editId;
     private string? _formError;
-
     private string _formAccount = "";
     private DateOnly _formBooking = DateOnly.FromDateTime(DateTime.Today);
     private DateOnly? _formValue;
@@ -154,28 +203,67 @@ else
     private string _formNote = "";
     private string _formCategory = "";
 
+    private int TotalPages => _page is null || _page.PageSize == 0
+        ? 1
+        : Math.Max(1, (int)Math.Ceiling((double)_page.TotalCount / _page.PageSize));
+
     protected override async Task OnInitializedAsync()
     {
         _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
-        if (_canManage)
-        {
-            _accounts = await Api.GetAccountsAsync();
-            _categories = await Api.GetCategoriesAsync();
-        }
-        await ReloadAsync();
+        _accounts = await Api.GetAccountsAsync();
+        _categories = await Api.GetCategoriesAsync();
+        await LoadAsync();
     }
 
-    private async Task ReloadAsync()
+    private async Task LoadAsync()
     {
         _page = null;
-        _page = await Api.GetTransactionsAsync(search: _search);
+        _page = await Api.GetTransactionsAsync(
+            accountId: Guid.TryParse(_accountValue, out var a) ? a : null,
+            categoryId: Guid.TryParse(_categoryValue, out var c) ? c : null,
+            dateFrom: _dateFrom is { } from ? DateOnly.FromDateTime(from) : null,
+            dateTo: _dateTo is { } to ? DateOnly.FromDateTime(to) : null,
+            direction: string.IsNullOrEmpty(_typeValue) ? null : (TransactionDirection)int.Parse(_typeValue),
+            search: _search,
+            page: _pageNumber,
+            pageSize: int.Parse(_pageSizeValue));
+    }
+
+    // Changing filters or page size always returns to the first page.
+    private Task ApplyFiltersAsync()
+    {
+        _pageNumber = 1;
+        return LoadAsync();
+    }
+
+    private Task PageSizeChangedAsync()
+    {
+        _pageNumber = 1;
+        return LoadAsync();
+    }
+
+    private Task ChangePageAsync(int delta)
+    {
+        _pageNumber = Math.Clamp(_pageNumber + delta, 1, TotalPages);
+        return LoadAsync();
+    }
+
+    private Task ClearFiltersAsync()
+    {
+        _search = "";
+        _accountValue = "";
+        _categoryValue = "";
+        _typeValue = "";
+        _dateFrom = null;
+        _dateTo = null;
+        return ApplyFiltersAsync();
     }
 
     private void OpenCreate()
     {
         _editId = null;
         _formError = null;
-        _formAccount = _accounts?.FirstOrDefault()?.Id.ToString() ?? "";
+        _formAccount = _accounts.FirstOrDefault()?.Id.ToString() ?? "";
         _formBooking = DateOnly.FromDateTime(DateTime.Today);
         _formValue = null;
         _formAmount = 0;
@@ -263,7 +351,7 @@ else
                 }
             }
             _showEditor = false;
-            await ReloadAsync();
+            await LoadAsync();
         }
         finally
         {
@@ -274,7 +362,7 @@ else
     private async Task DeleteAsync(Guid id)
     {
         if (await Api.DeleteTransactionAsync(id))
-            await ReloadAsync();
+            await LoadAsync();
     }
 
     private static string Money(decimal value) =>

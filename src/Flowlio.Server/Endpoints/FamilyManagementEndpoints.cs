@@ -39,6 +39,7 @@ public static class FamilyManagementEndpoints
             MemberCount = memberCount,
             OwnerMemberId = owner?.Id,
             OwnerName = owner?.DisplayName,
+            Version = db.GetRowVersion(fam),
         });
     }
 
@@ -59,6 +60,7 @@ public static class FamilyManagementEndpoints
         if (!string.IsNullOrWhiteSpace(request.BaseCurrency))
             fam.BaseCurrency = request.BaseCurrency.Trim().ToUpperInvariant();
         fam.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SetOriginalRowVersion(fam, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("family.update", "Family", fam.Id.ToString(), fam.Name, fam.Id, "Upravena rodina", ct);
         return Results.NoContent();

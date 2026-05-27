@@ -13,42 +13,48 @@
     <FluentCard Class="panel">
         <h2 class="panel-title">Přidat člena</h2>
         <p class="muted">Pozvěte manžela/manželku jako dospělého, přidejte pozorovatele, nebo založte dětský účet pod opatrovníkem.</p>
-        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-            <FluentTextField @bind-Value="_name" Label="Jméno" Style="width:100%" Placeholder="Jana Nováková" />
+        <EditForm Model="_model" OnValidSubmit="CreateAsync">
+            <DataAnnotationsValidator />
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <div>
+                    <FluentTextField @bind-Value="_model.DisplayName" Label="Jméno" Style="width:100%" Placeholder="Jana Nováková" />
+                    <FluentValidationMessage For="@(() => _model.DisplayName)" />
+                </div>
 
-            <FluentSelect TOption="string" @bind-Value="_roleValue" Label="Role" Style="width:100%">
-                <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý (manžel/ka)</FluentOption>
-                <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel (jen čtení)</FluentOption>
-                <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
-            </FluentSelect>
-
-            @if (SelectedRole == MemberRole.Child)
-            {
-                <FluentSelect TOption="string" @bind-Value="_guardianValue" Label="Opatrovník" Style="width:100%">
-                    @foreach (var g in Guardians)
-                    {
-                        <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
-                    }
+                <FluentSelect TOption="string" @bind-Value="_roleValue" Label="Role" Style="width:100%">
+                    <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý (manžel/ka)</FluentOption>
+                    <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel (jen čtení)</FluentOption>
+                    <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
                 </FluentSelect>
-                <p class="muted">Opatrovník má plnou kontrolu nad účty a kartami dítěte. E-mail je volitelný – starší dítě se může přihlásit, malé spravuje rodič.</p>
-            }
 
-            <FluentTextField @bind-Value="_email" Label="@(SelectedRole == MemberRole.Child ? "E-mail (volitelný)" : "E-mail pro pozvánku")" Style="width:100%" Placeholder="jana@example.com" />
+                @if (SelectedRole == MemberRole.Child)
+                {
+                    <FluentSelect TOption="string" @bind-Value="_guardianValue" Label="Opatrovník" Style="width:100%">
+                        @foreach (var g in Guardians)
+                        {
+                            <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
+                        }
+                    </FluentSelect>
+                    <p class="muted">Opatrovník má plnou kontrolu nad účty a kartami dítěte. E-mail je volitelný – starší dítě se může přihlásit, malé spravuje rodič.</p>
+                }
 
-            <FluentButton Appearance="Appearance.Accent" OnClick="CreateAsync" Loading="_busy">Přidat člena</FluentButton>
+                <FluentTextField @bind-Value="_email" Label="@(SelectedRole == MemberRole.Child ? "E-mail (volitelný)" : "E-mail pro pozvánku")" Style="width:100%" Placeholder="jana@example.com" />
 
-            @if (_error is not null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
-            }
-            @if (_lastInvite is not null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Success">
-                    Pozvánka vytvořena. Odešlete tento odkaz @_lastInvite.MemberName:
-                </FluentMessageBar>
-                <FluentTextField Value="@_lastInvite.InviteUrl" ReadOnly="true" Style="width:100%" />
-            }
-        </FluentStack>
+                <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Loading="_busy">Přidat člena</FluentButton>
+
+                @if (_error is not null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+                }
+                @if (_lastInvite is not null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Success">
+                        Pozvánka vytvořena. Odešlete tento odkaz @_lastInvite.MemberName:
+                    </FluentMessageBar>
+                    <FluentTextField Value="@_lastInvite.InviteUrl" ReadOnly="true" Style="width:100%" />
+                }
+            </FluentStack>
+        </EditForm>
     </FluentCard>
     }
 
@@ -113,35 +119,41 @@
                 @if (_editingId == m.Id)
                 {
                     <div class="member-edit">
-                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
-                            <FluentTextField @bind-Value="_editName" Label="Jméno" Style="width:100%" />
-                            <FluentTextField @bind-Value="_editEmail" Label="E-mail" Style="width:100%" />
-                            @if (m.Role != MemberRole.Owner)
-                            {
-                                <FluentSelect TOption="string" @bind-Value="_editRoleValue" Label="Role" Style="width:100%">
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý</FluentOption>
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel</FluentOption>
-                                    <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
-                                </FluentSelect>
-                                @if (EditRole == MemberRole.Child)
+                        <EditForm Model="_editModel" OnValidSubmit="@(() => SaveEditAsync(m))">
+                            <DataAnnotationsValidator />
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="10">
+                                <div>
+                                    <FluentTextField @bind-Value="_editModel.DisplayName" Label="Jméno" Style="width:100%" />
+                                    <FluentValidationMessage For="@(() => _editModel.DisplayName)" />
+                                </div>
+                                <FluentTextField @bind-Value="_editEmail" Label="E-mail" Style="width:100%" />
+                                @if (m.Role != MemberRole.Owner)
                                 {
-                                    <FluentSelect TOption="string" @bind-Value="_editGuardianValue" Label="Opatrovník" Style="width:100%">
-                                        @foreach (var g in Guardians.Where(x => x.Id != m.Id))
-                                        {
-                                            <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
-                                        }
+                                    <FluentSelect TOption="string" @bind-Value="_editRoleValue" Label="Role" Style="width:100%">
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Adult).ToString())">Dospělý</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Viewer).ToString())">Pozorovatel</FluentOption>
+                                        <FluentOption TOption="string" Value="@(((int)MemberRole.Child).ToString())">Dítě</FluentOption>
                                     </FluentSelect>
+                                    @if (EditRole == MemberRole.Child)
+                                    {
+                                        <FluentSelect TOption="string" @bind-Value="_editGuardianValue" Label="Opatrovník" Style="width:100%">
+                                            @foreach (var g in Guardians.Where(x => x.Id != m.Id))
+                                            {
+                                                <FluentOption TOption="string" Value="@g.Id.ToString()">@g.DisplayName</FluentOption>
+                                            }
+                                        </FluentSelect>
+                                    }
                                 }
-                            }
-                            else
-                            {
-                                <p class="muted">Roli vlastníka změníte v Administraci → Rodina (převod vlastnictví).</p>
-                            }
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveEditAsync(m))">Uložit</FluentButton>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                                else
+                                {
+                                    <p class="muted">Roli vlastníka změníte v Administraci → Rodina (převod vlastnictví).</p>
+                                }
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit</FluentButton>
+                                    <FluentButton Type="ButtonType.Button" Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                                </FluentStack>
                             </FluentStack>
-                        </FluentStack>
+                        </EditForm>
                     </div>
                 }
             }
@@ -167,7 +179,7 @@
 @code {
     private IReadOnlyList<FamilyMemberDto>? _members;
     private IReadOnlyList<InvitationDto>? _invitations;
-    private string _name = "";
+    private CreateMemberRequest _model = new();
     private string _email = "";
     private string _roleValue = ((int)MemberRole.Adult).ToString();
     private string _guardianValue = "";
@@ -177,7 +189,7 @@
     private bool _canManage;
 
     private Guid? _editingId;
-    private string _editName = "";
+    private UpdateMemberRequest _editModel = new();
     private string _editEmail = "";
     private string _editRoleValue = ((int)MemberRole.Adult).ToString();
     private string _editGuardianValue = "";
@@ -206,11 +218,6 @@
     {
         _error = null;
         _lastInvite = null;
-        if (string.IsNullOrWhiteSpace(_name))
-        {
-            _error = "Zadejte jméno.";
-            return;
-        }
 
         Guid? guardianId = null;
         if (SelectedRole == MemberRole.Child)
@@ -226,13 +233,10 @@
         _busy = true;
         try
         {
-            var result = await Api.CreateMemberAsync(new CreateMemberRequest
-            {
-                DisplayName = _name,
-                Email = string.IsNullOrWhiteSpace(_email) ? null : _email,
-                Role = SelectedRole,
-                GuardianMemberId = guardianId,
-            });
+            _model.Email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim();
+            _model.Role = SelectedRole;
+            _model.GuardianMemberId = guardianId;
+            var result = await Api.CreateMemberAsync(_model);
 
             if (result is null)
             {
@@ -241,7 +245,7 @@
             }
 
             _lastInvite = result.Invitation;
-            _name = "";
+            _model = new();
             _email = "";
             await LoadAsync();
         }
@@ -280,7 +284,7 @@
     {
         _error = null;
         _editingId = m.Id;
-        _editName = m.DisplayName;
+        _editModel = new UpdateMemberRequest { DisplayName = m.DisplayName, Version = m.Version };
         _editEmail = m.Email ?? "";
         _editRoleValue = ((int)(m.Role == MemberRole.Owner ? MemberRole.Adult : m.Role)).ToString();
         _editGuardianValue = m.GuardianMemberId?.ToString()
@@ -292,11 +296,6 @@
     private async Task SaveEditAsync(FamilyMemberDto m)
     {
         _error = null;
-        if (string.IsNullOrWhiteSpace(_editName))
-        {
-            _error = "Zadejte jméno.";
-            return;
-        }
 
         var role = m.Role == MemberRole.Owner ? MemberRole.Owner : EditRole;
         Guid? guardianId = null;
@@ -310,15 +309,19 @@
             guardianId = gid;
         }
 
-        var result = await Api.UpdateMemberAsync(m.Id, new UpdateMemberRequest
-        {
-            DisplayName = _editName,
-            Email = string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail,
-            Role = role,
-            GuardianMemberId = guardianId,
-        });
+        _editModel.Email = string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim();
+        _editModel.Role = role;
+        _editModel.GuardianMemberId = guardianId;
+        var result = await Api.UpdateMemberAsync(m.Id, _editModel);
 
-        if (result is null)
+        if (result == SaveStatus.Conflict)
+        {
+            _error = "Člen byl mezitím změněn jiným uživatelem. Načetl jsem aktuální verzi, zkuste úpravu znovu.";
+            _editingId = null;
+            await LoadAsync();
+            return;
+        }
+        if (result != SaveStatus.Success)
         {
             _error = "Úpravu se nepodařilo uložit.";
             return;
