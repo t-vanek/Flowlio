@@ -2,6 +2,7 @@ using Flowlio.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using NpgsqlTypes;
 
 namespace Flowlio.Infrastructure.Persistence.Configurations;
 
@@ -198,6 +199,18 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         b.HasIndex(x => new { x.BankAccountId, x.DedupHash }).IsUnique();
         b.HasIndex(x => new { x.FamilyId, x.BookingDate });
         b.ToTable(t => t.HasCheckConstraint("CK_Transaction_Currency", "char_length(\"Currency\") = 3"));
+
+        // Full-text search: a STORED generated tsvector over the searchable fields, diacritics-folded
+        // via flowlio_immutable_unaccent and tokenised with the 'simple' config, plus a GIN index.
+        // Shadow property keeps the Npgsql type out of the pure domain entity.
+        b.Property<NpgsqlTsVector>("SearchVector")
+            .HasComputedColumnSql(
+                "to_tsvector('simple', flowlio_immutable_unaccent(" +
+                "coalesce(\"CounterpartyName\", '') || ' ' || coalesce(\"Description\", '') || ' ' || " +
+                "coalesce(\"Note\", '') || ' ' || coalesce(\"CounterpartyAccount\", '') || ' ' || " +
+                "coalesce(\"VariableSymbol\", '')))",
+                stored: true);
+        b.HasIndex("SearchVector").HasMethod("gin");
     }
 }
 

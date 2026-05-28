@@ -36,6 +36,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
+        // Diacritics-insensitive normalisation for full-text search; backed by an IMMUTABLE
+        // wrapper over the unaccent extension (created in the AddTransactionFullTextSearch migration).
+        builder.HasDbFunction(typeof(FtsFunctions).GetMethod(nameof(FtsFunctions.Unaccent), [typeof(string)])!)
+            .HasName("flowlio_immutable_unaccent");
+
         // Soft-deleted rows are hidden from all queries (sign-in, lookups, listings); views that need
         // them (the admin "deleted users" list, account restore) use IgnoreQueryFilters explicitly.
         builder.Entity<ApplicationUser>().HasQueryFilter(u => u.DeletedAt == null);

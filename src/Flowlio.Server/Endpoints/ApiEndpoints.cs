@@ -4,6 +4,7 @@ using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Infrastructure.Persistence;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Validation;
 using Flowlio.Shared;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using NpgsqlTypes;
 using Wolverine;
 using static Flowlio.Server.Auth.MemberAuthorization;
 
@@ -258,17 +260,24 @@ public static class ApiEndpoints
                 ? query.Where(t => t.Amount > 0)
                 : query.Where(t => t.Amount < 0);
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim();
+        // Full-text search (PostgreSQL): match the diacritics-folded SearchVector with a prefix
+        // tsquery and, when searching, order by relevance (ts_rank) before recency.
+        var tsQuery = BuildTsQuery(search);
+        if (tsQuery is not null)
             query = query.Where(t =>
-                (t.CounterpartyName != null && EF.Functions.ILike(t.CounterpartyName, $"%{term}%")) ||
-                (t.Description != null && EF.Functions.ILike(t.Description, $"%{term}%")));
-        }
+                EF.Property<NpgsqlTsVector>(t, "SearchVector")
+                  .Matches(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))));
 
         var total = await query.CountAsync(ct);
-        var items = await query
-            .OrderByDescending(t => t.BookingDate).ThenByDescending(t => t.CreatedAt)
+
+        var ordered = tsQuery is not null
+            ? query.OrderByDescending(t =>
+                    EF.Property<NpgsqlTsVector>(t, "SearchVector")
+                      .Rank(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))))
+                  .ThenByDescending(t => t.BookingDate)
+            : query.OrderByDescending(t => t.BookingDate).ThenByDescending(t => t.CreatedAt);
+
+        var items = await ordered
             .Skip((page - 1) * pageSize).Take(pageSize)
             .ToListAsync(ct);
 
@@ -279,6 +288,24 @@ public static class ApiEndpoints
             Page = page,
             PageSize = pageSize,
         };
+    }
+
+    // Turns free user input into a safe prefix tsquery, e.g. "kávár pizz" -> "kávár:* & pizz:*"
+    // (each token is reduced to letters/digits so to_tsquery never meets an operator it can't parse;
+    // accents are folded later by flowlio_immutable_unaccent, matching the stored SearchVector).
+    private static string? BuildTsQuery(string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+            return null;
+
+        var tokens = search
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(token => new string(token.Where(char.IsLetterOrDigit).ToArray()))
+            .Where(token => token.Length > 0)
+            .Select(token => token + ":*");
+
+        var joined = string.Join(" & ", tokens);
+        return joined.Length == 0 ? null : joined;
     }
 
     private static async Task<DashboardSummaryDto> GetDashboard(

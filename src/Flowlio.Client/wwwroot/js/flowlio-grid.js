@@ -117,8 +117,9 @@ window.flowlioGrid = (function () {
             });
             tables[id] = table;
         },
-        // Apply all transaction filters client-side (instant, no server round-trip).
-        // The footer sum and pagination follow the filtered set automatically.
+        // Apply the structured filters client-side (instant, no server round-trip). The text
+        // search is handled server-side (PostgreSQL FTS). The footer sum and pagination follow
+        // the filtered set automatically.
         setFilters(id, f) {
             const t = tables[id];
             if (!t) return;
@@ -129,13 +130,6 @@ window.flowlioGrid = (function () {
             if (f.dateTo) t.addFilter("bookingDate", "<=", f.dateTo);
             if (f.type === "in") t.addFilter("amount", ">", 0);
             else if (f.type === "out") t.addFilter("amount", "<", 0);
-            if (f.search) {
-                const term = f.search.toLowerCase();
-                t.addFilter((data) =>
-                    (data.counterparty || "").toLowerCase().includes(term) ||
-                    (data.description || "").toLowerCase().includes(term) ||
-                    (data.vs || "").toLowerCase().includes(term));
-            }
         },
         setGroup(id, kind) {
             if (tables[id]) tables[id].setGroupBy(groupByFn(kind));
