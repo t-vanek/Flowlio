@@ -333,6 +333,19 @@ code { color: #c02d76; }
 .toolbar fluent-date-picker { min-width: 140px; }
 .toolbar fluent-select { min-width: 160px; }
 
+/* Date-range cluster: keeps the "Od [..] Do [..]" pair (and its labels)
+   together as a single unit so a label never wraps away from its picker. */
+.filter-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.filter-range .filter-label {
+    font-size: 14px;
+    color: var(--flowlio-text-muted);
+    white-space: nowrap;
+}
+
 .data-table { width: 100%; border-collapse: collapse; color: var(--flowlio-text); }
 .data-table th,
 .data-table td {

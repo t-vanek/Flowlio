@@ -59,8 +59,12 @@
         }
     </FluentSelect>
 
-    <FluentDatePicker @bind-Value="_dateFrom" @bind-Value:after="OnDateEditedAsync" Culture="Cz" Label="Od" />
-    <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" Label="Do" />
+    <div class="filter-range">
+        <span class="filter-label">Od</span>
+        <FluentDatePicker @bind-Value="_dateFrom" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
+        <span class="filter-label">Do</span>
+        <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
+    </div>
 
     @if (HasActiveFilters)
     {
