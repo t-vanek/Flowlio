@@ -165,6 +165,23 @@ else
             <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
         </div>
     </div>
+    @if (_canManage && _selectedIds.Count > 0)
+    {
+        <div class="bulk-bar">
+            <span class="bulk-count">Vybráno @_selectedIds.Count pohybů</span>
+            <FluentSelect TOption="string" @bind-Value="_bulkCategory" @bind-Value:after="BulkSetCategoryAsync">
+                <FluentOption TOption="string" Value="">Přeřadit do kategorie…</FluentOption>
+                @foreach (var c in _categories)
+                {
+                    <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                }
+            </FluentSelect>
+            <div class="toolbar-actions">
+                <FluentButton Appearance="Appearance.Stealth" OnClick="BulkDeleteAsync">Smazat vybrané</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="ClearSelectionAsync">Zrušit výběr</FluentButton>
+            </div>
+        </div>
+    }
     <div class="summary-bar">
         <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Money(_sumIncome)</span></span>
         <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Money(_sumExpense)</span></span>
@@ -255,6 +272,8 @@ else
     private Dictionary<Guid, string> _categoryColors = [];
     private Dictionary<Guid, string> _accountNames = [];
     private TransactionDto? _detailTx;
+    private List<Guid> _selectedIds = [];
+    private string _bulkCategory = "";
     private bool _canManage;
     private bool _loading = true;
 
@@ -492,6 +511,23 @@ else
         }
     }
 
+    // All editable fields of a transaction, used to re-save it with one field changed.
+    private static TransactionFields FieldsFrom(TransactionDto t) => new()
+    {
+        BookingDate = t.BookingDate,
+        ValueDate = t.ValueDate,
+        Amount = t.Amount,
+        Currency = t.Currency,
+        CounterpartyName = t.CounterpartyName,
+        CounterpartyAccount = t.CounterpartyAccount,
+        VariableSymbol = t.VariableSymbol,
+        ConstantSymbol = t.ConstantSymbol,
+        SpecificSymbol = t.SpecificSymbol,
+        Description = t.Description,
+        Note = t.Note,
+        CategoryId = t.CategoryId,
+    };
+
     // Inline re-categorisation from the grid: persist the new category and reload.
     [JSInvokable]
     public async Task GridSetCategory(string id, string categoryId)
@@ -502,28 +538,69 @@ else
         if (newCat == t.CategoryId)
             return;
 
-        var fields = new TransactionFields
-        {
-            BookingDate = t.BookingDate,
-            ValueDate = t.ValueDate,
-            Amount = t.Amount,
-            Currency = t.Currency,
-            CounterpartyName = t.CounterpartyName,
-            CounterpartyAccount = t.CounterpartyAccount,
-            VariableSymbol = t.VariableSymbol,
-            ConstantSymbol = t.ConstantSymbol,
-            SpecificSymbol = t.SpecificSymbol,
-            Description = t.Description,
-            Note = t.Note,
-            CategoryId = newCat,
-        };
-
-        var updated = await Api.UpdateTransactionAsync(gid, new UpdateTransactionRequest { Fields = fields });
+        var updated = await Api.UpdateTransactionAsync(gid,
+            new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat } });
         if (updated is not null)
             Toasts.ShowSuccess("Kategorie změněna.");
         else
             Toasts.ShowError("Změnu kategorie se nepodařilo uložit.");
         await LoadAsync();
+    }
+
+    [JSInvokable]
+    public void GridSelectionChanged(string[] ids)
+    {
+        _selectedIds = ids
+            .Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (_selectedIds.Count == 0)
+            return;
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat {_selectedIds.Count} vybraných pohybů? Tuto akci nelze vrátit zpět.",
+            "Smazat", "Zrušit", "Hromadné smazání");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        var ok = 0;
+        foreach (var id in _selectedIds.ToList())
+            if (await Api.DeleteTransactionAsync(id)) ok++;
+        Toasts.ShowSuccess($"Smazáno {ok} pohybů.");
+        _selectedIds = [];
+        await LoadAsync();
+    }
+
+    private async Task BulkSetCategoryAsync()
+    {
+        if (_selectedIds.Count == 0 || string.IsNullOrEmpty(_bulkCategory))
+            return;
+        Guid? newCat = Guid.TryParse(_bulkCategory, out var c) ? c : null;
+
+        var ok = 0;
+        foreach (var id in _selectedIds.ToList())
+        {
+            if (!_byId.TryGetValue(id, out var t))
+                continue;
+            if (await Api.UpdateTransactionAsync(id,
+                    new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat } }) is not null)
+                ok++;
+        }
+        Toasts.ShowSuccess($"Kategorie nastavena u {ok} pohybů.");
+        _bulkCategory = "";
+        _selectedIds = [];
+        await LoadAsync();
+    }
+
+    private async Task ClearSelectionAsync()
+    {
+        _selectedIds = [];
+        _bulkCategory = "";
+        await JS.InvokeVoidAsync("flowlioGrid.clearSelection", "tx-grid");
     }
 
     // Pushed by the grid whenever the filtered set changes; drives the summary bar.

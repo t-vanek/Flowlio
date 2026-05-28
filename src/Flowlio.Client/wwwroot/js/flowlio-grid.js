@@ -159,6 +159,11 @@ window.flowlioGrid = (function () {
                 },
             ];
             if (opts.canManage) {
+                columns.unshift({
+                    formatter: "rowSelection", titleFormatter: "rowSelection", headerSort: false,
+                    width: 44, hozAlign: "center", resizable: false,
+                    cellClick: (e, cell) => { e.stopPropagation(); cell.getRow().toggleSelect(); },
+                });
                 columns.push({
                     title: "", field: "id", headerSort: false, hozAlign: "right", width: 190, resizable: false,
                     canManage: true, formatter: actionsFormatter,
@@ -194,15 +199,19 @@ window.flowlioGrid = (function () {
                 },
                 groupBy: groupByFn(opts.groupBy),
                 groupHeader: groupHeader,
+                selectableRows: !!opts.canManage,
                 columnDefaults: { headerSortTristate: true },
                 columns: columns,
                 rowFormatter: (row) => { row.getElement().style.cursor = "pointer"; },
             });
-            // Click a row (away from buttons/inputs) to open its detail.
+            // Click a row (away from buttons/inputs/selection) to open its detail.
             table.on("rowClick", (e, row) => {
                 if (e.target.closest('button, input, select, a, .grid-act, [tabulator-field="categoryId"]')) return;
                 dotNetRef.invokeMethodAsync("GridRowClick", row.getData().id);
             });
+            if (opts.canManage)
+                table.on("rowSelectionChanged", (data) =>
+                    dotNetRef.invokeMethodAsync("GridSelectionChanged", data.map((d) => d.id)));
             tables[id] = table;
             table.on("tableBuilt", () => pushSummary(id));
             table.on("dataFiltered", () => pushSummary(id));
@@ -218,6 +227,9 @@ window.flowlioGrid = (function () {
             if (f.dateTo) t.addFilter("bookingDate", "<=", f.dateTo);
             if (f.type === "in") t.addFilter("amount", ">", 0);
             else if (f.type === "out") t.addFilter("amount", "<", 0);
+        },
+        clearSelection(id) {
+            if (tables[id]) tables[id].deselectRow();
         },
         setGroup(id, kind) {
             if (tables[id]) tables[id].setGroupBy(groupByFn(kind));

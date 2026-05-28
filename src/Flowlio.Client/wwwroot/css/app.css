@@ -335,6 +335,20 @@ mark.fts-hit {
     border-radius: 2px;
 }
 
+/* Bulk-action bar shown when rows are selected. */
+.bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: var(--flowlio-surface-2);
+    border: 1px solid var(--flowlio-accent);
+    border-radius: 10px;
+}
+.bulk-count { font-weight: 600; color: var(--flowlio-text); }
+
 /* =====================================================================
    Tables / lists
    ===================================================================== */
