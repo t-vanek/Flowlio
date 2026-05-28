@@ -3,12 +3,19 @@
 @using ApexCharts
 @inject FlowlioApi Api
 @inject IJSRuntime JS
+@inject CurrentUserState CurrentUser
 
 <PageTitle>Přehled – Flowlio</PageTitle>
 
 <h1 class="page-title">Přehled</h1>
 
-@if (_summary is null)
+@if (!_canView)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění zobrazit finance této rodiny.</FluentMessageBar>
+    </FluentCard>
+}
+else if (_summary is null)
 {
     <FluentProgressRing />
 }
@@ -98,6 +105,7 @@ else
 
 @code {
     private DashboardSummaryDto? _summary;
+    private bool _canView;
     private ApexChartOptions<CategorySpendDto> _donutOptions = new();
     private ApexChartOptions<FlowPoint> _barOptions = new();
     private List<FlowPoint> _flow = [];
@@ -106,6 +114,10 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _canView = await CurrentUser.CanAsync(Permission.ViewFinances);
+        if (!_canView)
+            return;
+
         _summary = await Api.GetDashboardAsync();
 
         var effective = await JS.InvokeAsync<string>("flowlioTheme.effective");

@@ -7,14 +7,17 @@
 </div>
 
 <nav class="nav-list">
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Přehled">
-        <span class="nav-icon">📊</span>
-        <span class="nav-link-label">Přehled</span>
-    </NavLink>
-    <NavLink class="nav-link" href="transactions" title="Transakce">
-        <span class="nav-icon">💳</span>
-        <span class="nav-link-label">Transakce</span>
-    </NavLink>
+    @if (_canViewFinances)
+    {
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Přehled">
+            <span class="nav-icon">📊</span>
+            <span class="nav-link-label">Přehled</span>
+        </NavLink>
+        <NavLink class="nav-link" href="transactions" title="Transakce">
+            <span class="nav-icon">💳</span>
+            <span class="nav-link-label">Transakce</span>
+        </NavLink>
+    }
     @if (_canManageTransactions)
     {
         <NavLink class="nav-link" href="pohyby" title="Pohyby">
@@ -22,10 +25,13 @@
             <span class="nav-link-label">Pohyby</span>
         </NavLink>
     }
-    <NavLink class="nav-link" href="accounts" title="Účty">
-        <span class="nav-icon">🏦</span>
-        <span class="nav-link-label">Účty</span>
-    </NavLink>
+    @if (_canViewFinances)
+    {
+        <NavLink class="nav-link" href="accounts" title="Účty">
+            <span class="nav-icon">🏦</span>
+            <span class="nav-link-label">Účty</span>
+        </NavLink>
+    }
     @if (_canManageMembers)
     {
         <NavLink class="nav-link" href="family" title="Rodina">
@@ -56,6 +62,7 @@
 </nav>
 
 @code {
+    private bool _canViewFinances;
     private bool _canManageMembers;
     private bool _canManageTransactions;
     private bool _canImport;
@@ -71,6 +78,7 @@
     private async Task LoadAsync()
     {
         var me = await CurrentUser.GetAsync();
+        _canViewFinances = me?.Can(Permission.ViewFinances) ?? false;
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canManageTransactions = me?.Can(Permission.ManageTransactions) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;

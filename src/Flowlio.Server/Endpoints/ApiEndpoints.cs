@@ -78,10 +78,13 @@ public static class ApiEndpoints
         };
     }
 
-    private static async Task<IReadOnlyList<BankAccountDto>> GetAccounts(
+    private static async Task<IResult> GetAccounts(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
         var accounts = await db.BankAccounts.Where(a => a.FamilyId == familyId).ToListAsync(ct);
 
         var sums = await db.Transactions
@@ -107,7 +110,7 @@ public static class ApiEndpoints
             .Select(g => new { Id = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Id, x => x.Count, ct);
 
-        return accounts
+        return Results.Ok(accounts
             .Select(a =>
             {
                 var owner = a.OwnerMemberId is { } oid ? members.GetValueOrDefault(oid) : null;
@@ -120,7 +123,7 @@ public static class ApiEndpoints
                     DisponentCount = grantCounts.GetValueOrDefault(a.Id),
                 };
             })
-            .ToList();
+            .ToList());
     }
 
     private static async Task<IResult> CreateAccount(
@@ -221,23 +224,29 @@ public static class ApiEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IReadOnlyList<CategoryDto>> GetCategories(
+    private static async Task<IResult> GetCategories(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
         var categories = await db.Categories
             .Where(c => c.FamilyId == familyId)
             .OrderBy(c => c.Kind).ThenBy(c => c.Name)
             .ToListAsync(ct);
-        return categories.Select(mapper.ToDto).ToList();
+        return Results.Ok(categories.Select(mapper.ToDto).ToList());
     }
 
-    private static async Task<TransactionPageDto> GetTransactions(
+    private static async Task<IResult> GetTransactions(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct,
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
         TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
     {
         var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
@@ -284,13 +293,13 @@ public static class ApiEndpoints
             .Skip((page - 1) * pageSize).Take(pageSize)
             .ToListAsync(ct);
 
-        return new TransactionPageDto
+        return Results.Ok(new TransactionPageDto
         {
             Items = items.Select(mapper.ToDto).ToList(),
             TotalCount = total,
             Page = page,
             PageSize = pageSize,
-        };
+        });
     }
 
     // Turns free user input into a safe prefix tsquery, e.g. "kávár pizz" -> "kávár:* & pizz:*"
@@ -311,22 +320,24 @@ public static class ApiEndpoints
         return joined.Length == 0 ? null : joined;
     }
 
-    private static async Task<DashboardSummaryDto> GetDashboard(
+    private static async Task<IResult> GetDashboard(
         IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
 
         var cacheKey = CacheKeys.Dashboard(familyId);
         var cached = await cache.GetStringAsync(cacheKey, ct);
         if (cached is not null)
-            return JsonSerializer.Deserialize<DashboardSummaryDto>(cached)!;
+            return Results.Ok(JsonSerializer.Deserialize<DashboardSummaryDto>(cached)!);
 
         var summary = await BuildDashboardAsync(db, familyId, ct);
 
         await cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(summary),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) }, ct);
 
-        return summary;
+        return Results.Ok(summary);
     }
 
     private static async Task<DashboardSummaryDto> BuildDashboardAsync(
@@ -732,6 +743,11 @@ public static class ApiEndpoints
             return "Zadejte datum pohybu.";
         if (fields.Amount == 0)
             return "Částka nesmí být nulová.";
+        // A blank currency defaults to CZK in Apply; anything else must be a 3-letter code so it
+        // satisfies the CK_Transaction_Currency check (returns 400 here instead of a DB 500).
+        var currency = fields.Currency?.Trim();
+        if (!string.IsNullOrEmpty(currency) && currency.Length != 3)
+            return "Měna musí mít kód o 3 znacích.";
         return null;
     }
 

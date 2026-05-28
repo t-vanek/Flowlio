@@ -7,6 +7,14 @@
 
 <h1 class="page-title">Účty</h1>
 
+@if (!_canView)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění zobrazit finance této rodiny.</FluentMessageBar>
+    </FluentCard>
+}
+else
+{
 <div class="panel-grid">
     @if (_canManageAccounts)
     {
@@ -258,6 +266,7 @@
         </FluentCard>
     }
 </div>
+}
 
 @code {
     private IReadOnlyList<BankAccountDto>? _accounts;
@@ -284,6 +293,7 @@
     private static CreateCardRequest NewCardModel() =>
         new() { ExpiryMonth = 12, ExpiryYear = DateTime.UtcNow.Year + 3 };
 
+    private bool _canView;
     private bool _canManageAccounts;
     private bool _canManageAccess;
     private bool _canManageCards;
@@ -293,6 +303,10 @@
     protected override async Task OnInitializedAsync()
     {
         var me = await CurrentUser.GetAsync();
+        _canView = me?.Can(Permission.ViewFinances) ?? false;
+        if (!_canView)
+            return;
+
         _canManageAccounts = me?.Can(Permission.ManageAccounts) ?? false;
         _canManageAccess = me?.Can(Permission.ManageAccountAccess) ?? false;
         _canManageCards = me?.Can(Permission.ManageCards) ?? false;
