@@ -3,6 +3,7 @@ using Flowlio.Application.Statements;
 using Flowlio.Infrastructure.Email;
 using Flowlio.Infrastructure.Persistence;
 using Flowlio.Infrastructure.Statements;
+using Flowlio.Infrastructure.Statements.Pdf;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,12 @@ public static class InfrastructureModule
         services.AddSingleton<IStatementReader, XlsxStatementReader>();
         services.AddSingleton<IBankDetector, BankDetector>();
         services.AddSingleton<IFormatDetector, FormatDetector>();
+        // PDF import: positioned-text extraction (PdfPig) -> layout resolution -> coordinate-based table
+        // parser, with a heuristic fallback for unknown layouts.
+        services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
+        services.AddSingleton<PdfLayoutRegistry>();
+        services.AddSingleton<PdfTableParser>();
+        services.AddSingleton<PdfHeuristicParser>();
         services.AddSingleton<PdfStatementParser>();
         services.AddSingleton<IStatementImporter, StatementImporter>();
 
