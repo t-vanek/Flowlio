@@ -176,12 +176,85 @@ else
     </FluentCard>
 }
 
+@if (_detailTx is { } d)
+{
+    <div class="profile-backdrop" @onclick="@(() => _detailTx = null)"></div>
+    <div class="audit-modal">
+        <h2 class="panel-title">Detail pohybu</h2>
+        <dl class="audit-detail">
+            <dt>Datum zaúčtování</dt>
+            <dd>@d.BookingDate.ToString("d.M.yyyy")</dd>
+            @if (d.ValueDate is { } vd)
+            {
+                <dt>Datum splatnosti</dt>
+                <dd>@vd.ToString("d.M.yyyy")</dd>
+            }
+            <dt>Účet</dt>
+            <dd>@_accountNames.GetValueOrDefault(d.BankAccountId, "—")</dd>
+            <dt>Částka</dt>
+            <dd><span class="num @(d.Amount < 0 ? "expense" : "income")">@Money(d.Amount) @d.Currency</span></dd>
+            <dt>Protistrana</dt>
+            <dd>@(string.IsNullOrWhiteSpace(d.CounterpartyName) ? "—" : d.CounterpartyName)</dd>
+            @if (!string.IsNullOrWhiteSpace(d.CounterpartyAccount))
+            {
+                <dt>Číslo účtu</dt>
+                <dd>@d.CounterpartyAccount</dd>
+            }
+            <dt>Kategorie</dt>
+            <dd>
+                @if (!string.IsNullOrEmpty(d.CategoryName))
+                {
+                    <span class="cat-tag"><span class="cat-dot" style="background:@CategoryColor(d.CategoryId)"></span><span>@d.CategoryName</span></span>
+                }
+                else
+                {
+                    <span class="muted">(bez kategorie)</span>
+                }
+            </dd>
+            @if (!string.IsNullOrWhiteSpace(d.VariableSymbol))
+            {
+                <dt>VS</dt>
+                <dd>@d.VariableSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.ConstantSymbol))
+            {
+                <dt>KS</dt>
+                <dd>@d.ConstantSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.SpecificSymbol))
+            {
+                <dt>SS</dt>
+                <dd>@d.SpecificSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.Description))
+            {
+                <dt>Popis</dt>
+                <dd>@d.Description</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.Note))
+            {
+                <dt>Poznámka</dt>
+                <dd>@d.Note</dd>
+            }
+        </dl>
+        <div class="btn-row">
+            @if (_canManage)
+            {
+                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => { var t = d; _detailTx = null; OpenEdit(t); })">Upravit</FluentButton>
+            }
+            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _detailTx = null)">Zavřít</FluentButton>
+        </div>
+    </div>
+}
+
 @code {
     private List<TransactionDto> _rows = [];
     private Dictionary<Guid, TransactionDto> _byId = [];
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
     private Dictionary<Guid, string> _categoryColors = [];
+    private Dictionary<Guid, string> _accountNames = [];
+    private TransactionDto? _detailTx;
     private bool _canManage;
     private bool _loading = true;
 
@@ -232,6 +305,7 @@ else
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
         _categoryColors = _categories.ToDictionary(c => c.Id, c => c.Color);
+        _accountNames = _accounts.ToDictionary(a => a.Id, a => a.Name);
         await LoadAsync();
     }
 
@@ -364,6 +438,7 @@ else
         {
             id = t.Id.ToString(),
             accountId = t.BankAccountId.ToString(),
+            accountName = _accountNames.GetValueOrDefault(t.BankAccountId, ""),
             categoryId = t.CategoryId?.ToString() ?? "",
             bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
             counterparty = t.CounterpartyName ?? "",
@@ -403,6 +478,16 @@ else
     {
         if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
             await DeleteAsync(t);
+    }
+
+    [JSInvokable]
+    public void GridRowClick(string id)
+    {
+        if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
+        {
+            _detailTx = t;
+            StateHasChanged();
+        }
     }
 
     // Pushed by the grid whenever the filtered set changes; drives the summary bar.

@@ -134,6 +134,8 @@ window.flowlioGrid = (function () {
 
             const columns = [
                 { title: "Datum", field: "bookingDate", sorter: "string", formatter: dateFormatter, width: 110 },
+                { title: "Účet", field: "accountName", sorter: "string", minWidth: 110,
+                  formatter: (cell) => '<span class="muted">' + escapeHtml(cell.getValue() || "") + "</span>" },
                 { title: "Protistrana", field: "counterparty", sorter: "string", formatter: counterpartyFormatter, minWidth: 140 },
                 { title: "Kategorie", field: "categoryName", sorter: "string", formatter: categoryFormatter, minWidth: 130 },
                 { title: "Popis", field: "description", sorter: "string", formatter: descriptionFormatter, minWidth: 140 },
@@ -181,6 +183,12 @@ window.flowlioGrid = (function () {
                 groupHeader: groupHeader,
                 columnDefaults: { headerSortTristate: true },
                 columns: columns,
+                rowFormatter: (row) => { row.getElement().style.cursor = "pointer"; },
+            });
+            // Click a row (away from buttons/inputs) to open its detail.
+            table.on("rowClick", (e, row) => {
+                if (e.target.closest("button, input, select, a, .grid-act")) return;
+                dotNetRef.invokeMethodAsync("GridRowClick", row.getData().id);
             });
             tables[id] = table;
             table.on("tableBuilt", () => pushSummary(id));
