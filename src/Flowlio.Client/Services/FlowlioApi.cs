@@ -151,6 +151,41 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteMovementBatchAsync(Guid id) =>
         (await http.DeleteAsync($"api/movement-batches/{id}")).IsSuccessStatusCode;
 
+    // --- Categorization rules ---
+
+    public async Task<IReadOnlyList<CategorizationRuleDto>> GetRulesAsync() =>
+        await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules") ?? [];
+
+    public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/rules", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<CategorizationRuleDto>()
+            : null;
+    }
+
+    public async Task<CategorizationRuleDto?> UpdateRuleAsync(Guid id, CategorizationRuleRequest request)
+    {
+        var response = await http.PutAsJsonAsync($"api/rules/{id}", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<CategorizationRuleDto>()
+            : null;
+    }
+
+    public async Task<bool> DeleteRuleAsync(Guid id) =>
+        (await http.DeleteAsync($"api/rules/{id}")).IsSuccessStatusCode;
+
+    /// <summary>Re-runs the family's rules over existing transactions; returns how many were categorized.</summary>
+    public async Task<int> RecategorizeAsync(bool onlyUncategorized)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/recategorize",
+            new RecategorizeRequest { OnlyUncategorized = onlyUncategorized });
+        if (!response.IsSuccessStatusCode)
+            return 0;
+        var result = await response.Content.ReadFromJsonAsync<BulkResultDto>();
+        return result?.Count ?? 0;
+    }
+
     // --- Family members & invitations ---
 
     public async Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync() =>

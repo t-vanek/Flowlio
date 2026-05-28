@@ -161,6 +161,44 @@ public sealed record BulkResultDto
     public int Count { get; init; }
 }
 
+// ---- Categorization rules ---------------------------------------------------
+
+/// <summary>A user-defined rule that auto-assigns a category to transactions whose chosen field
+/// contains the pattern. Higher priority wins; <see cref="RuleMatchField.Any"/> matches across all text.</summary>
+public sealed record CategorizationRuleDto
+{
+    public Guid Id { get; init; }
+    public RuleMatchField Field { get; init; }
+    public string Pattern { get; init; } = "";
+    public Guid CategoryId { get; init; }
+    public string? CategoryName { get; init; }
+    public int Priority { get; init; }
+    public bool IsActive { get; init; }
+}
+
+/// <summary>Create or update a categorization rule (shared shape; rules carry no concurrency token).</summary>
+public sealed record CategorizationRuleRequest
+{
+    public RuleMatchField Field { get; set; } = RuleMatchField.Any;
+
+    [Required(ErrorMessage = "Vzor je povinný.")]
+    [StringLength(200, MinimumLength = 1, ErrorMessage = "Vzor může mít nejvýše 200 znaků.")]
+    public string Pattern { get; set; } = "";
+
+    public Guid CategoryId { get; set; }
+
+    public int Priority { get; set; }
+
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>Re-runs the family's rules over existing transactions. By default only fills transactions
+/// that have no category yet, so manual categorizations are preserved.</summary>
+public sealed record RecategorizeRequest
+{
+    public bool OnlyUncategorized { get; init; } = true;
+}
+
 /// <summary>Creates a manually entered batch ("pohyby") of movements on one account.</summary>
 public sealed record CreateMovementBatchRequest
 {

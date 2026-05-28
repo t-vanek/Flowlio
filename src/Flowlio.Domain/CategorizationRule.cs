@@ -10,7 +10,7 @@ public class CategorizationRule : AuditableEntity
 {
     public Guid FamilyId { get; set; }
 
-    public RuleMatchField Field { get; set; } = RuleMatchField.CounterpartyName;
+    public RuleMatchField Field { get; set; } = RuleMatchField.Any;
 
     /// <summary>Case-insensitive substring matched against the chosen field.</summary>
     public required string Pattern { get; set; }

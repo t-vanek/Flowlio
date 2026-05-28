@@ -1,4 +1,5 @@
 @* Read-only detail dialog for a single transaction. *@
+@inject NavigationManager Nav
 <div class="profile-backdrop" @onclick="OnClose"></div>
 <div class="audit-modal">
     <h2 class="panel-title">Detail pohybu</h2>
@@ -62,6 +63,10 @@
         @if (CanManage)
         {
             <FluentButton Appearance="Appearance.Accent" OnClick="@(() => OnEdit.InvokeAsync(Transaction))">Upravit</FluentButton>
+            @if (RulePattern is not null)
+            {
+                <FluentButton Appearance="Appearance.Stealth" OnClick="CreateRule">Vytvořit pravidlo</FluentButton>
+            }
         }
         <FluentButton Appearance="Appearance.Stealth" OnClick="OnClose">Zavřít</FluentButton>
     </div>
@@ -77,4 +82,13 @@
 
     private string CategoryColor(Guid? categoryId) =>
         categoryId is { } id && CategoryColors.TryGetValue(id, out var color) ? color : "#64748b";
+
+    // Seed a categorization rule from this transaction: prefer the counterparty, fall back to the description.
+    private string? RulePattern =>
+        !string.IsNullOrWhiteSpace(Transaction.CounterpartyName) ? Transaction.CounterpartyName
+        : !string.IsNullOrWhiteSpace(Transaction.Description) ? Transaction.Description
+        : null;
+
+    private void CreateRule() =>
+        Nav.NavigateTo($"rules?pattern={Uri.EscapeDataString(RulePattern!)}");
 }

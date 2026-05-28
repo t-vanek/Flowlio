@@ -105,7 +105,8 @@ public sealed class ImportStatementHandler
                 ConstantSymbol = parsed.ConstantSymbol,
                 SpecificSymbol = parsed.SpecificSymbol,
                 Description = parsed.Description,
-                CategoryId = MatchCategory(parsed, rules),
+                CategoryId = TransactionCategorizer.Match(
+                    parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount, rules),
                 ImportBatchId = batch.Id,
                 DedupHash = hash,
             });
@@ -143,27 +144,5 @@ public sealed class ImportStatementHandler
                 .ToList(),
             Status = ImportStatus.Completed,
         };
-    }
-
-    private static Guid? MatchCategory(ParsedTransaction tx, IReadOnlyList<CategorizationRule> rules)
-    {
-        foreach (var rule in rules)
-        {
-            var value = rule.Field switch
-            {
-                RuleMatchField.CounterpartyName => tx.CounterpartyName,
-                RuleMatchField.Description => tx.Description,
-                RuleMatchField.VariableSymbol => tx.VariableSymbol,
-                RuleMatchField.CounterpartyAccount => tx.CounterpartyAccount,
-                _ => null,
-            };
-
-            if (value is not null &&
-                value.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                return rule.CategoryId;
-            }
-        }
-        return null;
     }
 }

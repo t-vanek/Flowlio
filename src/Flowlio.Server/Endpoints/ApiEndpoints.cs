@@ -43,6 +43,7 @@ public static class ApiEndpoints
         api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
+        api.MapRuleEndpoints();
         api.MapFamilyEndpoints();
         api.MapRolesEndpoints();
         api.MapFamilyManagementEndpoints();

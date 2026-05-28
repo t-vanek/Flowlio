@@ -183,7 +183,12 @@ internal sealed partial class PdfTableParser
                 return merchant;
         }
 
-        return Cell(anchor, PdfField.CounterpartyName).Trim();
+        var name = Cell(anchor, PdfField.CounterpartyName).Trim();
+        if (name.Length > 0)
+            return name;
+
+        // No counterparty column value (typical for card payments): derive the merchant from the label.
+        return MerchantName.FromDescription(description, details) ?? string.Empty;
     }
 
     /// <summary>An account-shaped token on a continuation row (masked card numbers, with '*', are excluded).</summary>
