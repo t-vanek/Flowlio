@@ -103,6 +103,7 @@ window.flowlioGrid = (function () {
     function groupByFn(kind) {
         if (kind === "category") return (data) => data.categoryName || "(bez kategorie)";
         if (kind === "month") return (data) => (data.bookingDate || "").slice(0, 7);
+        if (kind === "batch") return (data) => data.batchName || "(bez dávky)";
         return false;
     }
 
@@ -224,6 +225,8 @@ window.flowlioGrid = (function () {
             t.clearFilter(true);
             if (f.accountId) t.addFilter("accountId", "=", f.accountId);
             if (f.categoryId) t.addFilter("categoryId", "=", f.categoryId);
+            if (f.batchId === "none") t.addFilter("batchId", "=", "");
+            else if (f.batchId) t.addFilter("batchId", "=", f.batchId);
             if (f.dateFrom) t.addFilter("bookingDate", ">=", f.dateFrom);
             if (f.dateTo) t.addFilter("bookingDate", "<=", f.dateTo);
             if (f.type === "in") t.addFilter("amount", ">", 0);

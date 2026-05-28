@@ -2,80 +2,188 @@
 @inject IToastService Toasts
 
 <FluentCard Class="panel">
-    <h2 class="panel-title">@(Editing is null ? "Nový pohyb" : "Úprava pohybu")</h2>
-    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-        @if (Editing is null)
-        {
-            <FluentSelect TOption="string" @bind-Value="_account" Label="Účet" Style="width:100%">
-                @foreach (var a in Accounts)
+    <h2 class="panel-title">@Title</h2>
+
+    @if (Editing is null)
+    {
+        @* Create: one or more movements at once. A single row with no batch label stays batch-less
+           (identical to the former single-create); more rows or a label create a Manual batch. *@
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentSelect TOption="string" @bind-Value="_account" @bind-Value:after="OnAccountChanged" Label="Účet" Style="width:60%">
+                    @foreach (var a in Accounts)
+                    {
+                        <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentTextField @bind-Value="_label" Label="Název dávky (volitelné)" Style="width:40%"
+                                 Placeholder="např. Hotovostní pohyby – květen" />
+            </FluentStack>
+
+            <div class="data-table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Datum</th>
+                        <th class="num">Částka (@_currency)</th>
+                        <th>Protistrana</th>
+                        <th>VS</th>
+                        <th>Popis</th>
+                        <th>Kategorie</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td>
+                                <FluentButton Appearance="Appearance.Stealth" Title="Další pole"
+                                              OnClick="@(() => row.Expanded = !row.Expanded)">@(row.Expanded ? "▾" : "▸")</FluentButton>
+                            </td>
+                            <td><input type="date" class="date-input" @bind="row.Booking" /></td>
+                            <td class="num"><div style="width:130px"><MoneyField @bind-Value="row.Amount" /></div></td>
+                            <td><FluentTextField @bind-Value="row.Counterparty" Style="width:160px" /></td>
+                            <td><FluentTextField @bind-Value="row.Vs" Style="width:90px" /></td>
+                            <td><FluentTextField @bind-Value="row.Description" Style="width:160px" /></td>
+                            <td>
+                                <FluentSelect TOption="string" @bind-Value="row.Category" Style="width:150px">
+                                    <FluentOption TOption="string" Value="">(žádná)</FluentOption>
+                                    @foreach (var c in Categories)
+                                    {
+                                        <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                                    }
+                                </FluentSelect>
+                            </td>
+                            <td>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RemoveRow(row))" Disabled="_rows.Count == 1">×</FluentButton>
+                            </td>
+                        </tr>
+                        @if (row.Expanded)
+                        {
+                            <tr>
+                                <td></td>
+                                <td colspan="7">
+                                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" Wrap="true">
+                                        <div>
+                                            <label class="field-label">Datum splatnosti</label>
+                                            <input type="date" class="date-input" @bind="row.Value" />
+                                        </div>
+                                        <FluentTextField @bind-Value="row.CounterpartyAccount" Label="Číslo účtu protistrany" Style="width:200px" />
+                                        <FluentTextField @bind-Value="row.Cs" Label="KS" Style="width:90px" />
+                                        <FluentTextField @bind-Value="row.Ss" Label="SS" Style="width:90px" />
+                                        <FluentTextField @bind-Value="row.Note" Label="Poznámka" Style="width:240px" />
+                                    </FluentStack>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+            </div>
+
+            <FluentButton Appearance="Appearance.Stealth" OnClick="AddRow">+ Přidat řádek</FluentButton>
+
+            @if (_error is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+            }
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Loading="_saving">@(_rows.Count > 1 ? "Vytvořit pohyby" : "Vytvořit pohyb")</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="OnCancel">Zrušit</FluentButton>
+            </FluentStack>
+        </FluentStack>
+    }
+    else
+    {
+        @* Edit: a single existing movement (no batch concept). *@
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <div>
+                    <label class="field-label">Datum zaúčtování</label>
+                    <input type="date" class="date-input" @bind="_booking" />
+                </div>
+                <div>
+                    <label class="field-label">Datum splatnosti (volitelné)</label>
+                    <input type="date" class="date-input" @bind="_value" />
+                </div>
+                <div style="width:200px">
+                    <label class="field-label">Částka (záporná = výdaj)</label>
+                    <MoneyField @bind-Value="_amount" />
+                </div>
+                <FluentTextField @bind-Value="_currency" Label="Měna" Style="width:90px" />
+            </FluentStack>
+
+            <FluentTextField @bind-Value="_counterparty" Label="Protistrana" Style="width:100%" />
+            <FluentTextField @bind-Value="_counterpartyAccount" Label="Číslo účtu protistrany" Style="width:100%" />
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentTextField @bind-Value="_vs" Label="VS" Style="width:140px" />
+                <FluentTextField @bind-Value="_cs" Label="KS" Style="width:140px" />
+                <FluentTextField @bind-Value="_ss" Label="SS" Style="width:140px" />
+            </FluentStack>
+
+            <FluentTextField @bind-Value="_description" Label="Popis" Style="width:100%" />
+            <FluentTextField @bind-Value="_note" Label="Poznámka" Style="width:100%" />
+
+            <FluentSelect TOption="string" @bind-Value="_category" Label="Kategorie" Style="width:100%">
+                <FluentOption TOption="string" Value="">(bez kategorie)</FluentOption>
+                @foreach (var c in Categories)
                 {
-                    <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                    <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
                 }
             </FluentSelect>
-        }
 
-        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-            <div>
-                <label class="field-label">Datum zaúčtování</label>
-                <input type="date" class="date-input" @bind="_booking" />
-            </div>
-            <div>
-                <label class="field-label">Datum splatnosti (volitelné)</label>
-                <input type="date" class="date-input" @bind="_value" />
-            </div>
-            <div style="width:200px">
-                <label class="field-label">Částka (záporná = výdaj)</label>
-                <MoneyField @bind-Value="_amount" />
-            </div>
-            <FluentTextField @bind-Value="_currency" Label="Měna" Style="width:90px" />
-        </FluentStack>
-
-        <FluentTextField @bind-Value="_counterparty" Label="Protistrana" Style="width:100%" />
-        <FluentTextField @bind-Value="_counterpartyAccount" Label="Číslo účtu protistrany" Style="width:100%" />
-
-        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-            <FluentTextField @bind-Value="_vs" Label="VS" Style="width:140px" />
-            <FluentTextField @bind-Value="_cs" Label="KS" Style="width:140px" />
-            <FluentTextField @bind-Value="_ss" Label="SS" Style="width:140px" />
-        </FluentStack>
-
-        <FluentTextField @bind-Value="_description" Label="Popis" Style="width:100%" />
-        <FluentTextField @bind-Value="_note" Label="Poznámka" Style="width:100%" />
-
-        <FluentSelect TOption="string" @bind-Value="_category" Label="Kategorie" Style="width:100%">
-            <FluentOption TOption="string" Value="">(bez kategorie)</FluentOption>
-            @foreach (var c in Categories)
+            @if (_error is not null)
             {
-                <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
             }
-        </FluentSelect>
 
-        @if (_error is not null)
-        {
-            <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
-        }
-
-        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-            <FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Loading="_saving">Uložit</FluentButton>
-            <FluentButton Appearance="Appearance.Stealth" OnClick="OnCancel">Zrušit</FluentButton>
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Loading="_saving">Uložit</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="OnCancel">Zrušit</FluentButton>
+            </FluentStack>
         </FluentStack>
-    </FluentStack>
+    }
 </FluentCard>
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<BankAccountDto> Accounts { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<CategoryDto> Categories { get; set; } = [];
 
-    /// <summary>The transaction being edited, or <c>null</c> to create a new one.</summary>
+    /// <summary>The transaction being edited, or <c>null</c> to create one or more new ones.</summary>
     [Parameter] public TransactionDto? Editing { get; set; }
     [Parameter] public EventCallback OnSaved { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    private sealed class MovementRow
+    {
+        public bool Expanded { get; set; }
+        public DateOnly Booking { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateOnly? Value { get; set; }
+        public decimal Amount { get; set; }
+        public string Counterparty { get; set; } = "";
+        public string CounterpartyAccount { get; set; } = "";
+        public string Vs { get; set; } = "";
+        public string Cs { get; set; } = "";
+        public string Ss { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Note { get; set; } = "";
+        public string Category { get; set; } = "";
+    }
+
+    // Create state (multi-row).
     private string _account = "";
+    private string _label = "";
+    private string _currency = "CZK";
+    private readonly List<MovementRow> _rows = [new MovementRow()];
+
+    // Edit state (single existing movement).
     private DateOnly _booking = DateOnly.FromDateTime(DateTime.Today);
     private DateOnly? _value;
     private decimal _amount;
-    private string _currency = "CZK";
     private string _counterparty = "";
     private string _counterpartyAccount = "";
     private string _vs = "";
@@ -84,15 +192,17 @@
     private string _description = "";
     private string _note = "";
     private string _category = "";
+
     private string? _error;
     private bool _saving;
+
+    private string Title => Editing is not null ? "Úprava pohybu" : _rows.Count > 1 ? "Nové pohyby" : "Nový pohyb";
 
     // Runs once per instance; the parent gives the component a fresh @key on each open.
     protected override void OnInitialized()
     {
         if (Editing is { } t)
         {
-            _account = t.BankAccountId.ToString();
             _booking = t.BookingDate;
             _value = t.ValueDate;
             _amount = t.Amount;
@@ -108,13 +218,36 @@
         }
         else
         {
-            _account = Accounts.FirstOrDefault()?.Id.ToString() ?? "";
+            var first = Accounts.FirstOrDefault();
+            _account = first?.Id.ToString() ?? "";
+            _currency = first?.Currency ?? "CZK";
         }
+    }
+
+    private void OnAccountChanged() =>
+        _currency = Accounts.FirstOrDefault(a => a.Id.ToString() == _account)?.Currency ?? "CZK";
+
+    private void AddRow() => _rows.Add(new MovementRow());
+
+    private void RemoveRow(MovementRow row)
+    {
+        if (_rows.Count > 1)
+            _rows.Remove(row);
     }
 
     private async Task SaveAsync()
     {
         _error = null;
+        if (Editing is { } existing)
+        {
+            await SaveEditAsync(existing);
+            return;
+        }
+        await SaveCreateAsync();
+    }
+
+    private async Task SaveEditAsync(TransactionDto existing)
+    {
         if (_amount == 0)
         {
             _error = "Částka nesmí být nulová.";
@@ -140,29 +273,77 @@
         _saving = true;
         try
         {
-            if (Editing is { } t)
+            var updated = await Api.UpdateTransactionAsync(existing.Id, new UpdateTransactionRequest { Fields = fields, Version = existing.Version });
+            if (updated is null)
             {
-                var updated = await Api.UpdateTransactionAsync(t.Id, new UpdateTransactionRequest { Fields = fields, Version = t.Version });
-                if (updated is null)
-                {
-                    _error = "Pohyb se nepodařilo uložit (možná ho mezitím změnil někdo jiný — zavřete a otevřete znovu).";
-                    return;
-                }
-                Toasts.ShowSuccess("Změny byly uloženy.");
+                _error = "Pohyb se nepodařilo uložit (možná ho mezitím změnil někdo jiný — zavřete a otevřete znovu).";
+                return;
             }
-            else
+            Toasts.ShowSuccess("Změny byly uloženy.");
+            await OnSaved.InvokeAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SaveCreateAsync()
+    {
+        if (!Guid.TryParse(_account, out var accountId))
+        {
+            _error = "Vyberte účet.";
+            return;
+        }
+        if (_rows.Any(r => r.Amount == 0))
+        {
+            _error = "Každý řádek musí mít nenulovou částku.";
+            return;
+        }
+
+        var movements = _rows.Select(r => new TransactionFields
+        {
+            BookingDate = r.Booking,
+            ValueDate = r.Value,
+            Amount = r.Amount,
+            Currency = _currency,
+            CounterpartyName = r.Counterparty,
+            CounterpartyAccount = r.CounterpartyAccount,
+            VariableSymbol = r.Vs,
+            ConstantSymbol = r.Cs,
+            SpecificSymbol = r.Ss,
+            Description = r.Description,
+            Note = r.Note,
+            CategoryId = Guid.TryParse(r.Category, out var cid) ? cid : null,
+        }).ToList();
+
+        _saving = true;
+        try
+        {
+            // Batch optional: a lone movement with no label is created without a batch.
+            if (movements.Count == 1 && string.IsNullOrWhiteSpace(_label))
             {
-                if (!Guid.TryParse(_account, out var accountId))
-                {
-                    _error = "Vyberte účet.";
-                    return;
-                }
-                if (await Api.CreateTransactionAsync(new CreateTransactionRequest { BankAccountId = accountId, Fields = fields }) is null)
+                if (await Api.CreateTransactionAsync(new CreateTransactionRequest { BankAccountId = accountId, Fields = movements[0] }) is null)
                 {
                     _error = "Pohyb se nepodařilo vytvořit.";
                     return;
                 }
                 Toasts.ShowSuccess("Pohyb byl vytvořen.");
+            }
+            else
+            {
+                var result = await Api.CreateMovementBatchAsync(new CreateMovementBatchRequest
+                {
+                    BankAccountId = accountId,
+                    Label = string.IsNullOrWhiteSpace(_label) ? null : _label,
+                    Movements = movements,
+                });
+                if (result is null)
+                {
+                    _error = "Pohyby se nepodařilo vytvořit.";
+                    return;
+                }
+                Toasts.ShowSuccess($"Vytvořeno {result.CreatedCount} pohybů.");
             }
             await OnSaved.InvokeAsync();
         }

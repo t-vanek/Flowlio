@@ -56,6 +56,18 @@ else
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
     </FluentSelect>
 
+    @if (_batches.Count > 0)
+    {
+        <FluentSelect TOption="string" @bind-Value="_batchValue" @bind-Value:after="FilterChangedAsync" Label="Dávka / zdroj">
+            <FluentOption TOption="string" Value="">Všechny dávky</FluentOption>
+            <FluentOption TOption="string" Value="none">(bez dávky)</FluentOption>
+            @foreach (var b in _batches)
+            {
+                <FluentOption TOption="string" Value="@b.Id.ToString()">@_batchLabels.GetValueOrDefault(b.Id, "")</FluentOption>
+            }
+        </FluentSelect>
+    }
+
     <FluentSelect TOption="string" @bind-Value="_periodValue" @bind-Value:after="OnPeriodChangedAsync" Label="Období">
         <FluentOption TOption="string" Value="">Celé období</FluentOption>
         <FluentOption TOption="string" Value="thisMonth">Tento měsíc</FluentOption>
@@ -128,6 +140,7 @@ else
             <FluentOption TOption="string" Value="">Bez seskupení</FluentOption>
             <FluentOption TOption="string" Value="category">Podle kategorie</FluentOption>
             <FluentOption TOption="string" Value="month">Podle měsíce</FluentOption>
+            <FluentOption TOption="string" Value="batch">Podle dávky</FluentOption>
         </FluentSelect>
         <div class="toolbar-actions">
             @if (HasActiveFilters)
@@ -154,6 +167,33 @@ else
             </div>
         </div>
     }
+    @if (SelectedBatch is { } batch)
+    {
+        <div class="bulk-bar">
+            @if (_renamingBatch)
+            {
+                <FluentTextField @bind-Value="_renameLabel" Placeholder="Název dávky" />
+                <div class="toolbar-actions">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveBatchRenameAsync(batch.Id))">Uložit</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _renamingBatch = false)">Zrušit</FluentButton>
+                </div>
+            }
+            else
+            {
+                <span class="bulk-count">Dávka: @_batchLabels.GetValueOrDefault(batch.Id, "")</span>
+                @if (_canManage)
+                {
+                    <div class="toolbar-actions">
+                        @if (batch.Origin == BatchOrigin.Manual)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => StartRenameBatch(batch))">Přejmenovat</FluentButton>
+                        }
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteBatchAsync(batch))">Smazat dávku</FluentButton>
+                    </div>
+                }
+            }
+        </div>
+    }
     <div class="summary-bar">
         <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Formatting.Money(_sumIncome)</span></span>
         <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Formatting.Money(_sumExpense)</span></span>
@@ -177,13 +217,17 @@ else
     private Dictionary<Guid, TransactionDto> _byId = [];
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
+    private IReadOnlyList<ImportBatchDto> _batches = [];
     private Dictionary<Guid, string> _categoryColors = [];
     private Dictionary<Guid, string> _accountNames = [];
+    private Dictionary<Guid, string> _batchLabels = [];
     private TransactionDto? _detailTx;
     private bool _canView;
     private List<Guid> _selectedIds = [];
     private List<Guid> _undoIds = [];
     private string _bulkCategory = "";
+    private bool _renamingBatch;
+    private string _renameLabel = "";
     private bool _canManage;
     private bool _loading = true;
     private bool _loadError;
@@ -207,6 +251,7 @@ else
     private string _accountValue = "";
     private string _categoryValue = "";
     private string _typeValue = "";
+    private string _batchValue = "";
     private string _periodValue = "";
     private DateTime? _dateFrom;
     private DateTime? _dateTo;
@@ -225,8 +270,10 @@ else
         _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
+        _batches = await Api.GetMovementBatchesAsync();
         _categoryColors = _categories.ToDictionary(c => c.Id, c => c.Color);
         _accountNames = _accounts.ToDictionary(a => a.Id, a => a.Name);
+        _batchLabels = _batches.ToDictionary(b => b.Id, BatchLabel);
         ReadUrl();
         await LoadAsync();
     }
@@ -247,6 +294,7 @@ else
         _accountValue = Get("ucet");
         _categoryValue = Get("kat");
         _typeValue = Get("typ");
+        _batchValue = Get("davka");
         _groupValue = Get("sesk");
         if (DateTime.TryParse(Get("od"), out var od)) _dateFrom = od;
         if (DateTime.TryParse(Get("do"), out var dt)) _dateTo = dt;
@@ -261,6 +309,7 @@ else
             ["ucet"] = string.IsNullOrEmpty(_accountValue) ? null : _accountValue,
             ["kat"] = string.IsNullOrEmpty(_categoryValue) ? null : _categoryValue,
             ["typ"] = string.IsNullOrEmpty(_typeValue) ? null : _typeValue,
+            ["davka"] = string.IsNullOrEmpty(_batchValue) ? null : _batchValue,
             ["od"] = _dateFrom?.ToString("yyyy-MM-dd"),
             ["do"] = _dateTo?.ToString("yyyy-MM-dd"),
             ["sesk"] = string.IsNullOrEmpty(_groupValue) ? null : _groupValue,
@@ -336,7 +385,7 @@ else
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
-        || _typeValue != "" || _dateFrom is not null || _dateTo is not null;
+        || _typeValue != "" || _batchValue != "" || _dateFrom is not null || _dateTo is not null;
 
     // Pushes the structured filters into Tabulator — no server round-trip, and the footer sum /
     // pagination follow the filtered set instantly. (Text search is handled server-side in LoadAsync.)
@@ -349,6 +398,7 @@ else
         {
             accountId = _accountValue,
             categoryId = _categoryValue,
+            batchId = _batchValue,
             type,
             dateFrom = _dateFrom is { } f ? f.ToString("yyyy-MM-dd") : "",
             dateTo = _dateTo is { } t ? t.ToString("yyyy-MM-dd") : "",
@@ -403,6 +453,7 @@ else
         _accountValue = "";
         _categoryValue = "";
         _typeValue = "";
+        _batchValue = "";
         _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
@@ -436,6 +487,8 @@ else
             id = t.Id.ToString(),
             accountId = t.BankAccountId.ToString(),
             accountName = _accountNames.GetValueOrDefault(t.BankAccountId, ""),
+            batchId = t.ImportBatchId?.ToString() ?? "",
+            batchName = t.ImportBatchId is { } bid ? _batchLabels.GetValueOrDefault(bid, "") : "",
             categoryId = t.CategoryId?.ToString() ?? "",
             bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
             counterparty = t.CounterpartyName ?? "",
@@ -609,7 +662,62 @@ else
     private async Task EditorSavedAsync()
     {
         _showEditor = false;
+        await RefreshBatchesAsync();
         await LoadAsync();
+    }
+
+    private async Task RefreshBatchesAsync()
+    {
+        _batches = await Api.GetMovementBatchesAsync();
+        _batchLabels = _batches.ToDictionary(b => b.Id, BatchLabel);
+    }
+
+    // The batch the list is currently filtered to (a real batch, not "" / "none"), or null.
+    private ImportBatchDto? SelectedBatch =>
+        Guid.TryParse(_batchValue, out var id) ? _batches.FirstOrDefault(b => b.Id == id) : null;
+
+    private void StartRenameBatch(ImportBatchDto b)
+    {
+        _renamingBatch = true;
+        _renameLabel = b.Name ?? "";
+    }
+
+    private async Task SaveBatchRenameAsync(Guid id)
+    {
+        if (await Api.UpdateMovementBatchAsync(id, string.IsNullOrWhiteSpace(_renameLabel) ? null : _renameLabel))
+            Toasts.ShowSuccess("Dávka byla přejmenována.");
+        else
+            Toasts.ShowError("Přejmenování se nepodařilo uložit.");
+        _renamingBatch = false;
+        await RefreshBatchesAsync();
+        _renderPending = true; // batch label changed → re-render so grouping reflects it
+    }
+
+    private async Task DeleteBatchAsync(ImportBatchDto b)
+    {
+        var name = _batchLabels.GetValueOrDefault(b.Id, "dávku");
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat dávku: {name}? Smažou se i všechny její pohyby (lze je vrátit zpět).",
+            "Smazat", "Zrušit", "Smazání dávky");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        // Capture the affected movements up front so the same undo bar can restore them.
+        var ids = _rows.Where(r => r.ImportBatchId == b.Id).Select(r => r.Id).ToList();
+        if (await Api.DeleteMovementBatchAsync(b.Id))
+        {
+            _undoIds = ids;
+            Toasts.ShowSuccess("Dávka byla smazána.");
+            _batchValue = ""; // the batch no longer exists; drop the now-dangling filter
+            _renamingBatch = false;
+            SyncUrl();
+            await RefreshBatchesAsync();
+            await LoadAsync(keepUndo: true);
+        }
+        else
+        {
+            Toasts.ShowError("Dávku se nepodařilo smazat.");
+        }
     }
 
     private void DetailEdit(TransactionDto t)
@@ -652,6 +760,16 @@ else
 
     private string CategoryColor(Guid? categoryId) =>
         categoryId is { } id && _categoryColors.TryGetValue(id, out var color) ? color : "#64748b";
+
+    // Human-readable label for the batch filter/grouping: the user's label or filename, falling back
+    // to the origin, always suffixed with the creation date to disambiguate same-named batches.
+    private static string BatchLabel(ImportBatchDto b)
+    {
+        var name = string.IsNullOrWhiteSpace(b.Name)
+            ? (b.Origin == BatchOrigin.Manual ? "Ruční dávka" : "Import výpisu")
+            : b.Name!;
+        return $"{name} · {Formatting.Date(b.CreatedAt)}";
+    }
 
     public async ValueTask DisposeAsync()
     {
