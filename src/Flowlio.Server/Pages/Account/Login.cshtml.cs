@@ -24,7 +24,12 @@ public class LoginModel(
     /// offer to resend the confirmation link.</summary>
     public bool ShowResend { get; private set; }
 
-    public void OnGet(string? returnUrl = null) => ReturnUrl = returnUrl ?? "/";
+    public void OnGet(string? returnUrl = null, string? reason = null)
+    {
+        ReturnUrl = returnUrl ?? "/";
+        if (reason == "locked")
+            Error = "Vaše relace byla ukončena, protože účet je uzamčen nebo zablokován. Přihlaste se prosím znovu.";
+    }
 
     public async Task<IActionResult> OnPostAsync()
     {
@@ -56,9 +61,14 @@ public class LoginModel(
             return Page();
         }
 
-        Error = result.IsLockedOut
-            ? "Účet je dočasně zablokován kvůli příliš mnoha pokusům."
-            : "Neplatný e-mail nebo heslo.";
+        if (result.IsLockedOut)
+        {
+            var locked = await userManager.FindByNameAsync(Email);
+            Error = AccountLockout.SignInMessage(locked is null ? null : await userManager.GetLockoutEndDateAsync(locked));
+            return Page();
+        }
+
+        Error = "Neplatný e-mail nebo heslo.";
         return Page();
     }
 

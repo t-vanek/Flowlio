@@ -76,7 +76,7 @@ public static class AdminEndpoints
         }
 
         var now = DateTimeOffset.UtcNow;
-        var blockedThreshold = DateTimeOffset.MaxValue.AddDays(-1);
+        var blockedThreshold = AccountLockout.BlockedThreshold;
         return status switch
         {
             "active"  => source.Where(u => u.LockoutEnd == null || u.LockoutEnd <= now),

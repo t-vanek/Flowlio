@@ -45,6 +45,14 @@ public sealed class AuthorizationController(
         var user = await userManager.GetUserAsync(result.Principal)
             ?? throw new InvalidOperationException("The user details cannot be retrieved.");
 
+        // A locked or blocked account must not be able to mint new tokens, even though its interactive
+        // cookie may still be valid. Drop the cookie and bounce to the login page, which explains why.
+        if (await userManager.IsLockedOutAsync(user))
+        {
+            await signInManager.SignOutAsync();
+            return Redirect("/Account/Login?reason=locked");
+        }
+
         // Force a password change before issuing any token when an admin flagged the account.
         if (user.MustChangePassword)
         {

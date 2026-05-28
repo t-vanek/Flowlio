@@ -1,4 +1,5 @@
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -35,7 +36,9 @@ public class LoginWith2faModel(SignInManager<ApplicationUser> signInManager) : P
         if (result.Succeeded)
             return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
 
-        Error = result.IsLockedOut ? "Účet je zamčen." : "Neplatný ověřovací kód.";
+        Error = result.IsLockedOut
+            ? AccountLockout.SignInMessage((await signInManager.GetTwoFactorAuthenticationUserAsync())?.LockoutEnd)
+            : "Neplatný ověřovací kód.";
         return Page();
     }
 }
