@@ -171,38 +171,101 @@ code { color: #c02d76; }
 
 .blazor-error-boundary::after { content: "An error has occurred." }
 
-.loading-progress {
+/* Branded boot splash — shown only while the WebAssembly runtime downloads;
+   Blazor replaces the contents of #app with the rendered shell once it starts.
+   Kept pure CSS (no extra script in the critical load path) and theme-aware. */
+.app-boot {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    background: var(--flowlio-bg);
+}
+
+.app-boot-logo {
+    position: relative;
+    width: 5.5rem;
+    height: 5.5rem;
+    display: grid;
+    place-items: center;
+    border-radius: 1.4rem;
+    overflow: hidden;
+    background: linear-gradient(150deg, var(--flowlio-sidebar-from), var(--flowlio-sidebar-to));
+    animation: app-boot-breathe 1.8s ease-in-out infinite, app-boot-glow 1.8s ease-in-out infinite;
+}
+
+/* Diagonal sheen sweeping across the badge */
+.app-boot-logo::after {
+    content: "";
     position: absolute;
-    display: block;
-    width: 8rem;
-    height: 8rem;
-    inset: 20vh 0 auto 0;
-    margin: 0 auto 0 auto;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
+    transform: translateX(-130%);
+    animation: app-boot-sheen 2.4s ease-in-out infinite;
 }
 
-.loading-progress circle {
-    fill: none;
-    stroke: var(--flowlio-border);
-    stroke-width: 0.6rem;
-    transform-origin: 50% 50%;
-    transform: rotate(-90deg);
+.app-boot-mark {
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
 }
 
-.loading-progress circle:last-child {
-    stroke: var(--flowlio-accent);
-    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
-    transition: stroke-dasharray 0.05s ease-in-out;
-}
-
-.loading-progress-text {
-    position: absolute;
-    text-align: center;
-    font-weight: bold;
-    inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
+.app-boot-name {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     color: var(--flowlio-text);
 }
 
-.loading-progress-text:after { content: var(--blazor-load-percentage-text, "Loading"); }
+.app-boot-track {
+    width: 12rem;
+    height: 0.35rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--flowlio-border);
+}
+
+.app-boot-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    width: var(--blazor-load-percentage, 0%);
+    background: linear-gradient(90deg, var(--flowlio-accent), #60a5fa);
+    transition: width 0.2s ease-out;
+}
+
+.app-boot-text {
+    min-height: 1.2em;
+    font-size: 0.85rem;
+    color: var(--flowlio-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.app-boot-text::after { content: var(--blazor-load-percentage-text, "Načítání…"); }
+
+@keyframes app-boot-breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.05); }
+}
+
+@keyframes app-boot-glow {
+    0%, 100% { box-shadow: 0 12px 30px rgba(5, 39, 103, 0.45); }
+    50%      { box-shadow: 0 12px 34px rgba(5, 39, 103, 0.5), 0 0 26px 6px rgba(96, 165, 250, 0.35); }
+}
+
+@keyframes app-boot-sheen {
+    0%        { transform: translateX(-130%); }
+    60%, 100% { transform: translateX(130%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-boot-logo,
+    .app-boot-logo::after { animation: none; }
+}
 
 /* =====================================================================
    App layout
