@@ -40,8 +40,13 @@ builder.Services.AddOidcAuthentication(options =>
     options.AuthenticationPaths.LogOutSucceededPath = "authentication/login";
 });
 
+// AuthRedirectHandler is outermost so it can catch the AccessTokenNotAvailableException the auth
+// handler throws when a silent token refresh fails (e.g. the account was locked/blocked mid-session)
+// and send the user cleanly back to the login flow.
+builder.Services.AddScoped<AuthRedirectHandler>();
 builder.Services
     .AddHttpClient("Flowlio", client => client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress))
+    .AddHttpMessageHandler<AuthRedirectHandler>()
     .AddHttpMessageHandler<BaseAddressAuthorizationMessageHandler>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("Flowlio"));
 

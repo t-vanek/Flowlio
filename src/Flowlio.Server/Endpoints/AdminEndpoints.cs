@@ -76,7 +76,7 @@ public static class AdminEndpoints
         }
 
         var now = DateTimeOffset.UtcNow;
-        var blockedThreshold = DateTimeOffset.MaxValue.AddDays(-1);
+        var blockedThreshold = AccountLockout.BlockedThreshold;
         return status switch
         {
             "active"  => source.Where(u => u.LockoutEnd == null || u.LockoutEnd <= now),
@@ -195,6 +195,7 @@ public static class AdminEndpoints
             return Results.NotFound();
 
         var minutes = Math.Clamp(request.Minutes, 1, 60 * 24 * 365);
+        user.LockoutReason = LockoutReason.AdminLock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(minutes));
         await notifier.NotifyAsync(user, "Účet dočasně zamčen – Flowlio",
@@ -217,6 +218,7 @@ public static class AdminEndpoints
         if (user is null)
             return Results.NotFound();
 
+        user.LockoutReason = LockoutReason.AdminBlock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
         await notifier.NotifyAsync(user, "Účet zablokován – Flowlio",
@@ -235,6 +237,7 @@ public static class AdminEndpoints
         if (user is null)
             return Results.NotFound();
 
+        user.LockoutReason = LockoutReason.None;
         await userManager.SetLockoutEndDateAsync(user, null);
         await userManager.ResetAccessFailedCountAsync(user);
         await notifier.NotifyAsync(user, "Účet odemčen – Flowlio", "Váš účet byl odemčen.", "success", ct);
@@ -346,7 +349,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> ForceLogout(
         Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
-        ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
+        ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ForceUserLogout, ct))
             return Forbidden();
@@ -359,6 +362,8 @@ public static class AdminEndpoints
 
         await userManager.UpdateSecurityStampAsync(user);
         await RevokeTokensAsync(tokens, userId, ct);
+        await notifier.NotifyAsync(user, "Byli jste odhlášeni – Flowlio",
+            "Administrátor ukončil všechny vaše přihlášené relace. Přihlaste se prosím znovu.", "warning", ct);
         await audit.RecordAsync("user.force-logout", "User", userId.ToString(), user.Email, details: "Vynuceno odhlášení", cancellationToken: ct);
         return Results.NoContent();
     }
@@ -378,6 +383,7 @@ public static class AdminEndpoints
 
         // Soft delete: hide and block the account, suspend its family memberships and revoke tokens.
         user.DeletedAt = DateTimeOffset.UtcNow;
+        user.LockoutReason = LockoutReason.AdminBlock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
         await userManager.UpdateAsync(user);
@@ -405,6 +411,7 @@ public static class AdminEndpoints
             return Results.NotFound();
 
         user.DeletedAt = null;
+        user.LockoutReason = LockoutReason.None;
         await userManager.UpdateAsync(user);
         await userManager.SetLockoutEndDateAsync(user, null);
 

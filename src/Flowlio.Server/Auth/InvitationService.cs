@@ -9,7 +9,7 @@ namespace Flowlio.Server.Auth;
 /// <summary>Validates and accepts family invitations, linking the accepting user to a pending member.</summary>
 public sealed class InvitationService(ApplicationDbContext db, IEmailSender email, ILogger<InvitationService> logger)
 {
-    public enum AcceptOutcome { Accepted, NotFound, Expired, AlreadyUsed }
+    public enum AcceptOutcome { Accepted, NotFound, Expired, AlreadyUsed, EmailMismatch }
 
     /// <summary>
     /// Sends the invitation e-mail containing the registration link. Failures are logged rather than
@@ -71,6 +71,13 @@ public sealed class InvitationService(ApplicationDbContext db, IEmailSender emai
             await db.SaveChangesAsync(ct);
             return AcceptOutcome.Expired;
         }
+
+        // The invite is bound to a specific e-mail. Only the account registered with that e-mail may
+        // claim the member seat — otherwise anyone holding the link could seize the invited member's
+        // role and permissions by registering with their own credentials.
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null || !string.Equals(user.Email, invitation.Email, StringComparison.OrdinalIgnoreCase))
+            return AcceptOutcome.EmailMismatch;
 
         invitation.Member.UserId = userId;
         invitation.Member.UpdatedAt = DateTimeOffset.UtcNow;

@@ -14,11 +14,24 @@ public enum SaveStatus
     Failed,
 }
 
+/// <summary>Current user, plus whether the API refused access because the family membership was
+/// suspended (HTTP 403).</summary>
+public sealed record MeResult(CurrentUserDto? User, bool Forbidden);
+
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
 public sealed class FlowlioApi(HttpClient http)
 {
-    public Task<CurrentUserDto?> GetMeAsync() =>
-        http.GetFromJsonAsync<CurrentUserDto>("api/me");
+    /// <summary>Loads the current user, distinguishing a suspended membership (403) from other
+    /// failures so the UI can explain it instead of silently failing.</summary>
+    public async Task<MeResult> GetMeAsync()
+    {
+        var response = await http.GetAsync("api/me");
+        if (response.StatusCode == HttpStatusCode.Forbidden)
+            return new MeResult(null, Forbidden: true);
+        if (!response.IsSuccessStatusCode)
+            return new MeResult(null, Forbidden: false);
+        return new MeResult(await response.Content.ReadFromJsonAsync<CurrentUserDto>(), Forbidden: false);
+    }
 
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");

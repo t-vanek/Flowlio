@@ -1,4 +1,5 @@
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +10,8 @@ namespace Flowlio.Server.Pages.Account;
 [Authorize]
 public class ChangePasswordModel(
     UserManager<ApplicationUser> userManager,
-    SignInManager<ApplicationUser> signInManager) : PageModel
+    SignInManager<ApplicationUser> signInManager,
+    AccountNotifier notifier) : PageModel
 {
     [BindProperty] public string CurrentPassword { get; set; } = "";
     [BindProperty] public string NewPassword { get; set; } = "";
@@ -52,6 +54,9 @@ public class ChangePasswordModel(
         user.MustChangePassword = false;
         await userManager.UpdateAsync(user);
         await signInManager.RefreshSignInAsync(user);
+
+        await notifier.NotifyAsync(user, "Heslo bylo změněno – Flowlio",
+            "Vaše heslo bylo právě změněno. Pokud jste to nebyli vy, ihned kontaktujte správce.", "warning");
 
         return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
     }

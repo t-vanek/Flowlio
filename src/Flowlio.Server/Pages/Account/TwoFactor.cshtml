@@ -2,9 +2,11 @@
 @model Flowlio.Server.Pages.Account.TwoFactorModel
 @{
     Layout = null;
-    var returnQs = string.IsNullOrWhiteSpace(Model.ReturnUrl)
-        ? string.Empty
-        : "?returnUrl=" + Uri.EscapeDataString(Model.ReturnUrl);
+    // Only honour a local returnUrl so a crafted ?returnUrl=https://evil link can't turn the
+    // continue/skip links into an open redirect.
+    var safeReturn = !string.IsNullOrWhiteSpace(Model.ReturnUrl) && Url.IsLocalUrl(Model.ReturnUrl)
+        ? Model.ReturnUrl
+        : null;
 }
 <!DOCTYPE html>
 <html lang="cs">
@@ -57,7 +59,7 @@
                 }
             </div>
             <div class="btn-row">
-                <form method="post" asp-page-handler="DownloadRecovery" asp-route-returnUrl="@Model.ReturnUrl">
+                <form method="post" asp-page-handler="DownloadRecovery" asp-route-returnUrl="@safeReturn">
                     <button type="submit" class="ghost">⬇ Stáhnout jako .txt</button>
                 </form>
                 <button type="button" class="ghost" onclick="copyCodes(this)">📋 Kopírovat</button>
@@ -68,23 +70,29 @@
         {
             <h2>Stav: 2FA je zapnutá ✓</h2>
             <p class="muted">Účet je chráněn. Můžete si vygenerovat nové záchranné kódy (předchozí se zneplatní) nebo 2FA vypnout.</p>
+            @if (Model.RecoveryCodes is null or { Length: 0 })
+            {
+                @if (Model.RecoveryCodesLeft <= 3)
+                {
+                    <div class="force-2fa-banner expired">
+                        Zbývá @Model.RecoveryCodesLeft záchranných kódů. Vygenerujte si prosím nové, ať se nezamknete.
+                    </div>
+                }
+                else
+                {
+                    <p class="muted">Zbývá @Model.RecoveryCodesLeft záchranných kódů.</p>
+                }
+            }
             <div class="btn-row">
-                <form method="post" asp-page-handler="Regenerate" asp-route-returnUrl="@Model.ReturnUrl">
+                <form method="post" asp-page-handler="Regenerate" asp-route-returnUrl="@safeReturn">
                     <button type="submit">Vygenerovat nové záchranné kódy</button>
                 </form>
-                <form method="post" asp-page-handler="Disable" asp-route-returnUrl="@Model.ReturnUrl" onsubmit="return confirmDisable();">
+                <form method="post" asp-page-handler="Disable" asp-route-returnUrl="@safeReturn" onsubmit="return confirmDisable();">
                     <button type="submit" class="danger">Vypnout 2FA</button>
                 </form>
             </div>
 
-            @if (!string.IsNullOrWhiteSpace(Model.ReturnUrl))
-            {
-                <div class="switch"><a href="@Model.ReturnUrl">Pokračovat do aplikace</a></div>
-            }
-            else
-            {
-                <div class="switch"><a href="/">Zpět do aplikace</a></div>
-            }
+            <div class="switch"><a href="@(safeReturn ?? "/")">Pokračovat do aplikace</a></div>
         }
         else
         {
@@ -106,14 +114,14 @@
             </div>
 
             <h2>Krok 2 – Potvrďte 6-místným kódem</h2>
-            <form method="post" asp-page-handler="Enable" asp-route-returnUrl="@Model.ReturnUrl">
+            <form method="post" asp-page-handler="Enable" asp-route-returnUrl="@safeReturn">
                 <label for="VerificationCode">Kód z aplikace</label>
                 <input id="VerificationCode" name="VerificationCode" type="text" inputmode="numeric"
                        pattern="[0-9 -]*" autocomplete="one-time-code" autofocus />
                 <button type="submit" class="block">Zapnout 2FA</button>
             </form>
 
-            <div class="switch"><a href="/">Zpět do aplikace bez zapnutí</a></div>
+            <div class="switch"><a href="@(safeReturn ?? "/")">Pokračovat bez zapnutí</a></div>
         }
     </div>
 

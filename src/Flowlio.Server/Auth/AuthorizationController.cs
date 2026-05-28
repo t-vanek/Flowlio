@@ -45,6 +45,24 @@ public sealed class AuthorizationController(
         var user = await userManager.GetUserAsync(result.Principal)
             ?? throw new InvalidOperationException("The user details cannot be retrieved.");
 
+        // A locked or blocked account must not be able to mint new tokens, even though its interactive
+        // cookie may still be valid. Drop the cookie and bounce to the login page. The reason rides in a
+        // short-lived cookie (not the URL) so it survives the SPA's silent re-challenge.
+        if (await userManager.IsLockedOutAsync(user))
+        {
+            var kind = AccountLockout.Resolve(true, user.LockoutReason, await userManager.GetLockoutEndDateAsync(user));
+            Response.Cookies.Append(AccountLockout.SessionEndedCookie, kind.ToString(), new CookieOptions
+            {
+                MaxAge = TimeSpan.FromSeconds(60),
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Path = "/Account",
+            });
+            await signInManager.SignOutAsync();
+            return Redirect("/Account/Login");
+        }
+
         // Force a password change before issuing any token when an admin flagged the account.
         if (user.MustChangePassword)
         {
@@ -53,10 +71,14 @@ public sealed class AuthorizationController(
             return Redirect("/Account/ChangePassword?returnUrl=" + Uri.EscapeDataString(target));
         }
 
-        // Force 2FA enrolment before issuing any token. The user lands on the
-        // setup page; once they complete it, the returnUrl resumes /connect/authorize
-        // and the OIDC flow continues normally.
-        if (!await userManager.GetTwoFactorEnabledAsync(user))
+        // 2FA is optional, but an admin can require it per account with a deadline (Require2faBy). Once
+        // that deadline has passed and the user still hasn't enrolled, block token issuance and send
+        // them to the setup page; the returnUrl resumes /connect/authorize once 2FA is on. New accounts
+        // are offered 2FA setup right after registration (see RegisterModel), so this is only the
+        // hard-enforcement backstop, consistent with the password sign-in check in LoginModel.
+        if (user is { Require2faBy: { } deadline }
+            && deadline < DateTimeOffset.UtcNow
+            && !await userManager.GetTwoFactorEnabledAsync(user))
         {
             var target = Request.PathBase + Request.Path + QueryString.Create(
                 Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList());

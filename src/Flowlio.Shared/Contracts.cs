@@ -283,6 +283,12 @@ public sealed record CurrentUserDto
     /// <summary>How often the client should re-poll for access changes as a fallback to live push (seconds).</summary>
     public int PollIntervalSeconds { get; init; } = 60;
 
+    /// <summary>Whether the user has two-factor authentication enabled.</summary>
+    public bool TwoFactorEnabled { get; init; }
+
+    /// <summary>Admin-set deadline by which the user must enable 2FA, if any. Drives the in-app reminder.</summary>
+    public DateTimeOffset? Require2faByUtc { get; init; }
+
     public bool Can(Permission permission) => Permissions.Contains(permission);
 
     public bool CanSystem(SystemPermission permission) => SystemPermissions.Contains(permission);

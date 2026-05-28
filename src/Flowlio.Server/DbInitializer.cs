@@ -4,6 +4,7 @@ using Flowlio.Infrastructure.Persistence;
 using Flowlio.Server.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
@@ -30,14 +31,21 @@ public static class DbInitializer
         var db = sp.GetRequiredService<ApplicationDbContext>();
         await db.Database.MigrateAsync();
 
+        // The OIDC clients/scopes and family role defaults are needed in every environment. The demo
+        // login and its auto-promotion to Administrator are convenience fixtures and must never be
+        // created outside Development.
+        var isDevelopment = app.Environment.IsDevelopment();
+
         await SeedOpenIddictAsync(sp);
-        await SeedDemoUserAsync(sp);
-        await SeedAdminRoleAsync(sp);
+        if (isDevelopment)
+            await SeedDemoUserAsync(sp);
+        await SeedAdminRoleAsync(sp, includeDemoEmail: isDevelopment);
         await BackfillRolePermissionsAsync(db);
     }
 
-    /// <summary>Ensures the system-admin role exists and promotes the configured admin (and demo) emails.</summary>
-    private static async Task SeedAdminRoleAsync(IServiceProvider sp)
+    /// <summary>Ensures the system-admin role exists and promotes the configured admin emails (plus the
+    /// demo account in Development).</summary>
+    private static async Task SeedAdminRoleAsync(IServiceProvider sp, bool includeDemoEmail)
     {
         var roles = sp.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
         if (!await roles.RoleExistsAsync(AdminRoles.Administrator))
@@ -47,7 +55,7 @@ public static class DbInitializer
         var users = sp.GetRequiredService<UserManager<ApplicationUser>>();
 
         var adminEmails = (config.GetSection("Admin:Emails").Get<string[]>() ?? [])
-            .Append(config["Seed:DemoEmail"] ?? "")
+            .Append(includeDemoEmail ? config["Seed:DemoEmail"] ?? "" : "")
             .Where(e => !string.IsNullOrWhiteSpace(e))
             .Distinct(StringComparer.OrdinalIgnoreCase);
 
