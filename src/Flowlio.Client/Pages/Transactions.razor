@@ -157,7 +157,6 @@ else
             <FluentOption TOption="string" Value="category">Podle kategorie</FluentOption>
             <FluentOption TOption="string" Value="month">Podle měsíce</FluentOption>
         </FluentSelect>
-        <span class="muted">Celkem @_rows.Count pohybů</span>
         <div class="toolbar-actions">
             @if (HasActiveFilters)
             {
@@ -165,6 +164,12 @@ else
             }
             <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
         </div>
+    </div>
+    <div class="summary-bar">
+        <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Money(_sumIncome)</span></span>
+        <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Money(_sumExpense)</span></span>
+        <span class="summary-item"><span class="summary-label">Bilance</span><span class="summary-value @(_sumNet >= 0 ? "income" : "expense")">@Money(_sumNet)</span></span>
+        <span class="summary-item summary-count"><span class="summary-label">Pohybů</span><span class="summary-value">@_sumCount</span></span>
     </div>
     <FluentCard Class="panel no-pad">
         <div id="tx-grid"></div>
@@ -179,6 +184,12 @@ else
     private Dictionary<Guid, string> _categoryColors = [];
     private bool _canManage;
     private bool _loading = true;
+
+    // Summary over the currently filtered rows (pushed from Tabulator via UpdateSummary).
+    private int _sumCount;
+    private decimal _sumIncome;
+    private decimal _sumExpense;
+    private decimal _sumNet;
 
     // Grid (Tabulator) state
     private DotNetObjectReference<Transactions>? _gridRef;
@@ -364,7 +375,7 @@ else
         });
 
         await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
-            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50 }, _gridRef);
+            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50, search = _search ?? "" }, _gridRef);
 
         // Re-applies any active filters after a (re)render, e.g. after save/delete.
         if (HasActiveFilters)
@@ -392,6 +403,17 @@ else
     {
         if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
             await DeleteAsync(t);
+    }
+
+    // Pushed by the grid whenever the filtered set changes; drives the summary bar.
+    [JSInvokable]
+    public void UpdateSummary(int count, double income, double expense, double net)
+    {
+        _sumCount = count;
+        _sumIncome = (decimal)income;
+        _sumExpense = (decimal)expense;
+        _sumNet = (decimal)net;
+        StateHasChanged();
     }
 
     private void OpenCreate()
