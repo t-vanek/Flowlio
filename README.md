@@ -99,9 +99,15 @@ observability/            otel-collector, Prometheus and Grafana provisioning
 ## Transactions
 
 - **Statement import:** `Flowlio.Infrastructure/Statements` contains a profile-driven CSV parser with
-  best-effort layouts for **ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**, plus a
-  heuristic PDF parser. Imported rows are de-duplicated (per account fingerprint) and auto-categorized
-  via user rules.
+  best-effort layouts for **ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**. PDF
+  statements (for banks whose internet banking offers no CSV) are read by a **coordinate-based table
+  parser** (`Statements/Pdf`): PdfPig yields positioned words, columns are reconstructed from their
+  X-positions, each transaction is anchored on the row carrying its amount, and continuation rows
+  (counterparty account, value date, multi-line details) are folded in — so the amount is never confused
+  with the running balance. Dedicated layouts cover **ČSOB** (year-less dates inferred from the statement
+  period) and **Air Bank** (inline VS/KS/SS, merchant from card-payment details); unknown layouts fall
+  back to a heuristic parser flagged as experimental. Imported rows are de-duplicated (per account
+  fingerprint) and auto-categorized via user rules.
 - **Manual movements:** transactions can also be entered by hand and grouped into a labelled
   **movement batch**. Every batch (`ImportBatch`) records its `BatchOrigin` — `FileImport` for a parsed
   statement or `Manual` for hand-entered movements — so the source of any transaction stays traceable.

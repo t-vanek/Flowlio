@@ -1,75 +1,58 @@
-using System.Text.RegularExpressions;
 using Flowlio.Application.Statements;
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
+using Flowlio.Domain;
+using Flowlio.Infrastructure.Statements.Pdf;
 
 namespace Flowlio.Infrastructure.Statements;
 
 /// <summary>
-/// Heuristic, experimental PDF statement parser. Extracts text in reading order with PdfPig and pulls out
-/// lines that contain a date and an amount. PDF layouts vary widely between banks, so this is a best-effort
-/// fallback; the importer flags its output as experimental. When the PDF has no extractable text (a scan),
-/// OCR would be required.
+/// Orchestrates PDF statement parsing: extracts a positioned text model, resolves a bank layout (from the
+/// caller's hint or by detection), and runs the coordinate-based <see cref="PdfTableParser"/>. When no layout
+/// matches it falls back to the <see cref="PdfHeuristicParser"/> and flags the result as experimental.
 /// </summary>
-internal sealed partial class PdfStatementParser
+internal sealed class PdfStatementParser
 {
-    public ParsedStatement Parse(Stream content, string fileName)
+    private readonly IPdfTextExtractor _extractor;
+    private readonly PdfLayoutRegistry _layouts;
+    private readonly PdfTableParser _tableParser;
+    private readonly PdfHeuristicParser _heuristic;
+
+    public PdfStatementParser(
+        IPdfTextExtractor extractor,
+        PdfLayoutRegistry layouts,
+        PdfTableParser tableParser,
+        PdfHeuristicParser heuristic)
     {
-        using var ms = new MemoryStream();
-        content.CopyTo(ms);
-        ms.Position = 0;
-
-        using var document = PdfDocument.Open(ms);
-        var transactions = new List<ParsedTransaction>();
-
-        foreach (var page in document.GetPages())
-        {
-            var text = ContentOrderTextExtractor.GetText(page);
-            foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var parsed = TryParseLine(line);
-                if (parsed is not null)
-                    transactions.Add(parsed);
-            }
-        }
-
-        return new ParsedStatement { Transactions = transactions };
+        _extractor = extractor;
+        _layouts = layouts;
+        _tableParser = tableParser;
+        _heuristic = heuristic;
     }
 
-    private static ParsedTransaction? TryParseLine(string line)
+    public ParsedStatement Parse(Stream content, string fileName, BankProvider bankHint)
     {
-        var dateMatch = DateRegex().Match(line);
-        if (!dateMatch.Success)
-            return null;
+        var pages = _extractor.Extract(content);
 
-        var amountMatches = AmountRegex().Matches(line);
-        if (amountMatches.Count == 0)
-            return null;
+        if (pages.Count == 0 || pages.All(p => p.Rows.Count == 0))
+            throw new NotSupportedException(
+                "PDF neobsahuje čitelný text (patrně sken). Pro skenované výpisy je potřeba OCR.");
 
-        var bookingDate = StatementText.TryParseDate(dateMatch.Value, ["dd.MM.yyyy", "d.M.yyyy"]);
-        if (bookingDate is null)
-            return null;
+        var layout = _layouts.Resolve(bankHint, pages);
+        if (layout is not null)
+            return _tableParser.Parse(pages, layout);
 
-        // The transaction amount is typically the last monetary value on the line (balance excluded
-        // when present is hard to distinguish, so we take the first amount as the movement).
-        var amountRaw = amountMatches[0].Value;
-        if (!StatementText.TryParseAmount(amountRaw, decimalComma: true, out var amount))
-            return null;
-
-        var description = line.Replace(dateMatch.Value, string.Empty).Trim();
-
-        return new ParsedTransaction
+        // Unknown layout: best-effort heuristic, clearly flagged.
+        var transactions = _heuristic.Parse(pages);
+        return new ParsedStatement
         {
-            BookingDate = bookingDate.Value,
-            Amount = amount,
-            Currency = "CZK",
-            Description = string.IsNullOrWhiteSpace(description) ? null : description,
+            Transactions = transactions,
+            Diagnostics =
+            [
+                new ParseDiagnostic
+                {
+                    Severity = ParseSeverity.Info,
+                    Message = "PDF této banky není přesně podporováno; výsledek je experimentální, zkontrolujte jej.",
+                },
+            ],
         };
     }
-
-    [GeneratedRegex(@"\b\d{1,2}\.\s?\d{1,2}\.\s?\d{4}\b")]
-    private static partial Regex DateRegex();
-
-    [GeneratedRegex(@"[-+]?\d[\d  \.]*,\d{2}")]
-    private static partial Regex AmountRegex();
 }

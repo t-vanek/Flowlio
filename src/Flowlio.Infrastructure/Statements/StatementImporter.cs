@@ -43,21 +43,7 @@ internal sealed class StatementImporter : IStatementImporter
         var resolvedFormat = _formatDetector.Detect(bytes, fileName, format);
 
         if (resolvedFormat is ImportFormat.Pdf)
-        {
-            var pdf = _pdf.Parse(new MemoryStream(bytes), fileName);
-            return pdf with
-            {
-                Diagnostics =
-                [
-                    new ParseDiagnostic
-                    {
-                        Severity = ParseSeverity.Info,
-                        Message = "PDF import je experimentální; doporučujeme výsledek zkontrolovat.",
-                    },
-                    .. pdf.Diagnostics,
-                ],
-            };
-        }
+            return _pdf.Parse(new MemoryStream(bytes), fileName, bankHint);
 
         if (resolvedFormat is ImportFormat.PdfOcr)
             throw new NotSupportedException(
