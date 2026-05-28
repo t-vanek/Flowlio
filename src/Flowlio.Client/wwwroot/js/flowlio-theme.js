@@ -26,6 +26,14 @@
             const v = VALID.includes(value) ? value : "system";
             try { localStorage.setItem(KEY, v); } catch { /* storage blocked */ }
             apply(v);
+        },
+        // Resolves "system" to the actual light/dark choice, for components (e.g. charts)
+        // that need a concrete mode rather than following CSS.
+        effective() {
+            const v = this.get();
+            if (v === "light" || v === "dark") return v;
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            return prefersDark ? "dark" : "light";
         }
     };
 })();

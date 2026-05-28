@@ -303,6 +303,9 @@ code { color: #c02d76; }
 .bar-amount.expense, .num.expense { color: var(--flowlio-expense); }
 .bar-amount.income,  .num.income  { color: var(--flowlio-income); }
 
+/* Legend/detail list under a chart. */
+.chart-legend { margin-top: 12px; }
+
 /* =====================================================================
    Tables / lists
    ===================================================================== */
@@ -367,6 +370,74 @@ code { color: #c02d76; }
 
 /* Compact right-aligned action cluster inside a table row. */
 .table-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+/* Masked money input (IMask-backed <MoneyField>). */
+.money-input {
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--flowlio-border-strong);
+    border-radius: 4px;
+    background: var(--flowlio-surface);
+    color: var(--flowlio-text);
+    font: inherit;
+    font-size: 14px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+    box-sizing: border-box;
+}
+.money-input:focus-visible { outline: 2px solid var(--flowlio-accent); outline-offset: -1px; }
+
+/* =====================================================================
+   Tabulator grid — themed with Flowlio tokens so it tracks light/dark
+   ===================================================================== */
+.tabulator {
+    background: var(--flowlio-surface);
+    border: 1px solid var(--flowlio-border);
+    border-radius: 10px;
+    color: var(--flowlio-text);
+    font-size: 14px;
+}
+.tabulator .tabulator-header,
+.tabulator .tabulator-header .tabulator-col {
+    background: var(--flowlio-surface-2);
+    border-color: var(--flowlio-border);
+    color: var(--flowlio-text-muted);
+}
+.tabulator .tabulator-header .tabulator-col { border-right: none; font-weight: 600; }
+.tabulator .tabulator-row { background: var(--flowlio-surface); border-bottom: 1px solid var(--flowlio-border-soft); color: var(--flowlio-text); }
+.tabulator .tabulator-row.tabulator-row-even { background: var(--flowlio-surface); }
+.tabulator .tabulator-row:hover { background: var(--flowlio-surface-2); }
+.tabulator .tabulator-cell { border-right: none; padding: 9px 12px; }
+.tabulator .tabulator-footer {
+    background: var(--flowlio-surface-2);
+    color: var(--flowlio-text);
+    border-top: 1px solid var(--flowlio-border);
+}
+.tabulator .tabulator-footer .tabulator-page,
+.tabulator .tabulator-footer .tabulator-paginator label { color: var(--flowlio-text-muted); }
+.tabulator .tabulator-col-resize-handle { display: none; }
+.tabulator .tabulator-group {
+    background: var(--flowlio-surface-3);
+    color: var(--flowlio-text);
+    border-bottom: 1px solid var(--flowlio-border);
+    font-weight: 600;
+}
+.tabulator .tabulator-calcs-bottom .tabulator-cell { font-weight: 700; background: var(--flowlio-surface-2); }
+
+/* Inline row-action buttons rendered by the grid formatter. */
+.grid-act {
+    border: 1px solid var(--flowlio-border-strong);
+    background: var(--flowlio-surface);
+    color: var(--flowlio-text);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-left: 4px;
+}
+.grid-act:hover { background: var(--flowlio-surface-2); }
+.grid-act-danger:hover { border-color: var(--flowlio-expense); color: var(--flowlio-expense); }
 
 /* =====================================================================
    Accounts page

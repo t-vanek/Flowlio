@@ -1,6 +1,8 @@
 @page "/"
 @attribute [Authorize]
+@using ApexCharts
 @inject FlowlioApi Api
+@inject IJSRuntime JS
 
 <PageTitle>Přehled – Flowlio</PageTitle>
 
@@ -40,15 +42,37 @@ else
             }
             else
             {
-                @foreach (var c in _summary.TopExpenseCategories)
-                {
-                    <div class="bar-row">
-                        <span class="bar-dot" style="background:@c.Color"></span>
-                        <span class="bar-name">@c.CategoryName</span>
-                        <span class="bar-amount">@Money(c.Amount)</span>
-                    </div>
-                }
+                <ApexChart TItem="CategorySpendDto" Options="_donutOptions" Height="260">
+                    <ApexPointSeries TItem="CategorySpendDto"
+                                     Items="_summary.TopExpenseCategories"
+                                     Name="Výdaje"
+                                     SeriesType="SeriesType.Donut"
+                                     XValue="@(c => c.CategoryName)"
+                                     YValue="@(c => (decimal?)Math.Abs(c.Amount))" />
+                </ApexChart>
+                <div class="chart-legend">
+                    @foreach (var c in _summary.TopExpenseCategories)
+                    {
+                        <div class="bar-row">
+                            <span class="bar-dot" style="background:@c.Color"></span>
+                            <span class="bar-name">@c.CategoryName</span>
+                            <span class="bar-amount">@Money(c.Amount)</span>
+                        </div>
+                    }
+                </div>
             }
+        </FluentCard>
+
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Příjmy vs. výdaje (tento měsíc)</h2>
+            <ApexChart TItem="FlowPoint" Options="_barOptions" Height="260">
+                <ApexPointSeries TItem="FlowPoint"
+                                 Items="_flow"
+                                 Name="Částka"
+                                 SeriesType="SeriesType.Bar"
+                                 XValue="@(p => p.Label)"
+                                 YValue="@(p => (decimal?)p.Value)" />
+            </ApexChart>
         </FluentCard>
 
         <FluentCard Class="panel">
@@ -74,10 +98,44 @@ else
 
 @code {
     private DashboardSummaryDto? _summary;
+    private ApexChartOptions<CategorySpendDto> _donutOptions = new();
+    private ApexChartOptions<FlowPoint> _barOptions = new();
+    private List<FlowPoint> _flow = [];
+
+    private sealed record FlowPoint(string Label, decimal Value);
 
     protected override async Task OnInitializedAsync()
     {
         _summary = await Api.GetDashboardAsync();
+
+        var effective = await JS.InvokeAsync<string>("flowlioTheme.effective");
+        var mode = effective == "dark" ? Mode.Dark : Mode.Light;
+
+        _donutOptions = new ApexChartOptions<CategorySpendDto>
+        {
+            Chart = new Chart { Background = "transparent", FontFamily = "inherit" },
+            Theme = new Theme { Mode = mode },
+            Colors = _summary?.TopExpenseCategories.Select(c => c.Color).ToList(),
+            Legend = new Legend { Position = LegendPosition.Bottom },
+            DataLabels = new DataLabels { Enabled = false },
+        };
+
+        _flow =
+        [
+            new FlowPoint("Příjmy", Math.Abs(_summary?.IncomeThisMonth ?? 0)),
+            new FlowPoint("Výdaje", Math.Abs(_summary?.ExpenseThisMonth ?? 0)),
+            new FlowPoint("Bilance", _summary?.NetThisMonth ?? 0),
+        ];
+
+        _barOptions = new ApexChartOptions<FlowPoint>
+        {
+            Chart = new Chart { Background = "transparent", FontFamily = "inherit", Toolbar = new Toolbar { Show = false } },
+            Theme = new Theme { Mode = mode },
+            Colors = ["#16a34a", "#dc2626", "#2563eb"],
+            PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { Distributed = true, BorderRadius = 6, ColumnWidth = "45%" } },
+            Legend = new Legend { Show = false },
+            DataLabels = new DataLabels { Enabled = false },
+        };
     }
 
     private static string Money(decimal value) =>
