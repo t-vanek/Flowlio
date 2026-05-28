@@ -155,6 +155,16 @@ else
 {
     <FluentProgressRing />
 }
+else if (_loadError)
+{
+    <FluentCard Class="panel">
+        <div class="empty-state">
+            <div class="empty-state-icon">⚠️</div>
+            <p>Načtení transakcí se nezdařilo.</p>
+            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => LoadAsync())">Zkusit znovu</FluentButton>
+        </div>
+    </FluentCard>
+}
 else if (_rows.Count == 0)
 {
     <FluentCard Class="panel">
@@ -299,6 +309,8 @@ else
     private string _bulkCategory = "";
     private bool _canManage;
     private bool _loading = true;
+    private bool _loadError;
+    private int _loadSeq;
 
     // Summary over the currently filtered rows (pushed from Tabulator via UpdateSummary).
     private int _sumCount;
@@ -408,19 +420,41 @@ else
     {
         if (!keepUndo)
             _undoIds = [];
+        // Each load takes a sequence number; a slower earlier request that finishes after a newer
+        // one (e.g. while typing in search) is discarded instead of clobbering fresher results.
+        var seq = ++_loadSeq;
         _loading = true;
+        _loadError = false;
         StateHasChanged();
 
         var all = new List<TransactionDto>();
+        var failed = false;
         const int size = 200;
         for (var page = 1; page <= 200; page++)
         {
             var result = await Api.GetTransactionsAsync(search: _search, page: page, pageSize: size);
-            if (result is null || result.Items.Count == 0)
+            if (result is null)
+            {
+                failed = true; // null means a non-success response, not an empty page
+                break;
+            }
+            if (result.Items.Count == 0)
                 break;
             all.AddRange(result.Items);
             if (all.Count >= result.TotalCount)
                 break;
+        }
+
+        if (seq != _loadSeq)
+            return; // superseded by a newer load — drop these stale results
+
+        if (failed)
+        {
+            _loadError = true;
+            _loading = false;
+            Toasts.ShowError("Načtení transakcí se nezdařilo.");
+            StateHasChanged();
+            return;
         }
 
         _rows = all;
