@@ -78,11 +78,13 @@ window.flowlioGrid = (function () {
     }
 
     function categoryFormatter(cell) {
-        const d = cell.getData();
-        if (!d.categoryName) return "";
+        const cid = cell.getValue();
+        const cats = (state[cell.getTable().element.id] || {}).cats || {};
+        const c = cid && cats[cid];
+        if (!c)
+            return cell.getColumn().getDefinition().editable ? '<span class="muted">(přiřadit)</span>' : "";
         return '<span class="cat-tag"><span class="cat-dot" style="background:' +
-            (d.categoryColor || "#64748b") + '"></span><span class="muted">' +
-            escapeHtml(d.categoryName) + "</span></span>";
+            (c.color || "#64748b") + '"></span><span class="muted">' + escapeHtml(c.name) + "</span></span>";
     }
 
     function dateFormatter(cell) {
@@ -130,14 +132,25 @@ window.flowlioGrid = (function () {
             const el = document.getElementById(id);
             if (!el || typeof Tabulator === "undefined") return;
             if (tables[id]) { tables[id].destroy(); delete tables[id]; }
-            state[id] = { tokens: foldTokens(opts.search), dotNet: dotNetRef };
+
+            const cats = {};
+            const editorValues = { "": "(bez kategorie)" };
+            (opts.categories || []).forEach((c) => { cats[c.id] = { name: c.name, color: c.color }; editorValues[c.id] = c.name; });
+            state[id] = { tokens: foldTokens(opts.search), dotNet: dotNetRef, cats: cats };
 
             const columns = [
                 { title: "Datum", field: "bookingDate", sorter: "string", formatter: dateFormatter, width: 110 },
                 { title: "Účet", field: "accountName", sorter: "string", minWidth: 110,
                   formatter: (cell) => '<span class="muted">' + escapeHtml(cell.getValue() || "") + "</span>" },
                 { title: "Protistrana", field: "counterparty", sorter: "string", formatter: counterpartyFormatter, minWidth: 140 },
-                { title: "Kategorie", field: "categoryName", sorter: "string", formatter: categoryFormatter, minWidth: 130 },
+                {
+                    title: "Kategorie", field: "categoryId", minWidth: 150, formatter: categoryFormatter,
+                    sorter: (a, b, aRow, bRow) => (aRow.getData().categoryName || "").localeCompare(bRow.getData().categoryName || "", "cs"),
+                    editable: !!opts.canManage,
+                    editor: opts.canManage ? "list" : false,
+                    editorParams: { values: editorValues, autocomplete: true, listOnEmpty: true, clearable: true },
+                    cellEdited: (cell) => dotNetRef.invokeMethodAsync("GridSetCategory", cell.getData().id, cell.getValue() || ""),
+                },
                 { title: "Popis", field: "description", sorter: "string", formatter: descriptionFormatter, minWidth: 140 },
                 { title: "VS", field: "vs", sorter: "string", width: 90 },
                 {
@@ -187,7 +200,7 @@ window.flowlioGrid = (function () {
             });
             // Click a row (away from buttons/inputs) to open its detail.
             table.on("rowClick", (e, row) => {
-                if (e.target.closest("button, input, select, a, .grid-act")) return;
+                if (e.target.closest('button, input, select, a, .grid-act, [tabulator-field="categoryId"]')) return;
                 dotNetRef.invokeMethodAsync("GridRowClick", row.getData().id);
             });
             tables[id] = table;
