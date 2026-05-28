@@ -65,13 +65,6 @@
         <span class="filter-label">Do</span>
         <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
     </div>
-
-    @if (HasActiveFilters)
-    {
-        <div class="toolbar-actions">
-            <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
-        </div>
-    }
 </div>
 
 @if (_showEditor)
@@ -166,6 +159,10 @@ else
         </FluentSelect>
         <span class="muted">Celkem @_rows.Count pohybů</span>
         <div class="toolbar-actions">
+            @if (HasActiveFilters)
+            {
+                <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+            }
             <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
         </div>
     </div>
