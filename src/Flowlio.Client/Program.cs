@@ -4,6 +4,15 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.FluentUI.AspNetCore.Components;
+using System.Globalization;
+
+// Czech UI culture so dates (FluentDatePicker), numbers and the calendar render
+// as dd.MM.yyyy with comma decimals. Wire-format DTOs stay invariant (System.Text.Json).
+var czech = new CultureInfo("cs-CZ");
+CultureInfo.DefaultThreadCurrentCulture = czech;
+CultureInfo.DefaultThreadCurrentUICulture = czech;
+CultureInfo.CurrentCulture = czech;
+CultureInfo.CurrentUICulture = czech;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");

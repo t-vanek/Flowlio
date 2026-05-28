@@ -12,7 +12,9 @@
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Class="toolbar-search" />
+    <FluentSearch @bind-Value="_search" @bind-Value:after="ApplyClientFiltersAsync"
+                  Immediate="true" ImmediateDelay="250"
+                  Placeholder="Hledat protistranu, popis nebo VS…" Class="toolbar-search" />
 
     @if (_canManage && _accounts.Count > 0)
     {
@@ -23,7 +25,7 @@
 </div>
 
 <div class="toolbar">
-    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet">
+    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Účet">
         <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
         @foreach (var a in _accounts)
         {
@@ -31,7 +33,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie">
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Kategorie">
         <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
         @foreach (var c in _categories)
         {
@@ -39,19 +41,33 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_typeValue" Label="Typ">
+    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Typ">
         <FluentOption TOption="string" Value="">Vše</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
     </FluentSelect>
 
-    <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
-    <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
+    <FluentSelect TOption="string" @bind-Value="_periodValue" @bind-Value:after="OnPeriodChangedAsync" Label="Období">
+        <FluentOption TOption="string" Value="">Celé období</FluentOption>
+        <FluentOption TOption="string" Value="thisMonth">Tento měsíc</FluentOption>
+        <FluentOption TOption="string" Value="lastMonth">Minulý měsíc</FluentOption>
+        <FluentOption TOption="string" Value="last30">Posledních 30 dní</FluentOption>
+        <FluentOption TOption="string" Value="thisYear">Tento rok</FluentOption>
+        @if (_periodValue == "custom")
+        {
+            <FluentOption TOption="string" Value="custom">Vlastní</FluentOption>
+        }
+    </FluentSelect>
 
-    <div class="toolbar-actions">
-        <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
-        <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
-    </div>
+    <FluentDatePicker @bind-Value="_dateFrom" @bind-Value:after="OnDateEditedAsync" Culture="Cz" Label="Od" />
+    <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" Label="Do" />
+
+    @if (HasActiveFilters)
+    {
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+        </div>
+    }
 </div>
 
 @if (_showEditor)
@@ -168,11 +184,14 @@ else
     private bool _renderPending;
     private string _groupValue = "";
 
-    // Filters
+    private static readonly System.Globalization.CultureInfo Cz = new("cs-CZ");
+
+    // Filters (applied client-side via Tabulator)
     private string _search = "";
     private string _accountValue = "";
     private string _categoryValue = "";
     private string _typeValue = "";
+    private string _periodValue = "";
     private DateTime? _dateFrom;
     private DateTime? _dateTo;
 
@@ -204,9 +223,9 @@ else
         await LoadAsync();
     }
 
-    // Loads the full filtered set (the server caps pageSize at 200, so we page through
-    // it) and hands it to Tabulator, which then owns pagination, sorting, grouping,
-    // the footer sum and CSV export client-side.
+    // Loads the whole family transaction set (the server caps pageSize at 200, so we
+    // page through it). Tabulator then owns pagination, sorting, grouping, the footer
+    // sum, CSV export and — see ApplyClientFiltersAsync — instant client-side filtering.
     private async Task LoadAsync()
     {
         _loading = true;
@@ -216,16 +235,7 @@ else
         const int size = 200;
         for (var page = 1; page <= 200; page++)
         {
-            var result = await Api.GetTransactionsAsync(
-                accountId: Guid.TryParse(_accountValue, out var a) ? a : null,
-                categoryId: Guid.TryParse(_categoryValue, out var c) ? c : null,
-                dateFrom: _dateFrom is { } from ? DateOnly.FromDateTime(from) : null,
-                dateTo: _dateTo is { } to ? DateOnly.FromDateTime(to) : null,
-                direction: string.IsNullOrEmpty(_typeValue) ? null : (TransactionDirection)int.Parse(_typeValue),
-                search: _search,
-                page: page,
-                pageSize: size);
-
+            var result = await Api.GetTransactionsAsync(page: page, pageSize: size);
             if (result is null || result.Items.Count == 0)
                 break;
             all.AddRange(result.Items);
@@ -240,7 +250,66 @@ else
         StateHasChanged();
     }
 
-    private Task ApplyFiltersAsync() => LoadAsync();
+    private bool HasActiveFilters =>
+        !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
+        || _typeValue != "" || _dateFrom is not null || _dateTo is not null;
+
+    // Pushes the current filter values into Tabulator — no server round-trip, and the
+    // footer sum / pagination follow the filtered set instantly.
+    private async Task ApplyClientFiltersAsync()
+    {
+        var type = _typeValue == ((int)TransactionDirection.Incoming).ToString() ? "in"
+            : _typeValue == ((int)TransactionDirection.Outgoing).ToString() ? "out" : "";
+
+        await JS.InvokeVoidAsync("flowlioGrid.setFilters", "tx-grid", new
+        {
+            search = _search ?? "",
+            accountId = _accountValue,
+            categoryId = _categoryValue,
+            type,
+            dateFrom = _dateFrom is { } f ? f.ToString("yyyy-MM-dd") : "",
+            dateTo = _dateTo is { } t ? t.ToString("yyyy-MM-dd") : "",
+        });
+    }
+
+    private Task OnDateEditedAsync()
+    {
+        _periodValue = _dateFrom is null && _dateTo is null ? "" : "custom";
+        return ApplyClientFiltersAsync();
+    }
+
+    private Task OnPeriodChangedAsync()
+    {
+        var today = DateTime.Today;
+        switch (_periodValue)
+        {
+            case "thisMonth":
+                _dateFrom = new DateTime(today.Year, today.Month, 1);
+                _dateTo = _dateFrom.Value.AddMonths(1).AddDays(-1);
+                break;
+            case "lastMonth":
+                var lm = new DateTime(today.Year, today.Month, 1).AddMonths(-1);
+                _dateFrom = lm;
+                _dateTo = lm.AddMonths(1).AddDays(-1);
+                break;
+            case "last30":
+                _dateFrom = today.AddDays(-30);
+                _dateTo = today;
+                break;
+            case "thisYear":
+                _dateFrom = new DateTime(today.Year, 1, 1);
+                _dateTo = new DateTime(today.Year, 12, 31);
+                break;
+            default: // "" (celé období) or "custom"
+                if (_periodValue != "custom")
+                {
+                    _dateFrom = null;
+                    _dateTo = null;
+                }
+                break;
+        }
+        return ApplyClientFiltersAsync();
+    }
 
     private Task ClearFiltersAsync()
     {
@@ -248,9 +317,10 @@ else
         _accountValue = "";
         _categoryValue = "";
         _typeValue = "";
+        _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
-        return LoadAsync();
+        return ApplyClientFiltersAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -273,6 +343,8 @@ else
         var data = _rows.Select(t => new
         {
             id = t.Id.ToString(),
+            accountId = t.BankAccountId.ToString(),
+            categoryId = t.CategoryId?.ToString() ?? "",
             bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
             counterparty = t.CounterpartyName ?? "",
             categoryName = t.CategoryName ?? "",
@@ -284,6 +356,10 @@ else
 
         await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
             new { canManage = _canManage, groupBy = _groupValue, pageSize = 50 }, _gridRef);
+
+        // Re-applies any active filters after a (re)render, e.g. after save/delete.
+        if (HasActiveFilters)
+            await ApplyClientFiltersAsync();
     }
 
     private async Task GroupChangedAsync() =>
