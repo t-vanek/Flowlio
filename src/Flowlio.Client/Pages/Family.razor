@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Rodina – Flowlio</PageTitle>
 
@@ -245,6 +247,7 @@
             }
 
             _lastInvite = result.Invitation;
+            Toasts.ShowSuccess("Člen byl přidán.");
             _model = new();
             _email = "";
             await LoadAsync();
@@ -262,21 +265,46 @@
         if (invite is null)
             _error = "Pozvánku se nepodařilo vytvořit (chybí u člena e-mail?).";
         else
+        {
             _lastInvite = invite;
+            Toasts.ShowSuccess("Pozvánka byla vytvořena.");
+        }
         await LoadAsync();
     }
 
     private async Task DeleteAsync(Guid memberId)
     {
         _error = null;
-        if (!await Api.DeleteMemberAsync(memberId))
+        var name = _members?.FirstOrDefault(x => x.Id == memberId)?.DisplayName ?? "člena";
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu odebrat člena: {name}? Tuto akci nelze vrátit zpět.",
+            "Odebrat", "Zrušit", "Odebrání člena");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.DeleteMemberAsync(memberId))
+            Toasts.ShowSuccess("Člen byl odebrán.");
+        else
+        {
             _error = "Člena nelze odebrat (je opatrovníkem dítěte?).";
+            Toasts.ShowError("Člena se nepodařilo odebrat.");
+        }
         await LoadAsync();
     }
 
     private async Task RevokeAsync(Guid invitationId)
     {
-        await Api.RevokeInvitationAsync(invitationId);
+        var who = _invitations?.FirstOrDefault(i => i.Id == invitationId)?.MemberName ?? "pozvánku";
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu zrušit pozvánku pro: {who}?",
+            "Zrušit pozvánku", "Zpět", "Zrušení pozvánky");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.RevokeInvitationAsync(invitationId))
+            Toasts.ShowSuccess("Pozvánka byla zrušena.");
+        else
+            Toasts.ShowError("Pozvánku se nepodařilo zrušit.");
         await LoadAsync();
     }
 
@@ -328,14 +356,26 @@
         }
 
         _editingId = null;
+        Toasts.ShowSuccess("Změny člena byly uloženy.");
         await LoadAsync();
     }
 
     private async Task SetActiveAsync(FamilyMemberDto m, bool active)
     {
         _error = null;
-        if (!await Api.SetMemberActiveAsync(m.Id, active))
-            _error = "Změnu stavu se nepodařilo uložit.";
+        if (!active)
+        {
+            var dialog = await Dialogs.ShowConfirmationAsync(
+                $"Opravdu deaktivovat člena: {m.DisplayName}? Ztratí přístup, dokud ho znovu neaktivujete.",
+                "Deaktivovat", "Zrušit", "Deaktivace člena");
+            if ((await dialog.Result).Cancelled)
+                return;
+        }
+
+        if (await Api.SetMemberActiveAsync(m.Id, active))
+            Toasts.ShowSuccess(active ? "Člen byl aktivován." : "Člen byl deaktivován.");
+        else
+            Toasts.ShowError("Změnu stavu se nepodařilo uložit.");
         await LoadAsync();
     }
 
