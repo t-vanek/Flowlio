@@ -16,7 +16,9 @@
 }
 else if (!_canUsers && !_canSysRoles && !_canAudit)
 {
-    <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
+    </FluentCard>
 }
 else
 {
@@ -126,7 +128,7 @@ else
                                 {
                                     var expired = deadline < DateTimeOffset.UtcNow;
                                     <span class="muted" style="color:@(expired ? "var(--flowlio-expense)" : "var(--flowlio-warn)");">
-                                        · 2FA vyžadováno do @deadline.LocalDateTime.ToString("d.M.yyyy")@(expired ? " (vypršelo)" : "")
+                                        · 2FA vyžadováno do @Formatting.Date(deadline)@(expired ? " (vypršelo)" : "")
                                     </span>
                                 }
                             </div>
@@ -266,7 +268,7 @@ else
                         <div class="account-row">
                             <div>
                                 <div class="account-name">@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)</div>
-                                <div class="muted">@u.Email · smazáno @u.DeletedAtUtc?.LocalDateTime.ToString("d.M.yyyy")</div>
+                                <div class="muted">@u.Email · smazáno @Formatting.Date(u.DeletedAtUtc)</div>
                             </div>
                             <div>
                                 <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => UndeleteAsync(u))">Obnovit účet</FluentButton>

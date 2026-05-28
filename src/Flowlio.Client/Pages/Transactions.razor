@@ -155,9 +155,9 @@ else
         </div>
     }
     <div class="summary-bar">
-        <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Money(_sumIncome)</span></span>
-        <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Money(_sumExpense)</span></span>
-        <span class="summary-item"><span class="summary-label">Bilance</span><span class="summary-value @(_sumNet >= 0 ? "income" : "expense")">@Money(_sumNet)</span></span>
+        <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Formatting.Money(_sumIncome)</span></span>
+        <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Formatting.Money(_sumExpense)</span></span>
+        <span class="summary-item"><span class="summary-label">Bilance</span><span class="summary-value @(_sumNet >= 0 ? "income" : "expense")">@Formatting.Money(_sumNet)</span></span>
         <span class="summary-item summary-count"><span class="summary-label">Pohybů</span><span class="summary-value">@_sumCount</span></span>
     </div>
     <FluentCard Class="panel no-pad">
@@ -620,7 +620,7 @@ else
 
     private async Task DeleteAsync(TransactionDto t)
     {
-        var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Money(t.Amount) : t.CounterpartyName!;
+        var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Formatting.Money(t.Amount) : t.CounterpartyName!;
         var dialog = await Dialogs.ShowConfirmationAsync(
             $"Opravdu smazat tento pohyb: {label}?",
             "Smazat", "Zrušit", "Smazání pohybu");
@@ -652,9 +652,6 @@ else
 
     private string CategoryColor(Guid? categoryId) =>
         categoryId is { } id && _categoryColors.TryGetValue(id, out var color) ? color : "#64748b";
-
-    private static string Money(decimal value) =>
-        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
 
     public async ValueTask DisposeAsync()
     {

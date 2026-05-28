@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IToastService Toasts
 
 <PageTitle>Import výpisu – Flowlio</PageTitle>
 
@@ -60,7 +61,11 @@
 
     <FluentCard Class="panel">
         <h2 class="panel-title">Výsledek</h2>
-        @if (_result is null)
+        @if (_error is not null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
+        }
+        else if (_result is null)
         {
             <p class="muted">Zatím nebyl nahrán žádný výpis.</p>
         }
@@ -102,6 +107,7 @@
     private string _formatValue = "0";
     private IBrowserFile? _file;
     private ImportResultDto? _result;
+    private string? _error;
     private bool _busy;
     private bool _canImport;
 
@@ -128,6 +134,7 @@
 
         _busy = true;
         _result = null;
+        _error = null;
         try
         {
             await using var source = _file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
@@ -141,6 +148,20 @@
                 (ImportFormat)int.Parse(_formatValue),
                 _file.Name,
                 ms);
+
+            if (_result is null)
+            {
+                _error = "Import se nezdařil. Zkontrolujte soubor a zkuste to znovu.";
+                Toasts.ShowError(_error);
+            }
+            else if (_result.Status == ImportStatus.Failed)
+            {
+                Toasts.ShowError($"Import selhal: {_result.Error}");
+            }
+            else
+            {
+                Toasts.ShowSuccess($"Naimportováno {_result.ImportedCount} transakcí, přeskočeno {_result.DuplicateCount} duplicit.");
+            }
         }
         finally
         {
