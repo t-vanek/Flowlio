@@ -24,15 +24,24 @@ public class LoginModel(
     /// offer to resend the confirmation link.</summary>
     public bool ShowResend { get; private set; }
 
-    public void OnGet(string? returnUrl = null, string? reason = null)
+    public void OnGet(string? returnUrl = null)
     {
         ReturnUrl = returnUrl ?? "/";
-        if (reason == "locked")
-            Error = "Vaše relace byla ukončena, protože účet je uzamčen nebo zablokován. Přihlaste se prosím znovu.";
+
+        // A session ended by the authorize endpoint (locked/blocked mid-session) drops a short-lived
+        // flash cookie, because the OIDC re-challenge would otherwise strip any reason from the URL.
+        if (Request.Cookies.TryGetValue(AccountLockout.SessionEndedCookie, out var kindStr)
+            && Enum.TryParse<AccountLockout.Kind>(kindStr, out var kind) && kind != AccountLockout.Kind.None)
+        {
+            Error = AccountLockout.SessionEndedMessage(kind);
+        }
     }
 
     public async Task<IActionResult> OnPostAsync()
     {
+        // Consume the session-ended flash: from here on, messages come from the attempt itself.
+        Response.Cookies.Delete(AccountLockout.SessionEndedCookie);
+
         var result = await signInManager.PasswordSignInAsync(Email, Password, isPersistent: true, lockoutOnFailure: true);
         if (result.Succeeded)
         {
@@ -47,6 +56,7 @@ public class LoginModel(
                 return Page();
             }
 
+            await ClearStaleLockoutReasonAsync(user);
             return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
         }
 
@@ -64,12 +74,26 @@ public class LoginModel(
         if (result.IsLockedOut)
         {
             var locked = await userManager.FindByNameAsync(Email);
-            Error = AccountLockout.SignInMessage(locked is null ? null : await userManager.GetLockoutEndDateAsync(locked));
+            var end = locked is null ? null : await userManager.GetLockoutEndDateAsync(locked);
+            var kind = AccountLockout.Resolve(true, locked?.LockoutReason ?? LockoutReason.None, end);
+            Error = AccountLockout.SignInMessage(kind, end);
             return Page();
         }
 
+        // Wrong password (account not locked): if an admin lock has since expired, clear its stale
+        // reason so a subsequent automatic lockout is attributed to the system, not the admin.
+        await ClearStaleLockoutReasonAsync(await userManager.FindByNameAsync(Email));
         Error = "Neplatný e-mail nebo heslo.";
         return Page();
+    }
+
+    private async Task ClearStaleLockoutReasonAsync(ApplicationUser? user)
+    {
+        if (user is { LockoutReason: not LockoutReason.None } && !await userManager.IsLockedOutAsync(user))
+        {
+            user.LockoutReason = LockoutReason.None;
+            await userManager.UpdateAsync(user);
+        }
     }
 
     public async Task<IActionResult> OnPostResendAsync()

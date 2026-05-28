@@ -36,9 +36,16 @@ public class LoginWith2faModel(SignInManager<ApplicationUser> signInManager) : P
         if (result.Succeeded)
             return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
 
-        Error = result.IsLockedOut
-            ? AccountLockout.SignInMessage((await signInManager.GetTwoFactorAuthenticationUserAsync())?.LockoutEnd)
-            : "Neplatný ověřovací kód.";
+        if (result.IsLockedOut)
+        {
+            var u = await signInManager.GetTwoFactorAuthenticationUserAsync();
+            var kind = AccountLockout.Resolve(true, u?.LockoutReason ?? LockoutReason.None, u?.LockoutEnd);
+            Error = AccountLockout.SignInMessage(kind, u?.LockoutEnd);
+        }
+        else
+        {
+            Error = "Neplatný ověřovací kód.";
+        }
         return Page();
     }
 }

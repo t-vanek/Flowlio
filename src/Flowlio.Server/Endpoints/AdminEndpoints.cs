@@ -195,6 +195,7 @@ public static class AdminEndpoints
             return Results.NotFound();
 
         var minutes = Math.Clamp(request.Minutes, 1, 60 * 24 * 365);
+        user.LockoutReason = LockoutReason.AdminLock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddMinutes(minutes));
         await notifier.NotifyAsync(user, "Účet dočasně zamčen – Flowlio",
@@ -217,6 +218,7 @@ public static class AdminEndpoints
         if (user is null)
             return Results.NotFound();
 
+        user.LockoutReason = LockoutReason.AdminBlock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
         await notifier.NotifyAsync(user, "Účet zablokován – Flowlio",
@@ -235,6 +237,7 @@ public static class AdminEndpoints
         if (user is null)
             return Results.NotFound();
 
+        user.LockoutReason = LockoutReason.None;
         await userManager.SetLockoutEndDateAsync(user, null);
         await userManager.ResetAccessFailedCountAsync(user);
         await notifier.NotifyAsync(user, "Účet odemčen – Flowlio", "Váš účet byl odemčen.", "success", ct);
@@ -378,6 +381,7 @@ public static class AdminEndpoints
 
         // Soft delete: hide and block the account, suspend its family memberships and revoke tokens.
         user.DeletedAt = DateTimeOffset.UtcNow;
+        user.LockoutReason = LockoutReason.AdminBlock;
         await userManager.SetLockoutEnabledAsync(user, true);
         await userManager.SetLockoutEndDateAsync(user, DateTimeOffset.MaxValue);
         await userManager.UpdateAsync(user);
@@ -405,6 +409,7 @@ public static class AdminEndpoints
             return Results.NotFound();
 
         user.DeletedAt = null;
+        user.LockoutReason = LockoutReason.None;
         await userManager.UpdateAsync(user);
         await userManager.SetLockoutEndDateAsync(user, null);
 

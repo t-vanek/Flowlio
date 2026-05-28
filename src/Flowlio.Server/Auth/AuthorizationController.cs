@@ -46,11 +46,21 @@ public sealed class AuthorizationController(
             ?? throw new InvalidOperationException("The user details cannot be retrieved.");
 
         // A locked or blocked account must not be able to mint new tokens, even though its interactive
-        // cookie may still be valid. Drop the cookie and bounce to the login page, which explains why.
+        // cookie may still be valid. Drop the cookie and bounce to the login page. The reason rides in a
+        // short-lived cookie (not the URL) so it survives the SPA's silent re-challenge.
         if (await userManager.IsLockedOutAsync(user))
         {
+            var kind = AccountLockout.Resolve(true, user.LockoutReason, await userManager.GetLockoutEndDateAsync(user));
+            Response.Cookies.Append(AccountLockout.SessionEndedCookie, kind.ToString(), new CookieOptions
+            {
+                MaxAge = TimeSpan.FromSeconds(60),
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Path = "/Account",
+            });
             await signInManager.SignOutAsync();
-            return Redirect("/Account/Login?reason=locked");
+            return Redirect("/Account/Login");
         }
 
         // Force a password change before issuing any token when an admin flagged the account.
