@@ -56,7 +56,7 @@ else
                         @foreach (var row in _rows)
                         {
                             <tr>
-                                <td><input type="date" style="height:30px;" @bind="row.Booking" /></td>
+                                <td><input type="date" class="date-input" @bind="row.Booking" /></td>
                                 <td class="num"><FluentNumberField @bind-Value="row.Amount" Style="width:130px" /></td>
                                 <td><FluentTextField @bind-Value="row.Counterparty" Style="width:160px" /></td>
                                 <td><FluentTextField @bind-Value="row.Vs" Style="width:90px" /></td>
