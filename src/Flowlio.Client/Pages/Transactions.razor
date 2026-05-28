@@ -2,13 +2,15 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Transakce – Flowlio</PageTitle>
 
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Style="flex:1 1 240px;min-width:220px" />
+    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Class="toolbar-search" />
 
     @if (_canManage && _accounts.Count > 0)
     {
@@ -67,12 +69,12 @@
 
             <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
                 <div>
-                    <label style="display:block;font-size:12px;color:var(--neutral-foreground-rest);margin-bottom:4px;">Datum zaúčtování</label>
-                    <input type="date" style="height:32px;padding:0 8px;" @bind="_formBooking" />
+                    <label class="field-label">Datum zaúčtování</label>
+                    <input type="date" class="date-input" @bind="_formBooking" />
                 </div>
                 <div>
-                    <label style="display:block;font-size:12px;color:var(--neutral-foreground-rest);margin-bottom:4px;">Datum splatnosti (volitelné)</label>
-                    <input type="date" style="height:32px;padding:0 8px;" @bind="_formValue" />
+                    <label class="field-label">Datum splatnosti (volitelné)</label>
+                    <input type="date" class="date-input" @bind="_formValue" />
                 </div>
                 <FluentNumberField @bind-Value="_formAmount" Label="Částka (záporná = výdaj)" Style="width:200px" />
                 <FluentTextField @bind-Value="_formCurrency" Label="Měna" Style="width:90px" />
@@ -117,7 +119,17 @@
 }
 else if (_page.Items.Count == 0)
 {
-    <FluentCard Class="panel"><p class="muted">Žádné transakce. Naimportujte výpis nebo přidejte pohyb ručně.</p></FluentCard>
+    <FluentCard Class="panel">
+        <div class="empty-state">
+            <div class="empty-state-icon">🗒️</div>
+            <p>Žádné transakce k zobrazení.</p>
+            <p class="hint">Naimportujte výpis nebo přidejte pohyb ručně.</p>
+            @if (_canManage && _accounts.Count > 0)
+            {
+                <FluentButton Appearance="Appearance.Accent" OnClick="OpenCreate">+ Přidat pohyb</FluentButton>
+            }
+        </div>
+    </FluentCard>
 }
 else
 {
@@ -144,15 +156,25 @@ else
                     <tr>
                         <td>@t.BookingDate.ToString("d.M.yyyy")</td>
                         <td>@t.CounterpartyName</td>
-                        <td class="muted">@t.CategoryName</td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(t.CategoryName))
+                            {
+                                <span class="cat-tag">
+                                    <span class="cat-dot" style="background:@CategoryColor(t.CategoryId)"></span>
+                                    <span class="muted">@t.CategoryName</span>
+                                </span>
+                            }
+                        </td>
                         <td class="muted">@t.Description</td>
                         <td>@t.VariableSymbol</td>
-                        <td class="num @(t.Amount < 0 ? "expense" : "income")">@Money(t.Amount)</td>
+                        <td class="num @(t.Amount < 0 ? "expense" : "income")">@SignedMoney(t.Amount)</td>
                         @if (_canManage)
                         {
                             <td class="num">
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenEdit(t))">Upravit</FluentButton>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(t.Id))">Smazat</FluentButton>
+                                <div class="table-actions">
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenEdit(t))">Upravit</FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(t))">Smazat</FluentButton>
+                                </div>
                             </td>
                         }
                     </tr>
@@ -179,6 +201,7 @@ else
     private TransactionPageDto? _page;
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
+    private Dictionary<Guid, string> _categoryColors = [];
     private bool _canManage;
 
     // Filters
@@ -221,6 +244,7 @@ else
         _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
+        _categoryColors = _categories.ToDictionary(c => c.Id, c => c.Color);
         await LoadAsync();
     }
 
@@ -333,6 +357,7 @@ else
             CategoryId = Guid.TryParse(_formCategory, out var cid) ? cid : null,
         };
 
+        var isEdit = _editId is not null;
         _saving = true;
         try
         {
@@ -360,6 +385,7 @@ else
                 }
             }
             _showEditor = false;
+            Toasts.ShowSuccess(isEdit ? "Změny byly uloženy." : "Pohyb byl vytvořen.");
             await LoadAsync();
         }
         finally
@@ -368,12 +394,33 @@ else
         }
     }
 
-    private async Task DeleteAsync(Guid id)
+    private async Task DeleteAsync(TransactionDto t)
     {
-        if (await Api.DeleteTransactionAsync(id))
+        var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Money(t.Amount) : t.CounterpartyName!;
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat tento pohyb: {label}? Tuto akci nelze vrátit zpět.",
+            "Smazat", "Zrušit", "Smazání pohybu");
+        var result = await dialog.Result;
+        if (result.Cancelled)
+            return;
+
+        if (await Api.DeleteTransactionAsync(t.Id))
+        {
+            Toasts.ShowSuccess("Pohyb byl smazán.");
             await LoadAsync();
+        }
+        else
+        {
+            Toasts.ShowError("Pohyb se nepodařilo smazat.");
+        }
     }
+
+    private string CategoryColor(Guid? categoryId) =>
+        categoryId is { } id && _categoryColors.TryGetValue(id, out var color) ? color : "#64748b";
 
     private static string Money(decimal value) =>
         value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
+
+    private static string SignedMoney(decimal value) =>
+        (value > 0 ? "+" : "") + Money(value);
 }
