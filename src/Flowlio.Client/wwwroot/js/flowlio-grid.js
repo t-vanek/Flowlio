@@ -121,10 +121,11 @@ window.flowlioGrid = (function () {
     function pushSummary(id) {
         const s = state[id], t = tables[id];
         if (!s || !t || !s.dotNet) return;
-        let income = 0, expense = 0;
+        // Sum in integer cents to avoid binary-float drift, then convert back.
+        let incomeC = 0, expenseC = 0;
         const rows = t.getData("active");
-        for (const r of rows) { const a = r.amount || 0; if (a >= 0) income += a; else expense += a; }
-        s.dotNet.invokeMethodAsync("UpdateSummary", rows.length, income, expense, income + expense);
+        for (const r of rows) { const c = Math.round((r.amount || 0) * 100); if (c >= 0) incomeC += c; else expenseC += c; }
+        s.dotNet.invokeMethodAsync("UpdateSummary", rows.length, incomeC / 100, expenseC / 100, (incomeC + expenseC) / 100);
     }
 
     return {
