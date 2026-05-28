@@ -7,6 +7,7 @@
 </div>
 
 <nav class="nav-list">
+    @* Finances: overview, transactions, accounts and statement import belong together. *@
     @if (_canViewFinances)
     {
         <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Přehled">
@@ -17,25 +18,9 @@
             <span class="nav-icon">💳</span>
             <span class="nav-link-label">Transakce</span>
         </NavLink>
-    }
-    @if (_canViewFinances)
-    {
         <NavLink class="nav-link" href="accounts" title="Účty">
             <span class="nav-icon">🏦</span>
             <span class="nav-link-label">Účty</span>
-        </NavLink>
-    }
-    @if (_canManageMembers)
-    {
-        <NavLink class="nav-link" href="family" title="Rodina">
-            <span class="nav-icon">👪</span>
-            <span class="nav-link-label">Rodina</span>
-        </NavLink>
-    }
-    @if (_canFamilyAdmin)
-    {
-        <NavLink class="nav-link" href="family/manage">
-            <span class="nav-icon">🛡️</span> Správa rodiny
         </NavLink>
     }
     @if (_canImport)
@@ -45,12 +30,41 @@
             <span class="nav-link-label">Import výpisu</span>
         </NavLink>
     }
+
+    @if (_hasFinance && _hasFamily)
+    {
+        <hr class="nav-divider" />
+    }
+
+    @* Family: members and family administration. *@
+    @if (_canManageMembers)
+    {
+        <NavLink class="nav-link" href="family" title="Rodina">
+            <span class="nav-icon">👪</span>
+            <span class="nav-link-label">Rodina</span>
+        </NavLink>
+    }
+    @if (_canFamilyAdmin)
+    {
+        <NavLink class="nav-link" href="family/manage" title="Správa rodiny">
+            <span class="nav-icon">🛡️</span>
+            <span class="nav-link-label">Správa rodiny</span>
+        </NavLink>
+    }
+
+    @* System administration is cross-family; keep it apart at the very bottom. *@
     @if (_canAdminister)
     {
-        <NavLink class="nav-link" href="administration" title="Administrace">
-            <span class="nav-icon">⚙️</span>
-            <span class="nav-link-label">Administrace</span>
-        </NavLink>
+        <div class="nav-bottom">
+            @if (_hasFinance || _hasFamily)
+            {
+                <hr class="nav-divider" />
+            }
+            <NavLink class="nav-link" href="administration" title="Systémová administrace">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-link-label">Systémová administrace</span>
+            </NavLink>
+        </div>
     }
 </nav>
 
@@ -60,6 +74,9 @@
     private bool _canImport;
     private bool _canFamilyAdmin;
     private bool _canAdminister;
+
+    private bool _hasFinance => _canViewFinances || _canImport;
+    private bool _hasFamily => _canManageMembers || _canFamilyAdmin;
 
     protected override async Task OnInitializedAsync()
     {
