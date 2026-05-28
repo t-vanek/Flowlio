@@ -238,7 +238,12 @@ code { color: #c02d76; }
     color: var(--flowlio-text);
 }
 
-.topbar-title { font-weight: 700; font-size: 18px; color: var(--flowlio-text); }
+/* Breadcrumb in the top bar (replaces the old duplicate page title). */
+.topbar-breadcrumb { display: flex; align-items: center; gap: 7px; font-size: 14px; min-width: 0; }
+.topbar-breadcrumb .breadcrumb-link { color: var(--flowlio-link); text-decoration: none; }
+.topbar-breadcrumb .breadcrumb-link:hover { text-decoration: underline; }
+.topbar-breadcrumb .breadcrumb-sep { color: var(--flowlio-text-faint); }
+.topbar-breadcrumb .breadcrumb-current { color: var(--flowlio-text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-user { color: var(--flowlio-text-muted); font-size: 14px; }
 .topbar-link { color: var(--flowlio-link); text-decoration: none; font-size: 14px; }
 .topbar-link:hover { text-decoration: underline; }
@@ -855,7 +860,7 @@ mark.fts-hit {
     .page.is-sidebar-open .sidebar-backdrop { display: block; }
 
     .topbar { padding: 10px 14px; gap: 8px; }
-    .topbar-title { font-size: 16px; }
+    .topbar-breadcrumb { font-size: 13px; }
     .content { padding: 16px 14px; }
 
     /* Narrow viewports: page-title h1 a touch smaller so it doesn't wrap awkwardly. */

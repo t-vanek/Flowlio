@@ -32,7 +32,18 @@
                     @onclick="ToggleSidebar">
                 <span></span><span></span><span></span>
             </button>
-            <span class="topbar-title">@_pageTitle</span>
+            <nav class="topbar-breadcrumb" aria-label="Drobečková navigace">
+                @if (_pageTitle == HomeTitle)
+                {
+                    <span class="breadcrumb-current">@HomeTitle</span>
+                }
+                else
+                {
+                    <a class="breadcrumb-link" href="">@HomeTitle</a>
+                    <span class="breadcrumb-sep">›</span>
+                    <span class="breadcrumb-current">@_pageTitle</span>
+                }
+            </nav>
             <span class="spacer"></span>
             <ProfileMenu OnThemeChanged="HandleThemeChangedAsync" />
         </header>
@@ -44,6 +55,7 @@
 </div>
 
 @code {
+    private const string HomeTitle = "Přehled";
     private DesignThemeModes _designMode = DesignThemeModes.System;
     private string _pageTitle = "";
 
@@ -94,7 +106,7 @@
                 return;
             }
         }
-        _pageTitle = "Přehled";
+        _pageTitle = HomeTitle;
     }
 
     private Task HandleThemeChangedAsync(string theme)
