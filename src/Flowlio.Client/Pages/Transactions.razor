@@ -520,7 +520,7 @@ else
             return;
 
         var updated = await Api.UpdateTransactionAsync(gid,
-            new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat } });
+            new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat }, Version = t.Version });
         if (updated is not null)
             Toasts.ShowSuccess("Kategorie změněna.");
         else

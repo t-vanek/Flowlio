@@ -142,9 +142,10 @@
         {
             if (Editing is { } t)
             {
-                if (await Api.UpdateTransactionAsync(t.Id, new UpdateTransactionRequest { Fields = fields }) is null)
+                var updated = await Api.UpdateTransactionAsync(t.Id, new UpdateTransactionRequest { Fields = fields, Version = t.Version });
+                if (updated is null)
                 {
-                    _error = "Pohyb se nepodařilo uložit.";
+                    _error = "Pohyb se nepodařilo uložit (možná ho mezitím změnil někdo jiný — zavřete a otevřete znovu).";
                     return;
                 }
                 Toasts.ShowSuccess("Změny byly uloženy.");

@@ -199,6 +199,9 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         // soft-deleted transaction does not block re-importing (or re-creating) the same movement.
         b.HasIndex(x => new { x.BankAccountId, x.DedupHash }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
         b.HasIndex(x => new { x.FamilyId, x.BookingDate });
+
+        // Optimistic concurrency via the Postgres xmin system column (same as family/member/card).
+        b.Property<uint>("xmin").IsRowVersion();
         b.ToTable(t => t.HasCheckConstraint("CK_Transaction_Currency", "char_length(\"Currency\") = 3"));
 
         // Full-text search: a STORED generated tsvector over the searchable fields, diacritics-folded
