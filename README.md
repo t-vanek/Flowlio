@@ -22,6 +22,31 @@ through live banking connections.
 - **Data integrity:** layered validation, optimistic concurrency, soft delete / archive and cascading
   deletes (see [Data integrity & safety](#data-integrity--safety)).
 
+## Screenshots
+
+The UI is in Czech. Click any image to enlarge.
+
+### Dashboard
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### Transactions
+
+![Transactions](docs/screenshots/transactions.png)
+
+<details>
+<summary>More screens</summary>
+
+| | |
+|---|---|
+| **Manual movements** <br> ![Manual movements](docs/screenshots/movements.png) | **Statement import** <br> ![Statement import](docs/screenshots/import.png) |
+| **Accounts** <br> ![Accounts](docs/screenshots/accounts.png) | **Family** <br> ![Family](docs/screenshots/family.png) |
+| **Family management – roles** <br> ![Family roles](docs/screenshots/family-roles.png) | **Family management – settings** <br> ![Family settings](docs/screenshots/family-settings.png) |
+| **Administration – users** <br> ![Administration users](docs/screenshots/admin-users.png) | **Administration – account roles** <br> ![Administration account roles](docs/screenshots/admin-roles.png) |
+| **Administration – audit log** <br> ![Audit log](docs/screenshots/admin-audit.png) | **Not found** <br> ![Not found](docs/screenshots/not-found.png) |
+
+</details>
+
 ## Tech stack
 
 - **.NET 10**, C#
