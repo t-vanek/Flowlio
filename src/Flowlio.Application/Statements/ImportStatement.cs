@@ -26,6 +26,7 @@ public sealed class ImportStatementHandler
         IStatementImporter importer,
         ICurrentFamily currentFamily,
         ICurrentUser currentUser,
+        IAuditLog audit,
         IMessageContext messaging,
         CancellationToken ct)
     {
@@ -115,6 +116,8 @@ public sealed class ImportStatementHandler
         batch.ImportedCount = imported;
         batch.DuplicateCount = duplicates;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("import.statement", "ImportBatch", batch.Id.ToString(),
+            batch.FileName, familyId, $"Import výpisu ({imported} pohybů, {duplicates} duplicit)", ct);
 
         // Fan out the completion via the transactional outbox: the event is stored together with the
         // transactions above and delivered to RabbitMQ only after commit (guaranteed, crash-safe).

@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Správa rodiny – Flowlio</PageTitle>
 
@@ -61,10 +63,6 @@ else
                         }
                     </div>
                 }
-            }
-            @if (_rolesMessage is not null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Success">@_rolesMessage</FluentMessageBar>
             }
         </FluentCard>
     }
@@ -126,11 +124,6 @@ else
                         </FluentStack>
                     </EditForm>
                 }
-
-                @if (_familyMessage is not null)
-                {
-                    <FluentMessageBar Intent="@_familyIntent">@_familyMessage</FluentMessageBar>
-                }
             }
         </FluentCard>
     }
@@ -148,7 +141,6 @@ else
     // Role matrix
     private FamilyRolesDto? _roles;
     private readonly Dictionary<MemberRole, HashSet<Permission>> _rolePerms = new();
-    private string? _rolesMessage;
 
     // Family settings
     private FamilyDto? _family;
@@ -156,8 +148,6 @@ else
     private UpdateFamilyRequest _familyModel = new();
     private string _transferValue = "";
     private DeleteFamilyRequest _deleteModel = new();
-    private string? _familyMessage;
-    private MessageIntent _familyIntent = MessageIntent.Success;
 
     private IEnumerable<FamilyMemberDto> TransferCandidates =>
         (_members ?? []).Where(m => m.Role == MemberRole.Adult && m.IsActive && m.Status == MemberStatus.Active);
@@ -225,39 +215,49 @@ else
 
     private async Task SaveRoleAsync(MemberRole role)
     {
-        _rolesMessage = null;
         var perms = _rolePerms.TryGetValue(role, out var set) ? set.ToList() : [];
         if (await Api.UpdateRoleAsync(role, perms))
-            _rolesMessage = $"Oprávnění role {RoleLabel(role)} uložena.";
+            Toasts.ShowSuccess($"Oprávnění role {RoleLabel(role)} uložena.");
+        else
+            Toasts.ShowError("Oprávnění se nepodařilo uložit.");
         await LoadRolesAsync();
     }
 
     // ---- Family settings ----
     private async Task SaveFamilyAsync()
     {
-        _familyMessage = null;
         var result = await Api.UpdateFamilyAsync(_familyModel);
-        _familyIntent = result == SaveStatus.Success ? MessageIntent.Success : MessageIntent.Error;
-        _familyMessage = result switch
+        switch (result)
         {
-            SaveStatus.Success => "Rodina uložena.",
-            SaveStatus.Conflict => "Rodina byla mezitím změněna jiným uživatelem. Načetl jsem aktuální verzi.",
-            _ => "Uložení se nezdařilo.",
-        };
+            case SaveStatus.Success:
+                Toasts.ShowSuccess("Rodina uložena.");
+                break;
+            case SaveStatus.Conflict:
+                Toasts.ShowWarning("Rodina byla mezitím změněna jiným uživatelem. Načetl jsem aktuální verzi.");
+                break;
+            default:
+                Toasts.ShowError("Uložení se nezdařilo.");
+                break;
+        }
         await LoadFamilyAsync();
     }
 
     private async Task TransferAsync()
     {
-        _familyMessage = null;
         if (!Guid.TryParse(_transferValue, out var id))
+            return;
+
+        var name = TransferCandidates.FirstOrDefault(m => m.Id == id)?.DisplayName ?? "vybraného člena";
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu převést vlastnictví rodiny na: {name}? Stanete se dospělým členem a nový vlastník získá plnou kontrolu.",
+            "Převést", "Zrušit", "Převod vlastnictví");
+        if ((await dialog.Result).Cancelled)
             return;
 
         var ok = await Api.TransferOwnershipAsync(id);
         if (!ok)
         {
-            _familyIntent = MessageIntent.Error;
-            _familyMessage = "Převod se nezdařil.";
+            Toasts.ShowError("Převod se nezdařil.");
             return;
         }
 
@@ -265,8 +265,7 @@ else
         ApplyPermissions();
         EnsureValidTab();
 
-        _familyIntent = MessageIntent.Success;
-        _familyMessage = "Vlastnictví převedeno. Vaše role je nyní Dospělý.";
+        Toasts.ShowSuccess("Vlastnictví převedeno. Vaše role je nyní Dospělý.");
 
         if (_canFamily)
             await LoadFamilyAsync();
@@ -274,21 +273,18 @@ else
 
     private async Task DeleteFamilyAsync()
     {
-        _familyMessage = null;
         if (_family is null || _deleteModel.ConfirmName != _family.Name)
             return;
         var ok = await Api.DeleteFamilyAsync(_deleteModel.ConfirmName);
         if (ok)
         {
-            _familyIntent = MessageIntent.Success;
-            _familyMessage = "Rodina byla smazána.";
+            Toasts.ShowSuccess("Rodina byla smazána.");
             _deleteModel = new();
             await LoadFamilyAsync();
         }
         else
         {
-            _familyIntent = MessageIntent.Error;
-            _familyMessage = "Smazání se nezdařilo.";
+            Toasts.ShowError("Smazání se nezdařilo.");
         }
     }
 

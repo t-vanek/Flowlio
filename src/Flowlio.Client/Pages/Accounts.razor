@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Účty – Flowlio</PageTitle>
 
@@ -324,7 +326,17 @@ else
 
     private async Task ArchiveAsync(Guid accountId)
     {
-        await Api.ArchiveAccountAsync(accountId);
+        var name = _accounts?.FirstOrDefault(a => a.Id == accountId)?.Name ?? "účet";
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu archivovat účet: {name}? Skryje se z přehledů, ale historie zůstane a lze ho obnovit.",
+            "Archivovat", "Zrušit", "Archivace účtu");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.ArchiveAccountAsync(accountId))
+            Toasts.ShowSuccess("Účet byl archivován.");
+        else
+            Toasts.ShowError("Účet se nepodařilo archivovat.");
         if (_expanded == accountId)
             _expanded = null;
         await LoadAsync();
@@ -332,7 +344,10 @@ else
 
     private async Task RestoreAsync(Guid accountId)
     {
-        await Api.RestoreAccountAsync(accountId);
+        if (await Api.RestoreAccountAsync(accountId))
+            Toasts.ShowSuccess("Účet byl obnoven.");
+        else
+            Toasts.ShowError("Účet se nepodařilo obnovit.");
         await LoadAsync();
     }
 
@@ -345,7 +360,12 @@ else
             _accountModel.OwnerMemberId = Guid.TryParse(_ownerValue, out var oid) ? oid : null;
             if (string.IsNullOrWhiteSpace(_accountModel.AccountNumber))
                 _accountModel.AccountNumber = null;
-            await Api.CreateAccountAsync(_accountModel);
+            if (await Api.CreateAccountAsync(_accountModel) is null)
+            {
+                Toasts.ShowError("Účet se nepodařilo vytvořit.");
+                return;
+            }
+            Toasts.ShowSuccess("Účet byl vytvořen.");
             _accountModel = new();
             _bankValue = "4";
             _ownerValue = "";
@@ -399,13 +419,25 @@ else
         });
         if (result is null)
             _manageError = "Sdílení se nepodařilo nastavit.";
+        else
+            Toasts.ShowSuccess("Sdílení účtu bylo nastaveno.");
         await ReloadManageAsync(accountId);
         await LoadAsync();
     }
 
     private async Task RevokeAccessAsync(Guid accountId, Guid memberId)
     {
-        await Api.RevokeAccessAsync(accountId, memberId);
+        var who = _access?.Grants.FirstOrDefault(g => g.FamilyMemberId == memberId)?.MemberName ?? "člena";
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu odebrat sdílení účtu pro: {who}?",
+            "Odebrat", "Zrušit", "Odebrání sdílení");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.RevokeAccessAsync(accountId, memberId))
+            Toasts.ShowSuccess("Sdílení bylo odebráno.");
+        else
+            Toasts.ShowError("Sdílení se nepodařilo odebrat.");
         await ReloadManageAsync(accountId);
         await LoadAsync();
     }
@@ -424,6 +456,7 @@ else
             _manageError = "Kartu se nepodařilo přidat.";
             return;
         }
+        Toasts.ShowSuccess("Karta byla přidána.");
         _cardModel = NewCardModel();
         _cardTypeValue = ((int)CardType.Debit).ToString();
         _cardHolderValue = "";
@@ -451,13 +484,24 @@ else
             _manageError = "Karta byla mezitím změněna jiným uživatelem. Načetl jsem aktuální stav.";
         else if (result != SaveStatus.Success)
             _manageError = "Změnu karty se nepodařilo uložit.";
+        else
+            Toasts.ShowSuccess(newStatus == CardStatus.Active ? "Karta byla aktivována." : "Karta byla zablokována.");
         if (_expanded is { } id)
             await ReloadManageAsync(id);
     }
 
     private async Task DeleteCardAsync(Guid cardId)
     {
-        await Api.DeleteCardAsync(cardId);
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            "Opravdu smazat tuto kartu?",
+            "Smazat", "Zrušit", "Smazání karty");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.DeleteCardAsync(cardId))
+            Toasts.ShowSuccess("Karta byla smazána.");
+        else
+            Toasts.ShowError("Kartu se nepodařilo smazat.");
         if (_expanded is { } id)
         {
             await ReloadManageAsync(id);

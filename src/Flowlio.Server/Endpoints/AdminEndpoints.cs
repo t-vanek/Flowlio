@@ -43,22 +43,47 @@ public static class AdminEndpoints
     private static async Task<IResult> GetUsers(
         UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
         IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct,
-        int page = 1, int pageSize = 25)
+        int page = 1, int pageSize = 25, string? search = null, string? status = null)
     {
         if (!await sys.CanAsync(SystemPermission.ViewUsers, ct))
             return Forbidden();
-        return Results.Ok(await PageUsersAsync(userManager.Users, userManager, roleManager, db, current, page, pageSize, ct));
+        var source = FilterUsers(userManager.Users, search, status);
+        return Results.Ok(await PageUsersAsync(source, userManager, roleManager, db, current, page, pageSize, ct));
     }
 
     private static async Task<IResult> GetDeletedUsers(
         UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
         IAppDbContext db, ICurrentUser current, ICurrentSystemAccess sys, CancellationToken ct,
-        int page = 1, int pageSize = 25)
+        int page = 1, int pageSize = 25, string? search = null)
     {
         if (!await sys.CanAsync(SystemPermission.DeleteUsers, ct))
             return Forbidden();
         var deleted = userManager.Users.IgnoreQueryFilters().Where(u => u.DeletedAt != null);
+        deleted = FilterUsers(deleted, search, status: null);
         return Results.Ok(await PageUsersAsync(deleted, userManager, roleManager, db, current, page, pageSize, ct));
+    }
+
+    // Text search matches e-mail or display name; status maps to the lockout column so it stays a
+    // single DB query (blocked = lockout in the far future, locked = a shorter future deadline).
+    private static IQueryable<ApplicationUser> FilterUsers(IQueryable<ApplicationUser> source, string? search, string? status)
+    {
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            source = source.Where(u =>
+                (u.Email != null && EF.Functions.ILike(u.Email, $"%{term}%")) ||
+                (u.DisplayName != null && EF.Functions.ILike(u.DisplayName, $"%{term}%")));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var blockedThreshold = DateTimeOffset.MaxValue.AddDays(-1);
+        return status switch
+        {
+            "active"  => source.Where(u => u.LockoutEnd == null || u.LockoutEnd <= now),
+            "locked"  => source.Where(u => u.LockoutEnd != null && u.LockoutEnd > now && u.LockoutEnd < blockedThreshold),
+            "blocked" => source.Where(u => u.LockoutEnd != null && u.LockoutEnd >= blockedThreshold),
+            _ => source,
+        };
     }
 
     private static async Task<AdminUserPageDto> PageUsersAsync(

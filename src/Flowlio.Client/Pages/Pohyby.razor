@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Pohyby – Flowlio</PageTitle>
 
@@ -85,10 +87,6 @@ else
                 {
                     <FluentMessageBar Intent="MessageIntent.Error">@_error</FluentMessageBar>
                 }
-                @if (_success is not null)
-                {
-                    <FluentMessageBar Intent="MessageIntent.Success">@_success</FluentMessageBar>
-                }
 
                 <FluentButton Appearance="Appearance.Accent" OnClick="SubmitAsync" Loading="_saving">Vytvořit pohyby</FluentButton>
             </FluentStack>
@@ -164,7 +162,6 @@ else
     private string _label = "";
     private readonly List<MovementRow> _rows = [new MovementRow()];
     private string? _error;
-    private string? _success;
     private bool _saving;
 
     private Guid? _renamingId;
@@ -196,7 +193,6 @@ else
     private async Task SubmitAsync()
     {
         _error = null;
-        _success = null;
 
         if (!Guid.TryParse(_account, out var accountId))
         {
@@ -232,9 +228,10 @@ else
             if (result is null)
             {
                 _error = "Pohyby se nepodařilo vytvořit.";
+                Toasts.ShowError("Pohyby se nepodařilo vytvořit.");
                 return;
             }
-            _success = $"Vytvořeno {result.CreatedCount} pohybů.";
+            Toasts.ShowSuccess($"Vytvořeno {result.CreatedCount} pohybů.");
             _label = "";
             _rows.Clear();
             _rows.Add(new MovementRow());
@@ -254,15 +251,29 @@ else
 
     private async Task SaveRenameAsync(Guid id)
     {
-        await Api.UpdateMovementBatchAsync(id, string.IsNullOrWhiteSpace(_renameLabel) ? null : _renameLabel);
+        if (await Api.UpdateMovementBatchAsync(id, string.IsNullOrWhiteSpace(_renameLabel) ? null : _renameLabel))
+            Toasts.ShowSuccess("Dávka byla přejmenována.");
+        else
+            Toasts.ShowError("Přejmenování se nepodařilo uložit.");
         _renamingId = null;
         await LoadBatchesAsync();
     }
 
     private async Task DeleteBatchAsync(Guid id)
     {
+        var b = _batches?.FirstOrDefault(x => x.Id == id);
+        var name = string.IsNullOrWhiteSpace(b?.Name) ? "dávku" : b!.Name;
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat dávku: {name}? Smažou se i všechny její pohyby (lze je obnovit z transakcí).",
+            "Smazat", "Zrušit", "Smazání dávky");
+        if ((await dialog.Result).Cancelled)
+            return;
+
         if (await Api.DeleteMovementBatchAsync(id))
-            await LoadBatchesAsync();
+            Toasts.ShowSuccess("Dávka byla smazána.");
+        else
+            Toasts.ShowError("Dávku se nepodařilo smazat.");
+        await LoadBatchesAsync();
     }
 
     private static string OriginLabel(BatchOrigin origin) => origin switch

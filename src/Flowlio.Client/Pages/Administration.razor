@@ -3,6 +3,8 @@
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
 @inject IJSRuntime JS
+@inject IDialogService Dialogs
+@inject IToastService Toasts
 
 <PageTitle>Administrace – Flowlio</PageTitle>
 
@@ -67,17 +69,30 @@ else
 
         <FluentCard Class="panel">
             <h2 class="panel-title">Uživatelské účty</h2>
+            <div class="toolbar">
+                <FluentTextField @bind-Value="_userSearch" Label="Hledat (e-mail, jméno)" Style="flex:1 1 240px;min-width:220px" />
+                <FluentSelect TOption="string" @bind-Value="_userStatus" Label="Stav">
+                    <FluentOption TOption="string" Value="">Všechny stavy</FluentOption>
+                    <FluentOption TOption="string" Value="active">Aktivní</FluentOption>
+                    <FluentOption TOption="string" Value="locked">Zamčené</FluentOption>
+                    <FluentOption TOption="string" Value="blocked">Blokované</FluentOption>
+                </FluentSelect>
+                <div class="toolbar-actions">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SearchUsersAsync">Filtrovat</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearUserFiltersAsync">Zrušit</FluentButton>
+                </div>
+            </div>
             @if (_canDeleteUsers)
             {
                 <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleDeletedAsync">@(_showDeleted ? "Skrýt smazané" : "Zobrazit smazané")</FluentButton>
             }
-            @if (_usersMessage is not null)
-            {
-                <FluentMessageBar Intent="@_usersIntent">@_usersMessage</FluentMessageBar>
-            }
             @if (_users is null)
             {
                 <FluentProgressRing />
+            }
+            else if (_users.Items.Count == 0)
+            {
+                <p class="muted">Žádní uživatelé neodpovídají filtru.</p>
             }
             else
             {
@@ -229,13 +244,20 @@ else
         {
             <FluentCard Class="panel">
                 <h2 class="panel-title">Smazané účty</h2>
+                <div class="toolbar">
+                    <FluentTextField @bind-Value="_deletedSearch" Label="Hledat (e-mail, jméno)" Style="flex:1 1 240px;min-width:220px" />
+                    <div class="toolbar-actions">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="SearchDeletedAsync">Filtrovat</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="ClearDeletedFiltersAsync">Zrušit</FluentButton>
+                    </div>
+                </div>
                 @if (_deletedUsers is null)
                 {
                     <FluentProgressRing />
                 }
                 else if (_deletedUsers.Items.Count == 0)
                 {
-                    <p class="muted">Žádné smazané účty.</p>
+                    <p class="muted">@(string.IsNullOrWhiteSpace(_deletedSearch) ? "Žádné smazané účty." : "Žádné smazané účty neodpovídají filtru.")</p>
                 }
                 else
                 {
@@ -323,10 +345,6 @@ else
                         }
                     </div>
                 }
-            }
-            @if (_sysRolesMessage is not null)
-            {
-                <FluentMessageBar Intent="@_sysRolesIntent">@_sysRolesMessage</FluentMessageBar>
             }
         </FluentCard>
     }
@@ -442,11 +460,12 @@ else
     private HashSet<string> _editUserRoles = new();
     private CreateUserRequest _newUser = new();
     private AdminSetPasswordRequest _passwordModel = new();
-    private string? _usersMessage;
-    private MessageIntent _usersIntent = MessageIntent.Success;
+    private string _userSearch = "";
+    private string _userStatus = "";
     private bool _showDeleted;
     private AdminUserPageDto? _deletedUsers;
     private int _deletedPage = 1;
+    private string _deletedSearch = "";
 
     private int UsersTotalPages => _users is null || _users.PageSize == 0
         ? 1 : Math.Max(1, (int)Math.Ceiling((double)_users.TotalCount / _users.PageSize));
@@ -457,8 +476,6 @@ else
     private readonly Dictionary<Guid, HashSet<SystemPermission>> _sysRolePerms = new();
     private CreateSystemRoleRequest _newRoleModel = new();
     private RenameSystemRoleRequest _renameModel = new();
-    private string? _sysRolesMessage;
-    private MessageIntent _sysRolesIntent = MessageIntent.Success;
 
     private AuditPageDto? _audit;
     private string _auditSearch = "";
@@ -586,9 +603,10 @@ else
 
     private async Task RunSysRolesActionAsync(Func<Task<bool>> action, string okMessage)
     {
-        var ok = await action();
-        _sysRolesIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _sysRolesMessage = ok ? okMessage : "Operace se nezdařila.";
+        if (await action())
+            Toasts.ShowSuccess(okMessage);
+        else
+            Toasts.ShowError("Operace se nezdařila.");
         await LoadSystemRolesAsync();
     }
 
@@ -609,8 +627,13 @@ else
         _renameModel = new();
     }
 
-    private Task DeleteSysRoleAsync(Guid roleId) =>
-        RunSysRolesActionAsync(() => Api.DeleteSystemRoleAsync(roleId), "Role smazána.");
+    private async Task DeleteSysRoleAsync(Guid roleId)
+    {
+        var name = _systemRoles?.Roles.FirstOrDefault(r => r.RoleId == roleId)?.Name ?? "roli";
+        if (!await ConfirmAsync($"Opravdu smazat roli účtů: {name}? Uživatelé tuto roli ztratí.", "Smazat", "Smazání role"))
+            return;
+        await RunSysRolesActionAsync(() => Api.DeleteSystemRoleAsync(roleId), "Role smazána.");
+    }
 
     // ---- Users ----
     private void ToggleUser(AdminUserDto u)
@@ -634,20 +657,30 @@ else
 
     private async Task RunUserActionAsync(Func<Task<bool>> action, string okMessage)
     {
-        var ok = await action();
-        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _usersMessage = ok ? okMessage : "Operace se nezdařila.";
+        if (await action())
+            Toasts.ShowSuccess(okMessage);
+        else
+            Toasts.ShowError("Operace se nezdařila.");
         await LoadUsersAsync();
     }
+
+    private async Task<bool> ConfirmAsync(string message, string confirm, string title)
+    {
+        var dialog = await Dialogs.ShowConfirmationAsync(message, confirm, "Zrušit", title);
+        return !(await dialog.Result).Cancelled;
+    }
+
+    private static string UserName(AdminUserDto u) =>
+        string.IsNullOrWhiteSpace(u.DisplayName) ? (u.Email ?? "uživatel") : u.DisplayName;
 
     // Reload the current page; if it fell past the end (e.g. after a delete), step back to the last page.
     private async Task LoadUsersAsync()
     {
-        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize, _userSearch, _userStatus);
         if (_usersPage > UsersTotalPages)
         {
             _usersPage = UsersTotalPages;
-            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize, _userSearch, _userStatus);
         }
     }
 
@@ -657,13 +690,27 @@ else
         return LoadUsersAsync();
     }
 
+    private Task SearchUsersAsync()
+    {
+        _usersPage = 1;
+        return LoadUsersAsync();
+    }
+
+    private Task ClearUserFiltersAsync()
+    {
+        _userSearch = "";
+        _userStatus = "";
+        _usersPage = 1;
+        return LoadUsersAsync();
+    }
+
     private async Task LoadDeletedAsync()
     {
-        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize, _deletedSearch);
         if (_deletedPage > DeletedTotalPages)
         {
             _deletedPage = DeletedTotalPages;
-            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize, _deletedSearch);
         }
     }
 
@@ -673,23 +720,44 @@ else
         return LoadDeletedAsync();
     }
 
+    private Task SearchDeletedAsync()
+    {
+        _deletedPage = 1;
+        return LoadDeletedAsync();
+    }
+
+    private Task ClearDeletedFiltersAsync()
+    {
+        _deletedSearch = "";
+        _deletedPage = 1;
+        return LoadDeletedAsync();
+    }
+
     private async Task CreateUserAsync()
     {
         if (string.IsNullOrWhiteSpace(_newUser.DisplayName))
             _newUser.DisplayName = null;
-        var ok = await Api.CreateUserAsync(_newUser);
-        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _usersMessage = ok ? "Uživatel vytvořen." : "Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).";
-        if (ok)
+        if (await Api.CreateUserAsync(_newUser))
+        {
+            Toasts.ShowSuccess("Uživatel vytvořen.");
             _newUser = new();
+        }
+        else
+        {
+            Toasts.ShowError("Uživatele se nepodařilo vytvořit (e-mail už existuje nebo slabé heslo).");
+        }
         await LoadUsersAsync();
     }
 
     private Task LockAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.LockUserAsync(u.Id, 24 * 60), "Účet zamčen na 24 hodin.");
 
-    private Task BlockAsync(AdminUserDto u) =>
-        RunUserActionAsync(() => Api.BlockUserAsync(u.Id), "Účet zablokován.");
+    private async Task BlockAsync(AdminUserDto u)
+    {
+        if (!await ConfirmAsync($"Opravdu zablokovat účet: {UserName(u)}? Uživatel se nebude moci přihlásit, dokud jej neobnovíte.", "Blokovat", "Blokace účtu"))
+            return;
+        await RunUserActionAsync(() => Api.BlockUserAsync(u.Id), "Účet zablokován.");
+    }
 
     private Task RestoreAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.RestoreUserAsync(u.Id), "Účet obnoven.");
@@ -697,8 +765,12 @@ else
     private Task ForcePwdAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.ForcePasswordChangeAsync(u.Id), "Při příštím přihlášení bude vyžadována změna hesla.");
 
-    private Task Disable2faAsync(AdminUserDto u) =>
-        RunUserActionAsync(() => Api.DisableUser2faAsync(u.Id), "Dvoufaktorové ověření vypnuto.");
+    private async Task Disable2faAsync(AdminUserDto u)
+    {
+        if (!await ConfirmAsync($"Opravdu vypnout dvoufaktorové ověření pro: {UserName(u)}? Sníží se tím zabezpečení účtu.", "Vypnout 2FA", "Vypnutí 2FA"))
+            return;
+        await RunUserActionAsync(() => Api.DisableUser2faAsync(u.Id), "Dvoufaktorové ověření vypnuto.");
+    }
 
     private async Task OpenRequire2faAsync(AdminUserDto u)
     {
@@ -708,8 +780,7 @@ else
         if (string.IsNullOrWhiteSpace(raw)) return;
         if (!int.TryParse(raw, out var days) || days < 1 || days > 365)
         {
-            _usersMessage = "Zadejte počet dní mezi 1 a 365.";
-            _usersIntent = MessageIntent.Error;
+            Toasts.ShowError("Zadejte počet dní mezi 1 a 365.");
             return;
         }
         var deadline = DateTimeOffset.UtcNow.AddDays(days);
@@ -720,11 +791,19 @@ else
     private Task ClearRequire2faAsync(AdminUserDto u) =>
         RunUserActionAsync(() => Api.Require2faAsync(u.Id, null), "Požadavek na 2FA zrušen.");
 
-    private Task ForceLogoutAsync(AdminUserDto u) =>
-        RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");
+    private async Task ForceLogoutAsync(AdminUserDto u)
+    {
+        if (!await ConfirmAsync($"Opravdu vynutit odhlášení uživatele: {UserName(u)}? Bude odhlášen při nejbližší obnově relace.", "Odhlásit", "Vynucené odhlášení"))
+            return;
+        await RunUserActionAsync(() => Api.ForceLogoutAsync(u.Id), "Uživatel bude odhlášen při nejbližší obnově relace.");
+    }
 
-    private Task DeleteUserAsync(AdminUserDto u) =>
-        RunUserActionAsync(() => Api.DeleteUserAsync(u.Id), "Účet smazán (lze obnovit).");
+    private async Task DeleteUserAsync(AdminUserDto u)
+    {
+        if (!await ConfirmAsync($"Opravdu smazat účet: {UserName(u)}? Účet půjde obnovit ze seznamu smazaných.", "Smazat", "Smazání účtu"))
+            return;
+        await RunUserActionAsync(() => Api.DeleteUserAsync(u.Id), "Účet smazán (lze obnovit).");
+    }
 
     private async Task ToggleDeletedAsync()
     {
@@ -747,17 +826,23 @@ else
 
     private async Task PurgeAsync(AdminUserDto u)
     {
+        if (!await ConfirmAsync($"Opravdu trvale odstranit účet: {UserName(u)}? Tuto akci nelze vrátit zpět.", "Trvale odstranit", "Trvalé odstranění účtu"))
+            return;
         await RunUserActionAsync(() => Api.PurgeUserAsync(u.Id), "Účet trvale odstraněn.");
         await ReloadDeletedAsync();
     }
 
     private async Task SetPasswordAsync(AdminUserDto u)
     {
-        var ok = await Api.SetUserPasswordAsync(u.Id, _passwordModel);
-        _usersIntent = ok ? MessageIntent.Success : MessageIntent.Error;
-        _usersMessage = ok ? "Heslo nastaveno; uživatel si jej při přihlášení změní." : "Heslo se nepodařilo nastavit (slabé heslo?).";
-        if (ok)
+        if (await Api.SetUserPasswordAsync(u.Id, _passwordModel))
+        {
+            Toasts.ShowSuccess("Heslo nastaveno; uživatel si jej při přihlášení změní.");
             _passwordModel = new();
+        }
+        else
+        {
+            Toasts.ShowError("Heslo se nepodařilo nastavit (slabé heslo?).");
+        }
         await LoadUsersAsync();
     }
 
@@ -795,6 +880,8 @@ else
         "user.delete" => "Smazání účtu",
         "user.undelete" => "Obnovení účtu",
         "user.purge" => "Trvalé odstranění účtu",
+        "user.disable-2fa" => "Vypnutí 2FA",
+        "user.require-2fa" => "Vyžadování 2FA",
         "system-role.create" => "Vytvoření role účtů",
         "system-role.rename" => "Přejmenování role účtů",
         "system-role.permissions" => "Změna oprávnění role účtů",
@@ -806,8 +893,28 @@ else
         "member.create" => "Přidání člena",
         "member.update" => "Úprava člena",
         "member.delete" => "Odebrání člena",
+        "member.reinvite" => "Opětovné pozvání člena",
         "member.activate" => "Aktivace člena",
         "member.deactivate" => "Deaktivace člena",
+        "invitation.revoke" => "Zrušení pozvánky",
+        "account.create" => "Vytvoření bankovního účtu",
+        "account.archive" => "Archivace bankovního účtu",
+        "account.restore" => "Obnovení bankovního účtu",
+        "account-access.grant" => "Udělení přístupu k účtu",
+        "account-access.revoke" => "Odebrání přístupu k účtu",
+        "card.create" => "Přidání karty",
+        "card.update" => "Úprava karty",
+        "card.delete" => "Smazání karty",
+        "transaction.create" => "Vytvoření pohybu",
+        "transaction.update" => "Úprava pohybu",
+        "transaction.delete" => "Smazání pohybu",
+        "transaction.restore" => "Obnovení pohybu",
+        "transaction.bulk_delete" => "Hromadné smazání pohybů",
+        "transaction.bulk_categorize" => "Hromadná kategorizace pohybů",
+        "batch.create" => "Vytvoření dávky pohybů",
+        "batch.rename" => "Přejmenování dávky pohybů",
+        "batch.delete" => "Smazání dávky pohybů",
+        "import.statement" => "Import výpisu",
         _ => action,
     };
 }
