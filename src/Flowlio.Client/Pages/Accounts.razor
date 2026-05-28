@@ -39,7 +39,10 @@ else
                     <FluentTextField @bind-Value="_accountModel.AccountNumber" Label="Číslo účtu" Style="width:100%" Placeholder="123456789/0100" />
                     <FluentValidationMessage For="@(() => _accountModel.AccountNumber)" />
                 </div>
-                <FluentNumberField @bind-Value="_accountModel.OpeningBalance" Label="Počáteční zůstatek" Style="width:100%" />
+                <div>
+                    <label class="field-label">Počáteční zůstatek</label>
+                    <MoneyField @bind-Value="_accountModel.OpeningBalance" />
+                </div>
 
                 <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">
                     <FluentOption TOption="string" Value="">Můj / společný účet</FluentOption>
