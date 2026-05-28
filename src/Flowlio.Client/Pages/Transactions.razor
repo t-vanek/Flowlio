@@ -12,6 +12,14 @@
 
 <h1 class="page-title">Transakce</h1>
 
+@if (!_canView)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění zobrazit finance této rodiny.</FluentMessageBar>
+    </FluentCard>
+}
+else
+{
 <div class="toolbar">
     <FluentSearch @bind-Value="_search" @bind-Value:after="SearchChangedAsync"
                   Immediate="true" ImmediateDelay="300"
@@ -275,6 +283,7 @@ else
         </div>
     </div>
 }
+}
 
 @code {
     private List<TransactionDto> _rows = [];
@@ -284,6 +293,7 @@ else
     private Dictionary<Guid, string> _categoryColors = [];
     private Dictionary<Guid, string> _accountNames = [];
     private TransactionDto? _detailTx;
+    private bool _canView;
     private List<Guid> _selectedIds = [];
     private List<Guid> _undoIds = [];
     private string _bulkCategory = "";
@@ -333,6 +343,10 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _canView = await CurrentUser.CanAsync(Permission.ViewFinances);
+        if (!_canView)
+            return;
+
         _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
