@@ -24,19 +24,19 @@ else
     <div class="kpi-grid">
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Celkový zůstatek</div>
-            <div class="kpi-value">@Money(_summary.TotalBalance)</div>
+            <div class="kpi-value">@Formatting.Money(_summary.TotalBalance)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Příjmy tento měsíc</div>
-            <div class="kpi-value income">@Money(_summary.IncomeThisMonth)</div>
+            <div class="kpi-value income">@Formatting.Money(_summary.IncomeThisMonth)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Výdaje tento měsíc</div>
-            <div class="kpi-value expense">@Money(_summary.ExpenseThisMonth)</div>
+            <div class="kpi-value expense">@Formatting.Money(_summary.ExpenseThisMonth)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Bilance měsíce</div>
-            <div class="kpi-value @(_summary.NetThisMonth >= 0 ? "income" : "expense")">@Money(_summary.NetThisMonth)</div>
+            <div class="kpi-value @(_summary.NetThisMonth >= 0 ? "income" : "expense")">@Formatting.Money(_summary.NetThisMonth)</div>
         </FluentCard>
     </div>
 
@@ -63,7 +63,7 @@ else
                         <div class="bar-row">
                             <span class="bar-dot" style="background:@c.Color"></span>
                             <span class="bar-name">@c.CategoryName</span>
-                            <span class="bar-amount">@Money(c.Amount)</span>
+                            <span class="bar-amount">@Formatting.Money(c.Amount)</span>
                         </div>
                     }
                 </div>
@@ -95,7 +95,7 @@ else
                     <div class="bar-row">
                         <span class="bar-name">@u.Name</span>
                         <span class="muted">@(u.DueDate?.ToString("d.M.yyyy"))</span>
-                        <span class="bar-amount expense">@Money(u.Amount)</span>
+                        <span class="bar-amount expense">@Formatting.Money(u.Amount)</span>
                     </div>
                 }
             }
@@ -149,7 +149,4 @@ else
             DataLabels = new DataLabels { Enabled = false },
         };
     }
-
-    private static string Money(decimal value) =>
-        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
 }

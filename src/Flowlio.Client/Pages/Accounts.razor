@@ -89,7 +89,7 @@ else
                         </div>
                     </div>
                     <div style="text-align:right;">
-                        <div class="account-balance">@Money(a.CurrentBalance)</div>
+                        <div class="account-balance">@Formatting.Money(a.CurrentBalance)</div>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleAsync(a.Id))">
                             @(_expanded == a.Id ? "Skrýt" : "Spravovat")
                         </FluentButton>
@@ -181,7 +181,7 @@ else
                                                 }
                                                 @if (c.MonthlyLimit is { } lim)
                                                 {
-                                                    <text> · limit @Money(lim)</text>
+                                                    <text> · limit @Formatting.Money(lim)</text>
                                                 }
                                             </div>
                                         </div>
@@ -508,9 +508,6 @@ else
             await LoadAsync();
         }
     }
-
-    private static string Money(decimal value) =>
-        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
 
     private static string BankLabel(BankProvider bank) => bank switch
     {

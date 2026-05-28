@@ -13,7 +13,7 @@
         <dt>Účet</dt>
         <dd>@AccountNames.GetValueOrDefault(Transaction.BankAccountId, "—")</dd>
         <dt>Částka</dt>
-        <dd><span class="num @(Transaction.Amount < 0 ? "expense" : "income")">@Money(Transaction.Amount) @Transaction.Currency</span></dd>
+        <dd><span class="num @(Transaction.Amount < 0 ? "expense" : "income")">@Formatting.Money(Transaction.Amount) @Transaction.Currency</span></dd>
         <dt>Protistrana</dt>
         <dd>@(string.IsNullOrWhiteSpace(Transaction.CounterpartyName) ? "—" : Transaction.CounterpartyName)</dd>
         @if (!string.IsNullOrWhiteSpace(Transaction.CounterpartyAccount))
@@ -77,7 +77,4 @@
 
     private string CategoryColor(Guid? categoryId) =>
         categoryId is { } id && CategoryColors.TryGetValue(id, out var color) ? color : "#64748b";
-
-    private static string Money(decimal value) =>
-        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
 }

@@ -16,7 +16,9 @@
 }
 else if (!_canUsers && !_canSysRoles && !_canAudit)
 {
-    <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Na administraci nemáte oprávnění.</FluentMessageBar>
+    </FluentCard>
 }
 else
 {

@@ -15,7 +15,9 @@
 }
 else if (!_canRoles && !_canFamily)
 {
-    <FluentMessageBar Intent="MessageIntent.Warning">Na správu rodiny nemáte oprávnění.</FluentMessageBar>
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Na správu rodiny nemáte oprávnění.</FluentMessageBar>
+    </FluentCard>
 }
 else
 {
