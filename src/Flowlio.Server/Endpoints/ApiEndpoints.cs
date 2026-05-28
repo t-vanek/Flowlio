@@ -295,7 +295,7 @@ public static class ApiEndpoints
 
         return Results.Ok(new TransactionPageDto
         {
-            Items = items.Select(mapper.ToDto).ToList(),
+            Items = items.Select(t => mapper.ToDto(t) with { Version = db.GetRowVersion(t) }).ToList(),
             TotalCount = total,
             Page = page,
             PageSize = pageSize,
@@ -458,7 +458,7 @@ public static class ApiEndpoints
             TxLabel(transaction), familyId, "Vytvořen pohyb", ct);
         await InvalidateDashboard(cache, familyId, ct);
 
-        return Results.Ok(mapper.ToDto(transaction));
+        return Results.Ok(mapper.ToDto(transaction) with { Version = db.GetRowVersion(transaction) });
     }
 
     private static async Task<IResult> UpdateTransaction(
@@ -482,12 +482,15 @@ public static class ApiEndpoints
         // DedupHash stays stable: it is an import fingerprint, not derived from the editable fields.
         Apply(transaction, request.Fields);
         transaction.UpdatedAt = DateTimeOffset.UtcNow;
+        // Optimistic concurrency: a stale Version makes SaveChanges throw, which the global handler
+        // turns into HTTP 409 (Program.cs).
+        db.SetOriginalRowVersion(transaction, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("transaction.update", "Transaction", transaction.Id.ToString(),
             TxLabel(transaction), familyId, "Upraven pohyb", ct);
         await InvalidateDashboard(cache, familyId, ct);
 
-        return Results.Ok(mapper.ToDto(transaction));
+        return Results.Ok(mapper.ToDto(transaction) with { Version = db.GetRowVersion(transaction) });
     }
 
     private static async Task<IResult> DeleteTransaction(

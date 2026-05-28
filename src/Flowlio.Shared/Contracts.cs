@@ -96,6 +96,9 @@ public sealed record TransactionDto
     public Guid? CategoryId { get; init; }
     public string? CategoryName { get; init; }
     public Guid? ImportBatchId { get; init; }
+
+    /// <summary>Optimistic-concurrency token (Postgres xmin); echo it back on update.</summary>
+    public uint Version { get; init; }
 }
 
 public sealed record TransactionPageDto
@@ -134,6 +137,9 @@ public sealed record CreateTransactionRequest
 public sealed record UpdateTransactionRequest
 {
     public TransactionFields Fields { get; init; } = new();
+
+    /// <summary>The row version the edit is based on; a stale value fails with HTTP 409.</summary>
+    public uint Version { get; init; }
 }
 
 /// <summary>Bulk operation over a set of transactions (delete / restore).</summary>
