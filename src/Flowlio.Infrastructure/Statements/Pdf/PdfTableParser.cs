@@ -40,13 +40,20 @@ internal sealed partial class PdfTableParser
                 continue;
             }
 
-            var value = ResolveDate(BlockDates(block).Skip(1).FirstOrDefault(), layout, periodStart, periodEnd);
-
             var description = BuildDescription(block, layout);
             var details = JoinBlock(block, PdfField.Details);
-            var name = ResolveCounterpartyName(anchor, layout, description, details);
+
+            // ČSOB-style card rows embed the merchant after "Místo:": lift it out as the counterparty, clean the
+            // description, and take the purchase date in the "Částka: …" tail as the value date.
+            var card = ExtractCardInfo(description, layout);
+            if (card is not null)
+                description = card.Description;
+
+            var name = card?.Merchant ?? ResolveCounterpartyName(anchor, layout, description, details);
             var account = ResolveAccount(block, layout);
             var (vs, ks, ss) = ResolveSymbols(details, layout);
+            var value = card?.ValueDate
+                ?? ResolveDate(BlockDates(block).Skip(1).FirstOrDefault(), layout, periodStart, periodEnd);
 
             transactions.Add(new ParsedTransaction
             {
@@ -97,7 +104,7 @@ internal sealed partial class PdfTableParser
             }
             else if (current is not null)
             {
-                if (dateCell.Length == 0 || IsDateText(dateCell))
+                if (dateCell.Length == 0 || (layout.ContinuationMayHaveDate && IsDateText(dateCell)))
                     current.Add(cells);
                 else
                     current = null;
@@ -190,6 +197,35 @@ internal sealed partial class PdfTableParser
         // No counterparty column value (typical for card payments): derive the merchant from the label.
         return MerchantName.FromDescription(description, details) ?? string.Empty;
     }
+
+    /// <summary>Extracts the merchant, a cleaned description, and the purchase date from a card row whose
+    /// description embeds the merchant after the layout's <see cref="PdfLayout.CardMerchantMarker"/>
+    /// (ČSOB "… Místo: &lt;merchant&gt; Částka: &lt;amount&gt; CZK &lt;date&gt;"). Returns null when the layout
+    /// has no such marker or the row is not a card payment.</summary>
+    private static CardInfo? ExtractCardInfo(string description, PdfLayout layout)
+    {
+        if (layout.CardMerchantMarker is not { } marker)
+            return null;
+
+        var markerIdx = description.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIdx < 0)
+            return null;
+
+        var typeLabel = description[..markerIdx].Trim();
+        var rest = description[(markerIdx + marker.Length)..];
+
+        var amountIdx = rest.IndexOf(layout.CardAmountMarker, StringComparison.OrdinalIgnoreCase);
+        var merchant = (amountIdx >= 0 ? rest[..amountIdx] : rest).Trim();
+        var tail = amountIdx >= 0 ? rest[(amountIdx + layout.CardAmountMarker.Length)..] : string.Empty;
+
+        var dateMatch = CardDateRegex().Match(tail);
+        var valueDate = dateMatch.Success ? StatementText.TryParseDate(dateMatch.Value, layout.DateFormats) : null;
+
+        var cleanDescription = merchant.Length > 0 ? $"{typeLabel} — {merchant}" : typeLabel;
+        return new CardInfo(merchant.Length > 0 ? merchant : null, cleanDescription, valueDate);
+    }
+
+    private sealed record CardInfo(string? Merchant, string Description, DateOnly? ValueDate);
 
     /// <summary>An account-shaped token on a continuation row (masked card numbers, with '*', are excluded).</summary>
     private static string? ResolveAccount(List<Dictionary<PdfField, string>> block, PdfLayout layout)
@@ -312,6 +348,9 @@ internal sealed partial class PdfTableParser
 
     [GeneratedRegex(@"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")]
     private static partial Regex FullDateRegex();
+
+    [GeneratedRegex(@"\d{1,2}\.\d{1,2}\.\d{4}")]
+    private static partial Regex CardDateRegex();
 
     [GeneratedRegex(@"^(\d{1,2})\.(\d{1,2})\.?$")]
     private static partial Regex DayMonthRegex();

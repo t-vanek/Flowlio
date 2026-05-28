@@ -62,6 +62,11 @@ internal sealed class PdfLayoutRegistry
         DateHasYear = false,
         DescriptionFields = [PdfField.Description],
         AccountSourceField = PdfField.Description,
+        // Card rows read "Transakce platební kartou Místo: <merchant> Částka: <amt> CZK <purchase date>".
+        CardMerchantMarker = "Místo:",
+        // Interest-rate-change notices appear as dated rows with no amount; they must not fold into the
+        // preceding transaction (continuation rows never carry a date in ČSOB's date column).
+        ContinuationMayHaveDate = false,
     };
 
     // Air Bank: header Zaúčtování/Typ/Název/Detaily/Částka CZK/Poplatky. Dates carry the year; the second

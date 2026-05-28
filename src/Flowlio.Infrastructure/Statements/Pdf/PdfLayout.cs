@@ -66,4 +66,17 @@ internal sealed record PdfLayout
 
     /// <summary>Marker (in the description) identifying a card payment, for <see cref="CardCounterpartyFromDetails"/>.</summary>
     public string CardPaymentMarker { get; init; } = "kartou";
+
+    /// <summary>When set, a card-payment description embeds the merchant after this marker (ČSOB "Místo:"). The
+    /// merchant becomes the counterparty, the noisy tail after <see cref="CardAmountMarker"/> is dropped from the
+    /// description, and the date in that tail (the purchase date) becomes the value date.</summary>
+    public string? CardMerchantMarker { get; init; }
+
+    /// <summary>Marker that ends the merchant text and begins the amount/date tail (ČSOB "Částka:").</summary>
+    public string CardAmountMarker { get; init; } = "Částka:";
+
+    /// <summary>Whether a continuation row may legitimately carry a date in the date column (Air Bank's value
+    /// date sits there). False for layouts (ČSOB) where a dated row is always a new entry — e.g. an
+    /// interest-rate-change notice — so it must end the current block rather than be folded into it.</summary>
+    public bool ContinuationMayHaveDate { get; init; } = true;
 }
