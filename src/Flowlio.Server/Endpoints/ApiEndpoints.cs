@@ -603,7 +603,7 @@ public static class ApiEndpoints
 
     private static async Task<IResult> CreateMovementBatch(
         CreateMovementBatchRequest request, IAppDbContext db, ICurrentFamily family,
-        ICurrentUser currentUser, IDistributedCache cache, CancellationToken ct)
+        ICurrentUser currentUser, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -657,6 +657,8 @@ public static class ApiEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("batch.create", "ImportBatch", batch.Id.ToString(),
+            batch.Label, familyId, $"Vytvořena ruční dávka ({request.Movements.Count} pohybů)", ct);
         await InvalidateDashboard(cache, familyId, ct);
 
         return Results.Ok(new MovementBatchResultDto { BatchId = batch.Id, CreatedCount = request.Movements.Count });
@@ -696,7 +698,7 @@ public static class ApiEndpoints
     }
 
     private static async Task<IResult> UpdateMovementBatch(
-        Guid id, UpdateBatchRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+        Guid id, UpdateBatchRequest request, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -712,6 +714,8 @@ public static class ApiEndpoints
         batch.Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim();
         batch.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("batch.rename", "ImportBatch", batch.Id.ToString(),
+            batch.Label, familyId, "Přejmenována dávka pohybů", ct);
         return Results.NoContent();
     }
 
