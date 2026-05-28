@@ -47,6 +47,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<BankAccount>().HasQueryFilter(a => a.DeletedAt == null);
         builder.Entity<FamilyMember>().HasQueryFilter(m => m.DeletedAt == null);
         builder.Entity<BankCard>().HasQueryFilter(c => c.DeletedAt == null);
+        builder.Entity<Transaction>().HasQueryFilter(t => t.DeletedAt == null);
     }
 
     private const string RowVersion = "xmin";

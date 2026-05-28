@@ -132,6 +132,17 @@
     </FluentCard>
 }
 
+@if (_undoIds.Count > 0)
+{
+    <div class="undo-bar">
+        <span>Smazáno @_undoIds.Count pohybů.</span>
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Accent" OnClick="UndoDeleteAsync">Vrátit zpět</FluentButton>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _undoIds = [])">Zavřít</FluentButton>
+        </div>
+    </div>
+}
+
 @if (_loading)
 {
     <FluentProgressRing />
@@ -274,6 +285,7 @@ else
     private Dictionary<Guid, string> _accountNames = [];
     private TransactionDto? _detailTx;
     private List<Guid> _selectedIds = [];
+    private List<Guid> _undoIds = [];
     private string _bulkCategory = "";
     private bool _canManage;
     private bool _loading = true;
@@ -378,8 +390,10 @@ else
     // full-text query (diacritics-insensitive, ranked); the structured filters below stay
     // client-side in Tabulator for instant feedback. The server caps pageSize at 200, so we page
     // through to load the whole matching set for client-side pagination/grouping/footer sums.
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool keepUndo = false)
     {
+        if (!keepUndo)
+            _undoIds = [];
         _loading = true;
         StateHasChanged();
 
@@ -618,17 +632,24 @@ else
         if (_selectedIds.Count == 0)
             return;
         var dialog = await Dialogs.ShowConfirmationAsync(
-            $"Opravdu smazat {_selectedIds.Count} vybraných pohybů? Tuto akci nelze vrátit zpět.",
+            $"Opravdu smazat {_selectedIds.Count} vybraných pohybů?",
             "Smazat", "Zrušit", "Hromadné smazání");
         if ((await dialog.Result).Cancelled)
             return;
 
-        var ok = 0;
-        foreach (var id in _selectedIds.ToList())
-            if (await Api.DeleteTransactionAsync(id)) ok++;
-        Toasts.ShowSuccess($"Smazáno {ok} pohybů.");
+        var ids = _selectedIds.ToList();
+        var count = await Api.BulkDeleteTransactionsAsync(ids);
+        if (count > 0)
+        {
+            _undoIds = ids;
+            Toasts.ShowSuccess($"Smazáno {count} pohybů.");
+        }
+        else
+        {
+            Toasts.ShowError("Pohyby se nepodařilo smazat.");
+        }
         _selectedIds = [];
-        await LoadAsync();
+        await LoadAsync(keepUndo: true);
     }
 
     private async Task BulkSetCategoryAsync()
@@ -637,16 +658,8 @@ else
             return;
         Guid? newCat = Guid.TryParse(_bulkCategory, out var c) ? c : null;
 
-        var ok = 0;
-        foreach (var id in _selectedIds.ToList())
-        {
-            if (!_byId.TryGetValue(id, out var t))
-                continue;
-            if (await Api.UpdateTransactionAsync(id,
-                    new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat } }) is not null)
-                ok++;
-        }
-        Toasts.ShowSuccess($"Kategorie nastavena u {ok} pohybů.");
+        var count = await Api.BulkCategorizeAsync(_selectedIds.ToList(), newCat);
+        Toasts.ShowSuccess($"Kategorie nastavena u {count} pohybů.");
         _bulkCategory = "";
         _selectedIds = [];
         await LoadAsync();
@@ -776,7 +789,7 @@ else
     {
         var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Money(t.Amount) : t.CounterpartyName!;
         var dialog = await Dialogs.ShowConfirmationAsync(
-            $"Opravdu smazat tento pohyb: {label}? Tuto akci nelze vrátit zpět.",
+            $"Opravdu smazat tento pohyb: {label}?",
             "Smazat", "Zrušit", "Smazání pohybu");
         var result = await dialog.Result;
         if (result.Cancelled)
@@ -784,13 +797,24 @@ else
 
         if (await Api.DeleteTransactionAsync(t.Id))
         {
+            _undoIds = [t.Id];
             Toasts.ShowSuccess("Pohyb byl smazán.");
-            await LoadAsync();
+            await LoadAsync(keepUndo: true);
         }
         else
         {
             Toasts.ShowError("Pohyb se nepodařilo smazat.");
         }
+    }
+
+    private async Task UndoDeleteAsync()
+    {
+        if (_undoIds.Count == 0)
+            return;
+        var count = await Api.RestoreTransactionsAsync(_undoIds);
+        Toasts.ShowSuccess($"Obnoveno {count} pohybů.");
+        _undoIds = [];
+        await LoadAsync();
     }
 
     private string CategoryColor(Guid? categoryId) =>

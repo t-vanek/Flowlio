@@ -136,6 +136,25 @@ public sealed record UpdateTransactionRequest
     public TransactionFields Fields { get; init; } = new();
 }
 
+/// <summary>Bulk operation over a set of transactions (delete / restore).</summary>
+public sealed record BulkTransactionRequest
+{
+    public IReadOnlyList<Guid> Ids { get; init; } = [];
+}
+
+/// <summary>Bulk re-categorisation of a set of transactions (null category clears it).</summary>
+public sealed record BulkCategorizeRequest
+{
+    public IReadOnlyList<Guid> Ids { get; init; } = [];
+    public Guid? CategoryId { get; init; }
+}
+
+/// <summary>Result of a bulk transaction operation.</summary>
+public sealed record BulkResultDto
+{
+    public int Count { get; init; }
+}
+
 /// <summary>Creates a manually entered batch ("pohyby") of movements on one account.</summary>
 public sealed record CreateMovementBatchRequest
 {
