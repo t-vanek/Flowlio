@@ -1,0 +1,55 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<input @ref="_el" class="@CssClass" type="text" inputmode="decimal" placeholder="@Placeholder" />
+
+@code {
+    private ElementReference _el;
+    private DotNetObjectReference<MoneyField>? _ref;
+    private bool _attached;
+    private decimal _lastSet;
+
+    [Parameter] public decimal Value { get; set; }
+    [Parameter] public EventCallback<decimal> ValueChanged { get; set; }
+    [Parameter] public bool Signed { get; set; } = true;
+    [Parameter] public string CssClass { get; set; } = "money-input";
+    [Parameter] public string? Placeholder { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("flowlioMask.attach", _el, _ref, new { signed = Signed });
+            _attached = true;
+            _lastSet = Value;
+            await JS.InvokeVoidAsync("flowlioMask.set", _el, Value);
+        }
+        else if (_attached && Value != _lastSet)
+        {
+            // Value changed from the parent (e.g. opening the editor) — push it into the mask.
+            _lastSet = Value;
+            await JS.InvokeVoidAsync("flowlioMask.set", _el, Value);
+        }
+    }
+
+    [JSInvokable]
+    public Task OnMaskValue(double? value)
+    {
+        var dec = value is null ? 0m : (decimal)value;
+        _lastSet = dec; // suppress the echo back into the mask on the next render
+        Value = dec;
+        return ValueChanged.InvokeAsync(dec);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_attached)
+                await JS.InvokeVoidAsync("flowlioMask.dispose", _el);
+        }
+        catch (JSDisconnectedException) { /* circuit/teardown */ }
+        _ref?.Dispose();
+    }
+}

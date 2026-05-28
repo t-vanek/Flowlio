@@ -1,16 +1,20 @@
 @page "/transactions"
 @attribute [Authorize]
+@implements IAsyncDisposable
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
 @inject IDialogService Dialogs
 @inject IToastService Toasts
+@inject IJSRuntime JS
 
 <PageTitle>Transakce – Flowlio</PageTitle>
 
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentTextField @bind-Value="_search" Placeholder="Hledat protistranu nebo popis…" Class="toolbar-search" />
+    <FluentSearch @bind-Value="_search" @bind-Value:after="ApplyClientFiltersAsync"
+                  Immediate="true" ImmediateDelay="250"
+                  Placeholder="Hledat protistranu, popis nebo VS…" Class="toolbar-search" />
 
     @if (_canManage && _accounts.Count > 0)
     {
@@ -21,7 +25,7 @@
 </div>
 
 <div class="toolbar">
-    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet">
+    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Účet">
         <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
         @foreach (var a in _accounts)
         {
@@ -29,7 +33,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie">
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Kategorie">
         <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
         @foreach (var c in _categories)
         {
@@ -37,19 +41,37 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_typeValue" Label="Typ">
+    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Typ">
         <FluentOption TOption="string" Value="">Vše</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
     </FluentSelect>
 
-    <FluentDatePicker @bind-Value="_dateFrom" Label="Od" />
-    <FluentDatePicker @bind-Value="_dateTo" Label="Do" />
+    <FluentSelect TOption="string" @bind-Value="_periodValue" @bind-Value:after="OnPeriodChangedAsync" Label="Období">
+        <FluentOption TOption="string" Value="">Celé období</FluentOption>
+        <FluentOption TOption="string" Value="thisMonth">Tento měsíc</FluentOption>
+        <FluentOption TOption="string" Value="lastMonth">Minulý měsíc</FluentOption>
+        <FluentOption TOption="string" Value="last30">Posledních 30 dní</FluentOption>
+        <FluentOption TOption="string" Value="thisYear">Tento rok</FluentOption>
+        @if (_periodValue == "custom")
+        {
+            <FluentOption TOption="string" Value="custom">Vlastní</FluentOption>
+        }
+    </FluentSelect>
 
-    <div class="toolbar-actions">
-        <FluentButton Appearance="Appearance.Accent" OnClick="ApplyFiltersAsync">Filtrovat</FluentButton>
-        <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+    <div class="filter-range">
+        <span class="filter-label">Od</span>
+        <FluentDatePicker @bind-Value="_dateFrom" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
+        <span class="filter-label">Do</span>
+        <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
     </div>
+
+    @if (HasActiveFilters)
+    {
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+        </div>
+    }
 </div>
 
 @if (_showEditor)
@@ -76,7 +98,10 @@
                     <label class="field-label">Datum splatnosti (volitelné)</label>
                     <input type="date" class="date-input" @bind="_formValue" />
                 </div>
-                <FluentNumberField @bind-Value="_formAmount" Label="Částka (záporná = výdaj)" Style="width:200px" />
+                <div style="width:200px">
+                    <label class="field-label">Částka (záporná = výdaj)</label>
+                    <MoneyField @bind-Value="_formAmount" />
+                </div>
                 <FluentTextField @bind-Value="_formCurrency" Label="Měna" Style="width:90px" />
             </FluentStack>
 
@@ -113,11 +138,11 @@
     </FluentCard>
 }
 
-@if (_page is null)
+@if (_loading)
 {
     <FluentProgressRing />
 }
-else if (_page.Items.Count == 0)
+else if (_rows.Count == 0)
 {
     <FluentCard Class="panel">
         <div class="empty-state">
@@ -133,88 +158,46 @@ else if (_page.Items.Count == 0)
 }
 else
 {
-    <FluentCard Class="panel no-pad">
-        <div class="data-table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Datum</th>
-                    <th>Protistrana</th>
-                    <th>Kategorie</th>
-                    <th>Popis</th>
-                    <th>VS</th>
-                    <th class="num">Částka</th>
-                    @if (_canManage)
-                    {
-                        <th></th>
-                    }
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var t in _page.Items)
-                {
-                    <tr>
-                        <td>@t.BookingDate.ToString("d.M.yyyy")</td>
-                        <td>@t.CounterpartyName</td>
-                        <td>
-                            @if (!string.IsNullOrEmpty(t.CategoryName))
-                            {
-                                <span class="cat-tag">
-                                    <span class="cat-dot" style="background:@CategoryColor(t.CategoryId)"></span>
-                                    <span class="muted">@t.CategoryName</span>
-                                </span>
-                            }
-                        </td>
-                        <td class="muted">@t.Description</td>
-                        <td>@t.VariableSymbol</td>
-                        <td class="num @(t.Amount < 0 ? "expense" : "income")">@SignedMoney(t.Amount)</td>
-                        @if (_canManage)
-                        {
-                            <td class="num">
-                                <div class="table-actions">
-                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenEdit(t))">Upravit</FluentButton>
-                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(t))">Smazat</FluentButton>
-                                </div>
-                            </td>
-                        }
-                    </tr>
-                }
-            </tbody>
-        </table>
-        </div>
-    </FluentCard>
-    <div class="toolbar" style="justify-content:space-between;">
-        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
-            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber <= 1)" OnClick="@(() => ChangePageAsync(-1))">Předchozí</FluentButton>
-            <span class="muted">Strana @_page.Page z @TotalPages · celkem @_page.TotalCount</span>
-            <FluentButton Appearance="Appearance.Stealth" Disabled="@(_pageNumber >= TotalPages)" OnClick="@(() => ChangePageAsync(1))">Další</FluentButton>
-        </FluentStack>
-        <FluentSelect TOption="string" @bind-Value="_pageSizeValue" @bind-Value:after="PageSizeChangedAsync" Label="Na stránku">
-            <FluentOption TOption="string" Value="25">25</FluentOption>
-            <FluentOption TOption="string" Value="50">50</FluentOption>
-            <FluentOption TOption="string" Value="100">100</FluentOption>
+    <div class="toolbar">
+        <FluentSelect TOption="string" @bind-Value="_groupValue" @bind-Value:after="GroupChangedAsync" Label="Seskupit">
+            <FluentOption TOption="string" Value="">Bez seskupení</FluentOption>
+            <FluentOption TOption="string" Value="category">Podle kategorie</FluentOption>
+            <FluentOption TOption="string" Value="month">Podle měsíce</FluentOption>
         </FluentSelect>
+        <span class="muted">Celkem @_rows.Count pohybů</span>
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
+        </div>
     </div>
+    <FluentCard Class="panel no-pad">
+        <div id="tx-grid"></div>
+    </FluentCard>
 }
 
 @code {
-    private TransactionPageDto? _page;
+    private List<TransactionDto> _rows = [];
+    private Dictionary<Guid, TransactionDto> _byId = [];
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
     private Dictionary<Guid, string> _categoryColors = [];
     private bool _canManage;
+    private bool _loading = true;
 
-    // Filters
+    // Grid (Tabulator) state
+    private DotNetObjectReference<Transactions>? _gridRef;
+    private bool _renderPending;
+    private string _groupValue = "";
+
+    private static readonly System.Globalization.CultureInfo Cz = new("cs-CZ");
+
+    // Filters (applied client-side via Tabulator)
     private string _search = "";
     private string _accountValue = "";
     private string _categoryValue = "";
     private string _typeValue = "";
+    private string _periodValue = "";
     private DateTime? _dateFrom;
     private DateTime? _dateTo;
-
-    // Pagination
-    private int _pageNumber = 1;
-    private string _pageSizeValue = "50";
 
     // Manual movement editor
     private bool _showEditor;
@@ -235,10 +218,6 @@ else
     private string _formNote = "";
     private string _formCategory = "";
 
-    private int TotalPages => _page is null || _page.PageSize == 0
-        ? 1
-        : Math.Max(1, (int)Math.Ceiling((double)_page.TotalCount / _page.PageSize));
-
     protected override async Task OnInitializedAsync()
     {
         _canManage = await CurrentUser.CanAsync(Permission.ManageTransactions);
@@ -248,37 +227,92 @@ else
         await LoadAsync();
     }
 
+    // Loads the whole family transaction set (the server caps pageSize at 200, so we
+    // page through it). Tabulator then owns pagination, sorting, grouping, the footer
+    // sum, CSV export and — see ApplyClientFiltersAsync — instant client-side filtering.
     private async Task LoadAsync()
     {
-        _page = null;
-        _page = await Api.GetTransactionsAsync(
-            accountId: Guid.TryParse(_accountValue, out var a) ? a : null,
-            categoryId: Guid.TryParse(_categoryValue, out var c) ? c : null,
-            dateFrom: _dateFrom is { } from ? DateOnly.FromDateTime(from) : null,
-            dateTo: _dateTo is { } to ? DateOnly.FromDateTime(to) : null,
-            direction: string.IsNullOrEmpty(_typeValue) ? null : (TransactionDirection)int.Parse(_typeValue),
-            search: _search,
-            page: _pageNumber,
-            pageSize: int.Parse(_pageSizeValue));
+        _loading = true;
+        StateHasChanged();
+
+        var all = new List<TransactionDto>();
+        const int size = 200;
+        for (var page = 1; page <= 200; page++)
+        {
+            var result = await Api.GetTransactionsAsync(page: page, pageSize: size);
+            if (result is null || result.Items.Count == 0)
+                break;
+            all.AddRange(result.Items);
+            if (all.Count >= result.TotalCount)
+                break;
+        }
+
+        _rows = all;
+        _byId = all.ToDictionary(t => t.Id);
+        _loading = false;
+        _renderPending = true;
+        StateHasChanged();
     }
 
-    // Changing filters or page size always returns to the first page.
-    private Task ApplyFiltersAsync()
+    private bool HasActiveFilters =>
+        !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
+        || _typeValue != "" || _dateFrom is not null || _dateTo is not null;
+
+    // Pushes the current filter values into Tabulator — no server round-trip, and the
+    // footer sum / pagination follow the filtered set instantly.
+    private async Task ApplyClientFiltersAsync()
     {
-        _pageNumber = 1;
-        return LoadAsync();
+        var type = _typeValue == ((int)TransactionDirection.Incoming).ToString() ? "in"
+            : _typeValue == ((int)TransactionDirection.Outgoing).ToString() ? "out" : "";
+
+        await JS.InvokeVoidAsync("flowlioGrid.setFilters", "tx-grid", new
+        {
+            search = _search ?? "",
+            accountId = _accountValue,
+            categoryId = _categoryValue,
+            type,
+            dateFrom = _dateFrom is { } f ? f.ToString("yyyy-MM-dd") : "",
+            dateTo = _dateTo is { } t ? t.ToString("yyyy-MM-dd") : "",
+        });
     }
 
-    private Task PageSizeChangedAsync()
+    private Task OnDateEditedAsync()
     {
-        _pageNumber = 1;
-        return LoadAsync();
+        _periodValue = _dateFrom is null && _dateTo is null ? "" : "custom";
+        return ApplyClientFiltersAsync();
     }
 
-    private Task ChangePageAsync(int delta)
+    private Task OnPeriodChangedAsync()
     {
-        _pageNumber = Math.Clamp(_pageNumber + delta, 1, TotalPages);
-        return LoadAsync();
+        var today = DateTime.Today;
+        switch (_periodValue)
+        {
+            case "thisMonth":
+                _dateFrom = new DateTime(today.Year, today.Month, 1);
+                _dateTo = _dateFrom.Value.AddMonths(1).AddDays(-1);
+                break;
+            case "lastMonth":
+                var lm = new DateTime(today.Year, today.Month, 1).AddMonths(-1);
+                _dateFrom = lm;
+                _dateTo = lm.AddMonths(1).AddDays(-1);
+                break;
+            case "last30":
+                _dateFrom = today.AddDays(-30);
+                _dateTo = today;
+                break;
+            case "thisYear":
+                _dateFrom = new DateTime(today.Year, 1, 1);
+                _dateTo = new DateTime(today.Year, 12, 31);
+                break;
+            default: // "" (celé období) or "custom"
+                if (_periodValue != "custom")
+                {
+                    _dateFrom = null;
+                    _dateTo = null;
+                }
+                break;
+        }
+        return ApplyClientFiltersAsync();
     }
 
     private Task ClearFiltersAsync()
@@ -287,9 +321,72 @@ else
         _accountValue = "";
         _categoryValue = "";
         _typeValue = "";
+        _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
-        return ApplyFiltersAsync();
+        return ApplyClientFiltersAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _gridRef ??= DotNetObjectReference.Create(this);
+
+        if (_renderPending && !_loading)
+        {
+            _renderPending = false;
+            if (_rows.Count > 0)
+                await RenderGridAsync();
+            else
+                await JS.InvokeVoidAsync("flowlioGrid.destroy", "tx-grid");
+        }
+    }
+
+    private async Task RenderGridAsync()
+    {
+        var data = _rows.Select(t => new
+        {
+            id = t.Id.ToString(),
+            accountId = t.BankAccountId.ToString(),
+            categoryId = t.CategoryId?.ToString() ?? "",
+            bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
+            counterparty = t.CounterpartyName ?? "",
+            categoryName = t.CategoryName ?? "",
+            categoryColor = CategoryColor(t.CategoryId),
+            description = t.Description ?? "",
+            vs = t.VariableSymbol ?? "",
+            amount = (double)t.Amount,
+        });
+
+        await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
+            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50 }, _gridRef);
+
+        // Re-applies any active filters after a (re)render, e.g. after save/delete.
+        if (HasActiveFilters)
+            await ApplyClientFiltersAsync();
+    }
+
+    private async Task GroupChangedAsync() =>
+        await JS.InvokeVoidAsync("flowlioGrid.setGroup", "tx-grid", _groupValue);
+
+    private async Task ExportCsvAsync() =>
+        await JS.InvokeVoidAsync("flowlioGrid.exportCsv", "tx-grid");
+
+    [JSInvokable]
+    public void GridEdit(string id)
+    {
+        if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
+        {
+            OpenEdit(t);
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task GridDelete(string id)
+    {
+        if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
+            await DeleteAsync(t);
     }
 
     private void OpenCreate()
@@ -421,6 +518,13 @@ else
     private static string Money(decimal value) =>
         value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
 
-    private static string SignedMoney(decimal value) =>
-        (value > 0 ? "+" : "") + Money(value);
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("flowlioGrid.destroy", "tx-grid");
+        }
+        catch (JSDisconnectedException) { /* circuit/teardown */ }
+        _gridRef?.Dispose();
+    }
 }

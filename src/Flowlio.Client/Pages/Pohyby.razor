@@ -57,7 +57,7 @@ else
                         {
                             <tr>
                                 <td><input type="date" class="date-input" @bind="row.Booking" /></td>
-                                <td class="num"><FluentNumberField @bind-Value="row.Amount" Style="width:130px" /></td>
+                                <td class="num"><div style="width:130px"><MoneyField @bind-Value="row.Amount" /></div></td>
                                 <td><FluentTextField @bind-Value="row.Counterparty" Style="width:160px" /></td>
                                 <td><FluentTextField @bind-Value="row.Vs" Style="width:90px" /></td>
                                 <td><FluentTextField @bind-Value="row.Description" Style="width:160px" /></td>
