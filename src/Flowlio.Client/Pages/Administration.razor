@@ -69,6 +69,19 @@ else
 
         <FluentCard Class="panel">
             <h2 class="panel-title">Uživatelské účty</h2>
+            <div class="toolbar">
+                <FluentTextField @bind-Value="_userSearch" Label="Hledat (e-mail, jméno)" Style="flex:1 1 240px;min-width:220px" />
+                <FluentSelect TOption="string" @bind-Value="_userStatus" Label="Stav">
+                    <FluentOption TOption="string" Value="">Všechny stavy</FluentOption>
+                    <FluentOption TOption="string" Value="active">Aktivní</FluentOption>
+                    <FluentOption TOption="string" Value="locked">Zamčené</FluentOption>
+                    <FluentOption TOption="string" Value="blocked">Blokované</FluentOption>
+                </FluentSelect>
+                <div class="toolbar-actions">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SearchUsersAsync">Filtrovat</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="ClearUserFiltersAsync">Zrušit</FluentButton>
+                </div>
+            </div>
             @if (_canDeleteUsers)
             {
                 <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleDeletedAsync">@(_showDeleted ? "Skrýt smazané" : "Zobrazit smazané")</FluentButton>
@@ -76,6 +89,10 @@ else
             @if (_users is null)
             {
                 <FluentProgressRing />
+            }
+            else if (_users.Items.Count == 0)
+            {
+                <p class="muted">Žádní uživatelé neodpovídají filtru.</p>
             }
             else
             {
@@ -227,13 +244,20 @@ else
         {
             <FluentCard Class="panel">
                 <h2 class="panel-title">Smazané účty</h2>
+                <div class="toolbar">
+                    <FluentTextField @bind-Value="_deletedSearch" Label="Hledat (e-mail, jméno)" Style="flex:1 1 240px;min-width:220px" />
+                    <div class="toolbar-actions">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="SearchDeletedAsync">Filtrovat</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="ClearDeletedFiltersAsync">Zrušit</FluentButton>
+                    </div>
+                </div>
                 @if (_deletedUsers is null)
                 {
                     <FluentProgressRing />
                 }
                 else if (_deletedUsers.Items.Count == 0)
                 {
-                    <p class="muted">Žádné smazané účty.</p>
+                    <p class="muted">@(string.IsNullOrWhiteSpace(_deletedSearch) ? "Žádné smazané účty." : "Žádné smazané účty neodpovídají filtru.")</p>
                 }
                 else
                 {
@@ -436,9 +460,12 @@ else
     private HashSet<string> _editUserRoles = new();
     private CreateUserRequest _newUser = new();
     private AdminSetPasswordRequest _passwordModel = new();
+    private string _userSearch = "";
+    private string _userStatus = "";
     private bool _showDeleted;
     private AdminUserPageDto? _deletedUsers;
     private int _deletedPage = 1;
+    private string _deletedSearch = "";
 
     private int UsersTotalPages => _users is null || _users.PageSize == 0
         ? 1 : Math.Max(1, (int)Math.Ceiling((double)_users.TotalCount / _users.PageSize));
@@ -649,11 +676,11 @@ else
     // Reload the current page; if it fell past the end (e.g. after a delete), step back to the last page.
     private async Task LoadUsersAsync()
     {
-        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+        _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize, _userSearch, _userStatus);
         if (_usersPage > UsersTotalPages)
         {
             _usersPage = UsersTotalPages;
-            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize);
+            _users = await Api.GetAdminUsersAsync(_usersPage, AdminPageSize, _userSearch, _userStatus);
         }
     }
 
@@ -663,19 +690,46 @@ else
         return LoadUsersAsync();
     }
 
+    private Task SearchUsersAsync()
+    {
+        _usersPage = 1;
+        return LoadUsersAsync();
+    }
+
+    private Task ClearUserFiltersAsync()
+    {
+        _userSearch = "";
+        _userStatus = "";
+        _usersPage = 1;
+        return LoadUsersAsync();
+    }
+
     private async Task LoadDeletedAsync()
     {
-        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+        _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize, _deletedSearch);
         if (_deletedPage > DeletedTotalPages)
         {
             _deletedPage = DeletedTotalPages;
-            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize);
+            _deletedUsers = await Api.GetDeletedUsersAsync(_deletedPage, AdminPageSize, _deletedSearch);
         }
     }
 
     private Task ChangeDeletedPageAsync(int delta)
     {
         _deletedPage = Math.Clamp(_deletedPage + delta, 1, DeletedTotalPages);
+        return LoadDeletedAsync();
+    }
+
+    private Task SearchDeletedAsync()
+    {
+        _deletedPage = 1;
+        return LoadDeletedAsync();
+    }
+
+    private Task ClearDeletedFiltersAsync()
+    {
+        _deletedSearch = "";
+        _deletedPage = 1;
         return LoadDeletedAsync();
     }
 
