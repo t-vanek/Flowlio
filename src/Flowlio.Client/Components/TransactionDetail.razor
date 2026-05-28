@@ -1,0 +1,83 @@
+@* Read-only detail dialog for a single transaction. *@
+<div class="profile-backdrop" @onclick="OnClose"></div>
+<div class="audit-modal">
+    <h2 class="panel-title">Detail pohybu</h2>
+    <dl class="audit-detail">
+        <dt>Datum zaúčtování</dt>
+        <dd>@Transaction.BookingDate.ToString("d.M.yyyy")</dd>
+        @if (Transaction.ValueDate is { } vd)
+        {
+            <dt>Datum splatnosti</dt>
+            <dd>@vd.ToString("d.M.yyyy")</dd>
+        }
+        <dt>Účet</dt>
+        <dd>@AccountNames.GetValueOrDefault(Transaction.BankAccountId, "—")</dd>
+        <dt>Částka</dt>
+        <dd><span class="num @(Transaction.Amount < 0 ? "expense" : "income")">@Money(Transaction.Amount) @Transaction.Currency</span></dd>
+        <dt>Protistrana</dt>
+        <dd>@(string.IsNullOrWhiteSpace(Transaction.CounterpartyName) ? "—" : Transaction.CounterpartyName)</dd>
+        @if (!string.IsNullOrWhiteSpace(Transaction.CounterpartyAccount))
+        {
+            <dt>Číslo účtu</dt>
+            <dd>@Transaction.CounterpartyAccount</dd>
+        }
+        <dt>Kategorie</dt>
+        <dd>
+            @if (!string.IsNullOrEmpty(Transaction.CategoryName))
+            {
+                <span class="cat-tag"><span class="cat-dot" style="background:@CategoryColor(Transaction.CategoryId)"></span><span>@Transaction.CategoryName</span></span>
+            }
+            else
+            {
+                <span class="muted">(bez kategorie)</span>
+            }
+        </dd>
+        @if (!string.IsNullOrWhiteSpace(Transaction.VariableSymbol))
+        {
+            <dt>VS</dt>
+            <dd>@Transaction.VariableSymbol</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(Transaction.ConstantSymbol))
+        {
+            <dt>KS</dt>
+            <dd>@Transaction.ConstantSymbol</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(Transaction.SpecificSymbol))
+        {
+            <dt>SS</dt>
+            <dd>@Transaction.SpecificSymbol</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(Transaction.Description))
+        {
+            <dt>Popis</dt>
+            <dd>@Transaction.Description</dd>
+        }
+        @if (!string.IsNullOrWhiteSpace(Transaction.Note))
+        {
+            <dt>Poznámka</dt>
+            <dd>@Transaction.Note</dd>
+        }
+    </dl>
+    <div class="btn-row">
+        @if (CanManage)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => OnEdit.InvokeAsync(Transaction))">Upravit</FluentButton>
+        }
+        <FluentButton Appearance="Appearance.Stealth" OnClick="OnClose">Zavřít</FluentButton>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public TransactionDto Transaction { get; set; } = default!;
+    [Parameter] public IReadOnlyDictionary<Guid, string> AccountNames { get; set; } = new Dictionary<Guid, string>();
+    [Parameter] public IReadOnlyDictionary<Guid, string> CategoryColors { get; set; } = new Dictionary<Guid, string>();
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public EventCallback<TransactionDto> OnEdit { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string CategoryColor(Guid? categoryId) =>
+        categoryId is { } id && CategoryColors.TryGetValue(id, out var color) ? color : "#64748b";
+
+    private static string Money(decimal value) =>
+        value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("cs-CZ")) + " Kč";
+}

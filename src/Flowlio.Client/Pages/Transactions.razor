@@ -78,66 +78,8 @@ else
 
 @if (_showEditor)
 {
-    <FluentCard Class="panel">
-        <h2 class="panel-title">@(_editId is null ? "Nový pohyb" : "Úprava pohybu")</h2>
-        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-            @if (_editId is null)
-            {
-                <FluentSelect TOption="string" @bind-Value="_formAccount" Label="Účet" Style="width:100%">
-                    @foreach (var a in _accounts)
-                    {
-                        <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
-                    }
-                </FluentSelect>
-            }
-
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                <div>
-                    <label class="field-label">Datum zaúčtování</label>
-                    <input type="date" class="date-input" @bind="_formBooking" />
-                </div>
-                <div>
-                    <label class="field-label">Datum splatnosti (volitelné)</label>
-                    <input type="date" class="date-input" @bind="_formValue" />
-                </div>
-                <div style="width:200px">
-                    <label class="field-label">Částka (záporná = výdaj)</label>
-                    <MoneyField @bind-Value="_formAmount" />
-                </div>
-                <FluentTextField @bind-Value="_formCurrency" Label="Měna" Style="width:90px" />
-            </FluentStack>
-
-            <FluentTextField @bind-Value="_formCounterparty" Label="Protistrana" Style="width:100%" />
-            <FluentTextField @bind-Value="_formCounterpartyAccount" Label="Číslo účtu protistrany" Style="width:100%" />
-
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                <FluentTextField @bind-Value="_formVs" Label="VS" Style="width:140px" />
-                <FluentTextField @bind-Value="_formCs" Label="KS" Style="width:140px" />
-                <FluentTextField @bind-Value="_formSs" Label="SS" Style="width:140px" />
-            </FluentStack>
-
-            <FluentTextField @bind-Value="_formDescription" Label="Popis" Style="width:100%" />
-            <FluentTextField @bind-Value="_formNote" Label="Poznámka" Style="width:100%" />
-
-            <FluentSelect TOption="string" @bind-Value="_formCategory" Label="Kategorie" Style="width:100%">
-                <FluentOption TOption="string" Value="">(bez kategorie)</FluentOption>
-                @foreach (var c in _categories)
-                {
-                    <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
-                }
-            </FluentSelect>
-
-            @if (_formError is not null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Error">@_formError</FluentMessageBar>
-            }
-
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                <FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Loading="_saving">Uložit</FluentButton>
-                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _showEditor = false)">Zrušit</FluentButton>
-            </FluentStack>
-        </FluentStack>
-    </FluentCard>
+    <TransactionEditor @key="_editorKey" Accounts="_accounts" Categories="_categories"
+                       Editing="_editingTx" OnSaved="EditorSavedAsync" OnCancel="@(() => _showEditor = false)" />
 }
 
 @if (_undoIds.Count > 0)
@@ -225,73 +167,8 @@ else
 
 @if (_detailTx is { } d)
 {
-    <div class="profile-backdrop" @onclick="@(() => _detailTx = null)"></div>
-    <div class="audit-modal">
-        <h2 class="panel-title">Detail pohybu</h2>
-        <dl class="audit-detail">
-            <dt>Datum zaúčtování</dt>
-            <dd>@d.BookingDate.ToString("d.M.yyyy")</dd>
-            @if (d.ValueDate is { } vd)
-            {
-                <dt>Datum splatnosti</dt>
-                <dd>@vd.ToString("d.M.yyyy")</dd>
-            }
-            <dt>Účet</dt>
-            <dd>@_accountNames.GetValueOrDefault(d.BankAccountId, "—")</dd>
-            <dt>Částka</dt>
-            <dd><span class="num @(d.Amount < 0 ? "expense" : "income")">@Money(d.Amount) @d.Currency</span></dd>
-            <dt>Protistrana</dt>
-            <dd>@(string.IsNullOrWhiteSpace(d.CounterpartyName) ? "—" : d.CounterpartyName)</dd>
-            @if (!string.IsNullOrWhiteSpace(d.CounterpartyAccount))
-            {
-                <dt>Číslo účtu</dt>
-                <dd>@d.CounterpartyAccount</dd>
-            }
-            <dt>Kategorie</dt>
-            <dd>
-                @if (!string.IsNullOrEmpty(d.CategoryName))
-                {
-                    <span class="cat-tag"><span class="cat-dot" style="background:@CategoryColor(d.CategoryId)"></span><span>@d.CategoryName</span></span>
-                }
-                else
-                {
-                    <span class="muted">(bez kategorie)</span>
-                }
-            </dd>
-            @if (!string.IsNullOrWhiteSpace(d.VariableSymbol))
-            {
-                <dt>VS</dt>
-                <dd>@d.VariableSymbol</dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(d.ConstantSymbol))
-            {
-                <dt>KS</dt>
-                <dd>@d.ConstantSymbol</dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(d.SpecificSymbol))
-            {
-                <dt>SS</dt>
-                <dd>@d.SpecificSymbol</dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(d.Description))
-            {
-                <dt>Popis</dt>
-                <dd>@d.Description</dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(d.Note))
-            {
-                <dt>Poznámka</dt>
-                <dd>@d.Note</dd>
-            }
-        </dl>
-        <div class="btn-row">
-            @if (_canManage)
-            {
-                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => { var t = d; _detailTx = null; OpenEdit(t); })">Upravit</FluentButton>
-            }
-            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _detailTx = null)">Zavřít</FluentButton>
-        </div>
-    </div>
+    <TransactionDetail Transaction="d" AccountNames="_accountNames" CategoryColors="_categoryColors"
+                       CanManage="_canManage" OnEdit="DetailEdit" OnClose="@(() => _detailTx = null)" />
 }
 }
 
@@ -334,24 +211,10 @@ else
     private DateTime? _dateFrom;
     private DateTime? _dateTo;
 
-    // Manual movement editor
+    // Create/edit editor (the form itself lives in <TransactionEditor>).
     private bool _showEditor;
-    private bool _saving;
-    private Guid? _editId;
-    private string? _formError;
-    private string _formAccount = "";
-    private DateOnly _formBooking = DateOnly.FromDateTime(DateTime.Today);
-    private DateOnly? _formValue;
-    private decimal _formAmount;
-    private string _formCurrency = "CZK";
-    private string _formCounterparty = "";
-    private string _formCounterpartyAccount = "";
-    private string _formVs = "";
-    private string _formCs = "";
-    private string _formSs = "";
-    private string _formDescription = "";
-    private string _formNote = "";
-    private string _formCategory = "";
+    private TransactionDto? _editingTx;
+    private int _editorKey;
 
     protected override async Task OnInitializedAsync()
     {
@@ -731,106 +594,28 @@ else
         StateHasChanged();
     }
 
-    private void OpenCreate()
+    // Open the editor for a new movement (null) or an existing one. A fresh @key per open makes
+    // <TransactionEditor> re-initialise its form even if the editor is already showing.
+    private void OpenEditor(TransactionDto? t)
     {
-        _editId = null;
-        _formError = null;
-        _formAccount = _accounts.FirstOrDefault()?.Id.ToString() ?? "";
-        _formBooking = DateOnly.FromDateTime(DateTime.Today);
-        _formValue = null;
-        _formAmount = 0;
-        _formCurrency = "CZK";
-        _formCounterparty = "";
-        _formCounterpartyAccount = "";
-        _formVs = "";
-        _formCs = "";
-        _formSs = "";
-        _formDescription = "";
-        _formNote = "";
-        _formCategory = "";
+        _editingTx = t;
+        _editorKey++;
         _showEditor = true;
     }
 
-    private void OpenEdit(TransactionDto t)
+    private void OpenCreate() => OpenEditor(null);
+    private void OpenEdit(TransactionDto t) => OpenEditor(t);
+
+    private async Task EditorSavedAsync()
     {
-        _editId = t.Id;
-        _formError = null;
-        _formAccount = t.BankAccountId.ToString();
-        _formBooking = t.BookingDate;
-        _formValue = t.ValueDate;
-        _formAmount = t.Amount;
-        _formCurrency = t.Currency;
-        _formCounterparty = t.CounterpartyName ?? "";
-        _formCounterpartyAccount = t.CounterpartyAccount ?? "";
-        _formVs = t.VariableSymbol ?? "";
-        _formCs = t.ConstantSymbol ?? "";
-        _formSs = t.SpecificSymbol ?? "";
-        _formDescription = t.Description ?? "";
-        _formNote = t.Note ?? "";
-        _formCategory = t.CategoryId?.ToString() ?? "";
-        _showEditor = true;
+        _showEditor = false;
+        await LoadAsync();
     }
 
-    private async Task SaveAsync()
+    private void DetailEdit(TransactionDto t)
     {
-        _formError = null;
-        if (_formAmount == 0)
-        {
-            _formError = "Částka nesmí být nulová.";
-            return;
-        }
-
-        var fields = new TransactionFields
-        {
-            BookingDate = _formBooking,
-            ValueDate = _formValue,
-            Amount = _formAmount,
-            Currency = string.IsNullOrWhiteSpace(_formCurrency) ? "CZK" : _formCurrency,
-            CounterpartyName = _formCounterparty,
-            CounterpartyAccount = _formCounterpartyAccount,
-            VariableSymbol = _formVs,
-            ConstantSymbol = _formCs,
-            SpecificSymbol = _formSs,
-            Description = _formDescription,
-            Note = _formNote,
-            CategoryId = Guid.TryParse(_formCategory, out var cid) ? cid : null,
-        };
-
-        var isEdit = _editId is not null;
-        _saving = true;
-        try
-        {
-            if (_editId is { } id)
-            {
-                var updated = await Api.UpdateTransactionAsync(id, new UpdateTransactionRequest { Fields = fields });
-                if (updated is null)
-                {
-                    _formError = "Pohyb se nepodařilo uložit.";
-                    return;
-                }
-            }
-            else
-            {
-                if (!Guid.TryParse(_formAccount, out var accountId))
-                {
-                    _formError = "Vyberte účet.";
-                    return;
-                }
-                var created = await Api.CreateTransactionAsync(new CreateTransactionRequest { BankAccountId = accountId, Fields = fields });
-                if (created is null)
-                {
-                    _formError = "Pohyb se nepodařilo vytvořit.";
-                    return;
-                }
-            }
-            _showEditor = false;
-            Toasts.ShowSuccess(isEdit ? "Změny byly uloženy." : "Pohyb byl vytvořen.");
-            await LoadAsync();
-        }
-        finally
-        {
-            _saving = false;
-        }
+        _detailTx = null;
+        OpenEditor(t);
     }
 
     private async Task DeleteAsync(TransactionDto t)
