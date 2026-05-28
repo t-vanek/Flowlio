@@ -30,6 +30,13 @@
             <span class="nav-link-label">Import výpisu</span>
         </NavLink>
     }
+    @if (_canManageRules)
+    {
+        <NavLink class="nav-link" href="rules" title="Pravidla kategorizace">
+            <span class="nav-icon">🏷️</span>
+            <span class="nav-link-label">Pravidla</span>
+        </NavLink>
+    }
 
     @if (_hasFinance && _hasFamily)
     {
@@ -72,10 +79,11 @@
     private bool _canViewFinances;
     private bool _canManageMembers;
     private bool _canImport;
+    private bool _canManageRules;
     private bool _canFamilyAdmin;
     private bool _canAdminister;
 
-    private bool _hasFinance => _canViewFinances || _canImport;
+    private bool _hasFinance => _canViewFinances || _canImport || _canManageRules;
     private bool _hasFamily => _canManageMembers || _canFamilyAdmin;
 
     protected override async Task OnInitializedAsync()
@@ -90,6 +98,7 @@
         _canViewFinances = me?.Can(Permission.ViewFinances) ?? false;
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
+        _canManageRules = me?.Can(Permission.ManageTransactions) ?? false;
         _canFamilyAdmin = (me?.Can(Permission.ManageRoles) ?? false)
                        || (me?.Can(Permission.ManageFamily) ?? false);
         _canAdminister = me?.SystemPermissions.Count > 0;

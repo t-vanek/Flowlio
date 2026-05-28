@@ -43,7 +43,9 @@ public sealed class CurrentFamilyResolver(ApplicationDbContext db, ICurrentUser 
             Role = MemberRole.Owner,
         };
         db.FamilyMembers.Add(owner);
-        db.Categories.AddRange(DefaultCategories.Create(family.Id));
+        var categories = DefaultCategories.Create(family.Id);
+        db.Categories.AddRange(categories);
+        db.CategorizationRules.AddRange(DefaultRules.Create(family.Id, categories));
         db.FamilyRolePermissions.AddRange(FamilyRolePermission.CreateDefaults(family.Id));
         await db.SaveChangesAsync(cancellationToken);
 

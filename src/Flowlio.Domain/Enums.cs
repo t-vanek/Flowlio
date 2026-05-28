@@ -121,4 +121,9 @@ public enum RuleMatchField
     Description = 1,
     VariableSymbol = 2,
     CounterpartyAccount = 3,
+
+    /// <summary>Match the pattern against every text field at once (counterparty, description, symbols).
+    /// Card payments rarely carry a counterparty, so the merchant lives in the description — this is the
+    /// sensible default so a rule still matches when the counterparty is empty.</summary>
+    Any = 4,
 }

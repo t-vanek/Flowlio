@@ -1,0 +1,277 @@
+@page "/rules"
+@attribute [Authorize]
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+@inject IDialogService Dialogs
+@inject IToastService Toasts
+
+<PageTitle>Pravidla kategorizace – Flowlio</PageTitle>
+
+<h1 class="page-title">Pravidla kategorizace</h1>
+
+@if (!_canManage)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění spravovat pravidla kategorizace.</FluentMessageBar>
+    </FluentCard>
+}
+else
+{
+<div class="panel-grid">
+    <FluentCard Class="panel">
+        <h2 class="panel-title">@(_editingId is null ? "Nové pravidlo" : "Upravit pravidlo")</h2>
+        <p class="muted">
+            Transakci dostane kategorii, když zvolené pole obsahuje zadaný text (nezáleží na velikosti písmen).
+            „Kdekoliv" hledá ve všech textových polích – vhodné pro platby kartou, kde obchodník bývá jen v popisu.
+        </p>
+        <EditForm Model="_model" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <div>
+                    <FluentTextField @bind-Value="_model.Pattern" Label="Vzor (hledaný text)" Style="width:100%" Placeholder="Albert" />
+                    <FluentValidationMessage For="@(() => _model.Pattern)" />
+                </div>
+                <FluentSelect TOption="string" @bind-Value="_fieldValue" Label="Pole" Style="width:100%">
+                    @foreach (var f in Enum.GetValues<RuleMatchField>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)f).ToString())">@FieldLabel(f)</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie" Style="width:100%">
+                    @foreach (var c in _categories ?? [])
+                    {
+                        <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name (@KindLabel(c.Kind))</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                    <FluentNumberField @bind-Value="_model.Priority" Label="Priorita (vyšší vyhrává)" Style="width:160px" />
+                    <FluentSelect TOption="string" @bind-Value="_activeValue" Label="Aktivní" Style="width:120px">
+                        <FluentOption TOption="string" Value="true">Ano</FluentOption>
+                        <FluentOption TOption="string" Value="false">Ne</FluentOption>
+                    </FluentSelect>
+                </FluentStack>
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Loading="_busy" Disabled="@(_categories is null or { Count: 0 })">
+                        @(_editingId is null ? "Přidat pravidlo" : "Uložit změny")
+                    </FluentButton>
+                    @if (_editingId is not null)
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit úpravu</FluentButton>
+                    }
+                </FluentStack>
+                @if (_categories is { Count: 0 })
+                {
+                    <FluentMessageBar Intent="MessageIntent.Info">Nejprve vytvořte alespoň jednu kategorii.</FluentMessageBar>
+                }
+            </FluentStack>
+        </EditForm>
+    </FluentCard>
+
+    <FluentCard Class="panel">
+        <div class="account-row">
+            <h2 class="panel-title">Pravidla</h2>
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentSelect TOption="string" @bind-Value="_scopeValue" Label="Rozsah přepočtu">
+                    <FluentOption TOption="string" Value="true">Jen nezařazené</FluentOption>
+                    <FluentOption TOption="string" Value="false">Všechny pohyby</FluentOption>
+                </FluentSelect>
+                <FluentButton Appearance="Appearance.Accent" OnClick="RecategorizeAsync" Loading="_recategorizing">
+                    Přepočítat kategorie
+                </FluentButton>
+            </FluentStack>
+        </div>
+
+        @if (_rules is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_rules.Count == 0)
+        {
+            <p class="muted">Zatím žádná pravidla. Vytvořte první vlevo, nebo použijte „Vytvořit pravidlo" u konkrétní transakce.</p>
+        }
+        else
+        {
+            @foreach (var r in _rules)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">
+                            „@r.Pattern"
+                            @if (!r.IsActive)
+                            {
+                                <span class="muted">· neaktivní</span>
+                            }
+                        </div>
+                        <div class="muted">
+                            @FieldLabel(r.Field) → @(r.CategoryName ?? "—") · priorita @r.Priority
+                        </div>
+                    </div>
+                    <div>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => EditRule(r))">Upravit</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleActiveAsync(r))">
+                            @(r.IsActive ? "Deaktivovat" : "Aktivovat")
+                        </FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteAsync(r))">Smazat</FluentButton>
+                    </div>
+                </div>
+            }
+        }
+    </FluentCard>
+</div>
+}
+
+@code {
+    private IReadOnlyList<CategorizationRuleDto>? _rules;
+    private IReadOnlyList<CategoryDto>? _categories;
+
+    private CategorizationRuleRequest _model = new();
+    private string _fieldValue = ((int)RuleMatchField.Any).ToString();
+    private string _categoryValue = "";
+    private string _activeValue = "true";
+    private Guid? _editingId;
+
+    private string _scopeValue = "true";
+    private bool _busy;
+    private bool _recategorizing;
+    private bool _canManage;
+
+    /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction (/rules?pattern=...).</summary>
+    [SupplyParameterFromQuery] public string? Pattern { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var me = await CurrentUser.GetAsync();
+        _canManage = me?.Can(Permission.ManageTransactions) ?? false;
+        if (!_canManage)
+            return;
+
+        _categories = await Api.GetCategoriesAsync();
+        _categoryValue = _categories.FirstOrDefault()?.Id.ToString() ?? "";
+
+        if (!string.IsNullOrWhiteSpace(Pattern))
+            _model.Pattern = Pattern!.Trim();
+
+        await LoadRulesAsync();
+    }
+
+    private async Task LoadRulesAsync() => _rules = await Api.GetRulesAsync();
+
+    private async Task SaveAsync()
+    {
+        if (!Guid.TryParse(_categoryValue, out var categoryId))
+        {
+            Toasts.ShowError("Vyberte kategorii.");
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _model.Field = (RuleMatchField)int.Parse(_fieldValue);
+            _model.CategoryId = categoryId;
+            _model.IsActive = _activeValue == "true";
+
+            var saved = _editingId is { } id
+                ? await Api.UpdateRuleAsync(id, _model)
+                : await Api.CreateRuleAsync(_model);
+
+            if (saved is null)
+            {
+                Toasts.ShowError("Pravidlo se nepodařilo uložit.");
+                return;
+            }
+
+            Toasts.ShowSuccess(_editingId is null ? "Pravidlo bylo vytvořeno a aplikováno na nezařazené pohyby." : "Pravidlo bylo uloženo.");
+            ResetForm();
+            await LoadRulesAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void EditRule(CategorizationRuleDto r)
+    {
+        _editingId = r.Id;
+        _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority };
+        _fieldValue = ((int)r.Field).ToString();
+        _categoryValue = r.CategoryId.ToString();
+        _activeValue = r.IsActive ? "true" : "false";
+    }
+
+    private void CancelEdit() => ResetForm();
+
+    private void ResetForm()
+    {
+        _editingId = null;
+        _model = new CategorizationRuleRequest();
+        _fieldValue = ((int)RuleMatchField.Any).ToString();
+        _categoryValue = _categories?.FirstOrDefault()?.Id.ToString() ?? "";
+        _activeValue = "true";
+    }
+
+    private async Task ToggleActiveAsync(CategorizationRuleDto r)
+    {
+        var updated = await Api.UpdateRuleAsync(r.Id, new CategorizationRuleRequest
+        {
+            Field = r.Field,
+            Pattern = r.Pattern,
+            CategoryId = r.CategoryId,
+            Priority = r.Priority,
+            IsActive = !r.IsActive,
+        });
+        if (updated is null)
+            Toasts.ShowError("Změnu se nepodařilo uložit.");
+        await LoadRulesAsync();
+    }
+
+    private async Task DeleteAsync(CategorizationRuleDto r)
+    {
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny.",
+            "Smazat", "Zrušit", "Smazání pravidla");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        if (await Api.DeleteRuleAsync(r.Id))
+            Toasts.ShowSuccess("Pravidlo bylo smazáno.");
+        else
+            Toasts.ShowError("Pravidlo se nepodařilo smazat.");
+        if (_editingId == r.Id)
+            ResetForm();
+        await LoadRulesAsync();
+    }
+
+    private async Task RecategorizeAsync()
+    {
+        _recategorizing = true;
+        try
+        {
+            var count = await Api.RecategorizeAsync(_scopeValue == "true");
+            Toasts.ShowSuccess($"Přepočítáno – zařazeno {count} pohybů.");
+            await LoadRulesAsync();
+        }
+        finally
+        {
+            _recategorizing = false;
+        }
+    }
+
+    private static string FieldLabel(RuleMatchField field) => field switch
+    {
+        RuleMatchField.CounterpartyName => "Protistrana",
+        RuleMatchField.Description => "Popis",
+        RuleMatchField.VariableSymbol => "Variabilní symbol",
+        RuleMatchField.CounterpartyAccount => "Protiúčet",
+        RuleMatchField.Any => "Kdekoliv",
+        _ => field.ToString(),
+    };
+
+    private static string KindLabel(CategoryKind kind) => kind switch
+    {
+        CategoryKind.Expense => "výdaj",
+        CategoryKind.Income => "příjem",
+        _ => kind.ToString(),
+    };
+}
