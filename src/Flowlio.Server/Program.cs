@@ -77,6 +77,8 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LoginPath = "/Account/Login";
     options.LogoutPath = "/Account/Logout";
     options.Cookie.SameSite = SameSiteMode.Lax;
+    // The app is served over HTTPS (UseHttpsRedirection), so the auth cookie must never travel in clear.
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 });
 
 builder.Services.AddOpenIddict()
@@ -120,12 +122,11 @@ builder.Services.AddOpenIddict()
         options.UseAspNetCore();
     });
 
-// Bearer (API) is the default; the interactive authorize endpoint challenges the Identity cookie explicitly.
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-});
+// The default scheme stays the Identity application cookie (set by AddIdentity above), so the
+// interactive Razor Pages (/Account/*) and the /connect/authorize login work with the sign-in
+// cookie and challenge to /Account/Login. The API, the SignalR hub and the userinfo endpoint each
+// pin the OpenIddict bearer scheme explicitly (the "api"/admin policies and
+// [Authorize(AuthenticationSchemes = ...)]), so they keep validating bearer tokens regardless.
 
 builder.Services.AddAuthorization(options =>
 {

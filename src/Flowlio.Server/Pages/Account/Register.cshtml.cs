@@ -41,10 +41,25 @@ public class RegisterModel(
 
     public async Task<IActionResult> OnPostAsync()
     {
+        // For an invited registration the account must use the e-mail the invite was issued to.
+        // Never trust the posted value here, or the invite could be redeemed against an
+        // attacker-chosen address, seizing the invited member's seat.
+        var email = Email;
+        var hasInvite = false;
+        if (!string.IsNullOrWhiteSpace(Invite))
+        {
+            var invitation = await invitations.FindPendingAsync(Invite);
+            if (invitation is { Status: Domain.InvitationStatus.Pending, Member: not null })
+            {
+                email = invitation.Email;
+                hasInvite = true;
+            }
+        }
+
         var user = new ApplicationUser
         {
-            UserName = Email,
-            Email = Email,
+            UserName = email,
+            Email = email,
             DisplayName = string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName,
             EmailConfirmed = true,
         };
@@ -56,17 +71,21 @@ public class RegisterModel(
             return Page();
         }
 
-        if (!string.IsNullOrWhiteSpace(Invite))
+        if (hasInvite)
         {
-            var outcome = await invitations.AcceptAsync(Invite, user.Id);
-            if (outcome is InvitationService.AcceptOutcome.Expired or InvitationService.AcceptOutcome.NotFound)
+            var outcome = await invitations.AcceptAsync(Invite!, user.Id);
+            if (outcome is not InvitationService.AcceptOutcome.Accepted)
             {
-                // The account was created; the invite link is just no longer valid. Surface it but let them in.
+                // The account was created; the invite link is just no longer applicable. Surface it but let them in.
                 Error = "Pozvánka už není platná, ale účet byl vytvořen.";
             }
         }
 
         await signInManager.SignInAsync(user, isPersistent: true);
-        return LocalRedirect(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
+
+        // Offer 2FA setup right after registration as a recommended, skippable step. The setup page's
+        // continue/skip links carry the returnUrl on to /connect/authorize so the OIDC flow resumes.
+        var returnUrl = string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl;
+        return Redirect("/Account/TwoFactor?returnUrl=" + Uri.EscapeDataString(returnUrl));
     }
 }

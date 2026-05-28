@@ -53,10 +53,14 @@ public sealed class AuthorizationController(
             return Redirect("/Account/ChangePassword?returnUrl=" + Uri.EscapeDataString(target));
         }
 
-        // Force 2FA enrolment before issuing any token. The user lands on the
-        // setup page; once they complete it, the returnUrl resumes /connect/authorize
-        // and the OIDC flow continues normally.
-        if (!await userManager.GetTwoFactorEnabledAsync(user))
+        // 2FA is optional, but an admin can require it per account with a deadline (Require2faBy). Once
+        // that deadline has passed and the user still hasn't enrolled, block token issuance and send
+        // them to the setup page; the returnUrl resumes /connect/authorize once 2FA is on. New accounts
+        // are offered 2FA setup right after registration (see RegisterModel), so this is only the
+        // hard-enforcement backstop, consistent with the password sign-in check in LoginModel.
+        if (user is { Require2faBy: { } deadline }
+            && deadline < DateTimeOffset.UtcNow
+            && !await userManager.GetTwoFactorEnabledAsync(user))
         {
             var target = Request.PathBase + Request.Path + QueryString.Create(
                 Request.HasFormContentType ? Request.Form.ToList() : Request.Query.ToList());
