@@ -12,9 +12,9 @@
 <h1 class="page-title">Transakce</h1>
 
 <div class="toolbar">
-    <FluentSearch @bind-Value="_search" @bind-Value:after="ApplyClientFiltersAsync"
-                  Immediate="true" ImmediateDelay="250"
-                  Placeholder="Hledat protistranu, popis nebo VS…" Class="toolbar-search" />
+    <FluentSearch @bind-Value="_search" @bind-Value:after="SearchChangedAsync"
+                  Immediate="true" ImmediateDelay="300"
+                  Placeholder="Fulltext: protistrana, popis, poznámka, VS…" Class="toolbar-search" />
 
     @if (_canManage && _accounts.Count > 0)
     {
@@ -65,13 +65,6 @@
         <span class="filter-label">Do</span>
         <FluentDatePicker @bind-Value="_dateTo" @bind-Value:after="OnDateEditedAsync" Culture="Cz" />
     </div>
-
-    @if (HasActiveFilters)
-    {
-        <div class="toolbar-actions">
-            <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
-        </div>
-    }
 </div>
 
 @if (_showEditor)
@@ -166,6 +159,10 @@ else
         </FluentSelect>
         <span class="muted">Celkem @_rows.Count pohybů</span>
         <div class="toolbar-actions">
+            @if (HasActiveFilters)
+            {
+                <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
+            }
             <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
         </div>
     </div>
@@ -227,9 +224,10 @@ else
         await LoadAsync();
     }
 
-    // Loads the whole family transaction set (the server caps pageSize at 200, so we
-    // page through it). Tabulator then owns pagination, sorting, grouping, the footer
-    // sum, CSV export and — see ApplyClientFiltersAsync — instant client-side filtering.
+    // Loads the matching transaction set from the server. The text search is a real PostgreSQL
+    // full-text query (diacritics-insensitive, ranked); the structured filters below stay
+    // client-side in Tabulator for instant feedback. The server caps pageSize at 200, so we page
+    // through to load the whole matching set for client-side pagination/grouping/footer sums.
     private async Task LoadAsync()
     {
         _loading = true;
@@ -239,7 +237,7 @@ else
         const int size = 200;
         for (var page = 1; page <= 200; page++)
         {
-            var result = await Api.GetTransactionsAsync(page: page, pageSize: size);
+            var result = await Api.GetTransactionsAsync(search: _search, page: page, pageSize: size);
             if (result is null || result.Items.Count == 0)
                 break;
             all.AddRange(result.Items);
@@ -254,12 +252,15 @@ else
         StateHasChanged();
     }
 
+    // The search term runs server-side (FTS), so changing it reloads from the server.
+    private Task SearchChangedAsync() => LoadAsync();
+
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
         || _typeValue != "" || _dateFrom is not null || _dateTo is not null;
 
-    // Pushes the current filter values into Tabulator — no server round-trip, and the
-    // footer sum / pagination follow the filtered set instantly.
+    // Pushes the structured filters into Tabulator — no server round-trip, and the footer sum /
+    // pagination follow the filtered set instantly. (Text search is handled server-side in LoadAsync.)
     private async Task ApplyClientFiltersAsync()
     {
         var type = _typeValue == ((int)TransactionDirection.Incoming).ToString() ? "in"
@@ -267,7 +268,6 @@ else
 
         await JS.InvokeVoidAsync("flowlioGrid.setFilters", "tx-grid", new
         {
-            search = _search ?? "",
             accountId = _accountValue,
             categoryId = _categoryValue,
             type,
@@ -315,8 +315,9 @@ else
         return ApplyClientFiltersAsync();
     }
 
-    private Task ClearFiltersAsync()
+    private async Task ClearFiltersAsync()
     {
+        var hadSearch = !string.IsNullOrEmpty(_search);
         _search = "";
         _accountValue = "";
         _categoryValue = "";
@@ -324,7 +325,11 @@ else
         _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
-        return ApplyClientFiltersAsync();
+
+        if (hadSearch)
+            await LoadAsync(); // reloads the unfiltered set and re-applies (now empty) client filters
+        else
+            await ApplyClientFiltersAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
