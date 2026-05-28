@@ -23,6 +23,9 @@ public sealed class CurrentUserState(FlowlioApi api) : IDisposable
     /// <summary>Raised when the cached current user changes, so the UI can update its gating.</summary>
     public event Action? Changed;
 
+    /// <summary>True when the API reports the family membership is suspended (HTTP 403 from /api/me).</summary>
+    public bool IsSuspended { get; private set; }
+
     public async Task<CurrentUserDto?> GetAsync()
     {
         if (!_loaded)
@@ -50,11 +53,13 @@ public sealed class CurrentUserState(FlowlioApi api) : IDisposable
     {
         try
         {
-            return await api.GetMeAsync();
+            var result = await api.GetMeAsync();
+            IsSuspended = result.Forbidden;
+            return result.User;
         }
         catch
         {
-            return null; // unauthenticated, deactivated (403) or a transient failure
+            return null; // unauthenticated or a transient failure; leave the suspended flag untouched
         }
     }
 
@@ -73,7 +78,16 @@ public sealed class CurrentUserState(FlowlioApi api) : IDisposable
         {
             while (await _timer!.WaitForNextTickAsync(_cts.Token))
             {
+                var wasSuspended = IsSuspended;
                 var latest = await FetchAsync();
+                // A membership suspended (or restored) mid-session must update the UI immediately.
+                if (IsSuspended != wasSuspended)
+                {
+                    if (IsSuspended)
+                        _me = null;
+                    Changed?.Invoke();
+                    continue;
+                }
                 // Ignore a failed poll (null) so a transient error never wipes the cached access;
                 // genuine removals arrive via the explicit live push -> RefreshAsync.
                 if (latest is not null && !SameAccess(_me, latest))

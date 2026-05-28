@@ -349,7 +349,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> ForceLogout(
         Guid userId, UserManager<ApplicationUser> userManager, IOpenIddictTokenManager tokens, ICurrentUser current,
-        ICurrentSystemAccess sys, IAuditLog audit, CancellationToken ct)
+        ICurrentSystemAccess sys, AccountNotifier notifier, IAuditLog audit, CancellationToken ct)
     {
         if (!await sys.CanAsync(SystemPermission.ForceUserLogout, ct))
             return Forbidden();
@@ -362,6 +362,8 @@ public static class AdminEndpoints
 
         await userManager.UpdateSecurityStampAsync(user);
         await RevokeTokensAsync(tokens, userId, ct);
+        await notifier.NotifyAsync(user, "Byli jste odhlášeni – Flowlio",
+            "Administrátor ukončil všechny vaše přihlášené relace. Přihlaste se prosím znovu.", "warning", ct);
         await audit.RecordAsync("user.force-logout", "User", userId.ToString(), user.Email, details: "Vynuceno odhlášení", cancellationToken: ct);
         return Results.NoContent();
     }

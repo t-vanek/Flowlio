@@ -1,5 +1,6 @@
 using System.Text;
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Realtime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -9,12 +10,15 @@ using QRCoder;
 namespace Flowlio.Server.Pages.Account;
 
 [Authorize]
-public class TwoFactorModel(UserManager<ApplicationUser> userManager) : PageModel
+public class TwoFactorModel(UserManager<ApplicationUser> userManager, AccountNotifier notifier) : PageModel
 {
     public bool Is2faEnabled { get; private set; }
     public string? SharedKey { get; private set; }
     public string? AuthenticatorUri { get; private set; }
     public string? AuthenticatorQrDataUri { get; private set; }
+
+    /// <summary>How many single-use recovery codes the user still has, when 2FA is on.</summary>
+    public int RecoveryCodesLeft { get; private set; }
 
     /// <summary>Admin-set deadline by which the user must enrol in 2FA, if any.</summary>
     public DateTimeOffset? Require2faBy { get; private set; }
@@ -40,7 +44,9 @@ public class TwoFactorModel(UserManager<ApplicationUser> userManager) : PageMode
 
         Is2faEnabled = await userManager.GetTwoFactorEnabledAsync(user);
         Require2faBy = user.Require2faBy;
-        if (!Is2faEnabled)
+        if (Is2faEnabled)
+            RecoveryCodesLeft = await userManager.CountRecoveryCodesAsync(user);
+        else
             await LoadSharedKeyAsync(user);
         return Page();
     }
@@ -64,7 +70,10 @@ public class TwoFactorModel(UserManager<ApplicationUser> userManager) : PageMode
         await userManager.SetTwoFactorEnabledAsync(user, true);
         Is2faEnabled = true;
         RecoveryCodes = (await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10))!.ToArray();
+        RecoveryCodesLeft = RecoveryCodes.Length;
         Status = "Dvoufaktorové ověření bylo zapnuto. Uložte si záchranné kódy na bezpečné místo.";
+        await notifier.NotifyAsync(user, "Dvoufaktorové ověření zapnuto – Flowlio",
+            "Na vašem účtu bylo zapnuto dvoufaktorové ověření.", "info");
         return Page();
     }
 
@@ -101,6 +110,8 @@ public class TwoFactorModel(UserManager<ApplicationUser> userManager) : PageMode
         Is2faEnabled = false;
         await LoadSharedKeyAsync(user);
         Status = "Dvoufaktorové ověření bylo vypnuto.";
+        await notifier.NotifyAsync(user, "Dvoufaktorové ověření vypnuto – Flowlio",
+            "Na vašem účtu bylo vypnuto dvoufaktorové ověření. Pokud jste to nebyli vy, ihned kontaktujte správce.", "warning");
         return Page();
     }
 
@@ -112,6 +123,7 @@ public class TwoFactorModel(UserManager<ApplicationUser> userManager) : PageMode
 
         Is2faEnabled = await userManager.GetTwoFactorEnabledAsync(user);
         RecoveryCodes = (await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10))!.ToArray();
+        RecoveryCodesLeft = RecoveryCodes.Length;
         Status = "Byly vygenerovány nové záchranné kódy. Předchozí přestaly platit.";
         return Page();
     }

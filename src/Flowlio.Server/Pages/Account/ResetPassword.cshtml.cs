@@ -1,11 +1,12 @@
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Realtime;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Flowlio.Server.Pages.Account;
 
-public class ResetPasswordModel(UserManager<ApplicationUser> userManager) : PageModel
+public class ResetPasswordModel(UserManager<ApplicationUser> userManager, AccountNotifier notifier) : PageModel
 {
     [BindProperty] public string Email { get; set; } = "";
     [BindProperty] public string Token { get; set; } = "";
@@ -48,6 +49,9 @@ public class ResetPasswordModel(UserManager<ApplicationUser> userManager) : Page
             user.MustChangePassword = false;
             await userManager.UpdateAsync(user);
         }
+
+        await notifier.NotifyAsync(user, "Heslo bylo změněno – Flowlio",
+            "Vaše heslo bylo právě obnoveno. Pokud jste o obnovu nežádali, ihned kontaktujte správce.", "warning");
 
         Done = true;
         return Page();

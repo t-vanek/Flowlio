@@ -60,10 +60,17 @@ public static class ApiEndpoints
         var systemPermissions = await systemAccess.GetPermissionsAsync(ct);
 
         var isAdmin = false;
+        var twoFactorEnabled = false;
+        DateTimeOffset? require2faBy = null;
         if (currentUser.UserId is { } userId)
         {
             var user = await userManager.FindByIdAsync(userId.ToString());
-            isAdmin = user is not null && await userManager.IsInRoleAsync(user, SystemRoles.Administrator);
+            if (user is not null)
+            {
+                isAdmin = await userManager.IsInRoleAsync(user, SystemRoles.Administrator);
+                twoFactorEnabled = await userManager.GetTwoFactorEnabledAsync(user);
+                require2faBy = user.Require2faBy;
+            }
         }
 
         return new CurrentUserDto
@@ -75,6 +82,8 @@ public static class ApiEndpoints
             Permissions = permissions.ToList(),
             SystemPermissions = systemPermissions.ToList(),
             PollIntervalSeconds = config.GetValue("Auth:PollIntervalSeconds", 60),
+            TwoFactorEnabled = twoFactorEnabled,
+            Require2faByUtc = require2faBy,
         };
     }
 

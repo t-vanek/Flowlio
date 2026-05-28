@@ -70,6 +70,19 @@
         {
             <h2>Stav: 2FA je zapnutá ✓</h2>
             <p class="muted">Účet je chráněn. Můžete si vygenerovat nové záchranné kódy (předchozí se zneplatní) nebo 2FA vypnout.</p>
+            @if (Model.RecoveryCodes is null or { Length: 0 })
+            {
+                @if (Model.RecoveryCodesLeft <= 3)
+                {
+                    <div class="force-2fa-banner expired">
+                        Zbývá @Model.RecoveryCodesLeft záchranných kódů. Vygenerujte si prosím nové, ať se nezamknete.
+                    </div>
+                }
+                else
+                {
+                    <p class="muted">Zbývá @Model.RecoveryCodesLeft záchranných kódů.</p>
+                }
+            }
             <div class="btn-row">
                 <form method="post" asp-page-handler="Regenerate" asp-route-returnUrl="@safeReturn">
                     <button type="submit">Vygenerovat nové záchranné kódy</button>

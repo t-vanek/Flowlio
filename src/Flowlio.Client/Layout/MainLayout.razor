@@ -49,7 +49,27 @@
         </header>
 
         <article class="content">
-            @Body
+            @if (_suspended)
+            {
+                <FluentCard Class="panel">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔒</div>
+                        <p>Váš přístup do rodiny byl pozastaven.</p>
+                        <p class="hint">Pokud jde o omyl, kontaktujte prosím správce rodiny.</p>
+                    </div>
+                </FluentCard>
+            }
+            else
+            {
+                @if (_me is { TwoFactorEnabled: false, Require2faByUtc: { } deadline })
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning" Class="twofa-reminder" AllowDismiss="false">
+                        Zapněte si dvoufaktorové ověření do @deadline.LocalDateTime.ToString("d.M.yyyy") – po této lhůtě se bez něj nepřihlásíte.
+                        <a href="/Account/TwoFactor">Zapnout teď</a>
+                    </FluentMessageBar>
+                }
+                @Body
+            }
         </article>
     </main>
 </div>
@@ -62,18 +82,48 @@
     private static readonly (string Prefix, string Title)[] _routeTitles =
     [
         ("/transactions",   "Transakce"),
-        ("/pohyby",         "Pohyby"),
         ("/accounts",       "Účty"),
         ("/family",         "Rodina"),
         ("/import",         "Import výpisu"),
         ("/administration", "Administrace"),
     ];
 
+    private CurrentUserDto? _me;
+    private bool _suspended;
+
     protected override void OnInitialized()
     {
         UpdatePageTitle();
         Navigation.LocationChanged += OnLocationChanged;
     }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CurrentUser.Changed += OnUserChanged;
+        await RefreshUserAsync();
+    }
+
+    private async Task RefreshUserAsync()
+    {
+        _me = await CurrentUser.GetAsync();
+        _suspended = CurrentUser.IsSuspended;
+    }
+
+    private void OnUserChanged() => _ = InvokeAsync(async () =>
+    {
+        var previous = _me;
+        await RefreshUserAsync();
+        // Tell the user when an admin changed their access mid-session (but not on the initial load
+        // or a suspension, which has its own full-screen message).
+        if (!_suspended && previous is not null && _me is not null && AccessDiffers(previous, _me))
+            Toasts.ShowWarning("Vaše oprávnění byla změněna administrátorem.");
+        StateHasChanged();
+    });
+
+    private static bool AccessDiffers(CurrentUserDto a, CurrentUserDto b) =>
+        a.Role != b.Role || a.IsAdmin != b.IsAdmin
+        || a.Permissions.Count != b.Permissions.Count || a.Permissions.Except(b.Permissions).Any()
+        || a.SystemPermissions.Count != b.SystemPermissions.Count || a.SystemPermissions.Except(b.SystemPermissions).Any();
 
     private bool _sidebarOpen;
 
@@ -164,6 +214,7 @@
     public async ValueTask DisposeAsync()
     {
         Navigation.LocationChanged -= OnLocationChanged;
+        CurrentUser.Changed -= OnUserChanged;
         Live.ImportCompleted -= OnImportCompleted;
         Live.AccessChanged -= OnAccessChanged;
         Live.Notice -= OnNotice;

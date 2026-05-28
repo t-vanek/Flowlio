@@ -4,6 +4,7 @@ using Flowlio.Server.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace Flowlio.Server.Pages.Account;
 
@@ -11,6 +12,7 @@ public class LoginModel(
     SignInManager<ApplicationUser> signInManager,
     UserManager<ApplicationUser> userManager,
     IEmailSender emailSender,
+    IOptions<IdentityOptions> identityOptions,
     ILogger<LoginModel> logger) : PageModel
 {
     [BindProperty] public string Email { get; set; } = "";
@@ -80,11 +82,29 @@ public class LoginModel(
             return Page();
         }
 
-        // Wrong password (account not locked): if an admin lock has since expired, clear its stale
-        // reason so a subsequent automatic lockout is attributed to the system, not the admin.
-        await ClearStaleLockoutReasonAsync(await userManager.FindByNameAsync(Email));
-        Error = "Neplatný e-mail nebo heslo.";
+        // Wrong password (account not locked). Clear a stale admin lock reason so a later automatic
+        // lockout is attributed to the system, and warn once the account is close to being locked.
+        var failedUser = await userManager.FindByNameAsync(Email);
+        await ClearStaleLockoutReasonAsync(failedUser);
+        Error = await WrongPasswordMessageAsync(failedUser);
         return Page();
+    }
+
+    private async Task<string> WrongPasswordMessageAsync(ApplicationUser? user)
+    {
+        const string generic = "Neplatný e-mail nebo heslo.";
+        if (user is null || !await userManager.GetLockoutEnabledAsync(user))
+            return generic;
+
+        // Only surface the countdown over the last couple of attempts: it warns before an imminent
+        // lockout without leaking account existence on a single typo.
+        var remaining = identityOptions.Value.Lockout.MaxFailedAccessAttempts - await userManager.GetAccessFailedCountAsync(user);
+        return remaining switch
+        {
+            1 => $"{generic} Zbývá poslední pokus, než se účet dočasně uzamkne.",
+            2 => $"{generic} Zbývají 2 pokusy, než se účet dočasně uzamkne.",
+            _ => generic,
+        };
     }
 
     private async Task ClearStaleLockoutReasonAsync(ApplicationUser? user)
