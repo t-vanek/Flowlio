@@ -59,7 +59,9 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
         options.User.RequireUniqueEmail = true;
         options.Password.RequiredLength = 8;
         options.Password.RequireNonAlphanumeric = false;
-        options.SignIn.RequireConfirmedAccount = false;
+        // Self-service sign-ups must confirm their e-mail before they can sign in. Invited accounts are
+        // pre-confirmed (the invite itself proves e-mail ownership) and the demo account is seeded confirmed.
+        options.SignIn.RequireConfirmedEmail = true;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();

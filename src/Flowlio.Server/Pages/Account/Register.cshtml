@@ -27,6 +27,23 @@
     </style>
 </head>
 <body>
+@if (Model.AwaitingConfirmation)
+{
+    <div class="card">
+        <div class="logo">₣ Flowlio</div>
+        <h1>Zkontrolujte e-mail</h1>
+        <p style="font-size:14px;color:#475569;">Poslali jsme potvrzovací odkaz na <strong>@Model.Email</strong>. Po jeho otevření se budete moci přihlásit.</p>
+        @if (Model.DevConfirmLink is not null)
+        {
+            <div style="background:#fef9c3;color:#854d0e;padding:10px;border-radius:8px;margin-top:14px;font-size:13px;word-break:break-all;">
+                [DEV] <a href="@Model.DevConfirmLink">Potvrdit e-mail</a>
+            </div>
+        }
+        <div class="switch"><a href="/Account/Login">Zpět na přihlášení</a></div>
+    </div>
+}
+else
+{
     <form class="card" method="post">
         <div class="logo">₣ Flowlio</div>
         <h1>Vytvořit účet</h1>
@@ -58,5 +75,6 @@
 
         <div class="switch">Už máte účet? <a href="/Account/Login?returnUrl=@Uri.EscapeDataString(Model.ReturnUrl ?? "/")">Přihlaste se</a></div>
     </form>
+}
 </body>
 </html>
