@@ -169,7 +169,7 @@
                 <div class="account-row">
                     <div>
                         <div class="account-name">@inv.MemberName</div>
-                        <div class="muted">@inv.Email · platí do @inv.ExpiresAt.LocalDateTime.ToString("d.M.yyyy")</div>
+                        <div class="muted">@inv.Email · platí do @Formatting.Date(inv.ExpiresAt)</div>
                     </div>
                     <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RevokeAsync(inv.Id))">Zrušit</FluentButton>
                 </div>

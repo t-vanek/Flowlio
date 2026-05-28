@@ -4,11 +4,11 @@
     <h2 class="panel-title">Detail pohybu</h2>
     <dl class="audit-detail">
         <dt>Datum zaúčtování</dt>
-        <dd>@Transaction.BookingDate.ToString("d.M.yyyy")</dd>
+        <dd>@Formatting.Date(Transaction.BookingDate)</dd>
         @if (Transaction.ValueDate is { } vd)
         {
             <dt>Datum splatnosti</dt>
-            <dd>@vd.ToString("d.M.yyyy")</dd>
+            <dd>@Formatting.Date(vd)</dd>
         }
         <dt>Účet</dt>
         <dd>@AccountNames.GetValueOrDefault(Transaction.BankAccountId, "—")</dd>

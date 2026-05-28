@@ -120,7 +120,7 @@ else
                             {
                                 <div class="account-name">@(string.IsNullOrWhiteSpace(b.Name) ? "(bez názvu)" : b.Name)</div>
                                 <div class="muted">
-                                    @OriginLabel(b.Origin) · @b.AccountName · @b.CreatedAt.LocalDateTime.ToString("d.M.yyyy") · @b.ImportedCount pohybů
+                                    @OriginLabel(b.Origin) · @b.AccountName · @Formatting.Date(b.CreatedAt) · @b.ImportedCount pohybů
                                 </div>
                             }
                         </div>

@@ -259,7 +259,7 @@ else
                         <div class="account-name">@a.Name</div>
                         <div class="muted">
                             @BankLabel(a.Bank)@(string.IsNullOrWhiteSpace(a.AccountNumber) ? "" : $" · {a.AccountNumber}")
-                            · archivováno @a.ArchivedAt.ToLocalTime().ToString("d.M.yyyy")
+                            · archivováno @Formatting.Date(a.ArchivedAt)
                         </div>
                     </div>
                     <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreAsync(a.Id))">Obnovit</FluentButton>

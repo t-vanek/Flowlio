@@ -94,7 +94,7 @@ else
                 {
                     <div class="bar-row">
                         <span class="bar-name">@u.Name</span>
-                        <span class="muted">@(u.DueDate?.ToString("d.M.yyyy"))</span>
+                        <span class="muted">@Formatting.Date(u.DueDate)</span>
                         <span class="bar-amount expense">@Formatting.Money(u.Amount)</span>
                     </div>
                 }
