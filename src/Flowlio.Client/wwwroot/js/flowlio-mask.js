@@ -23,9 +23,14 @@ window.flowlioMask = {
         return true;
     },
     // Push a value from .NET into the masked input without firing the accept callback.
+    // A zero (or null) shows as an empty field: otherwise a literal "0" sits in the input and typing
+    // before it (e.g. "1500" -> "15000") silently multiplies the amount.
     set(el, value) {
         if (!el || !el._imask) return;
-        el._imask.typedValue = value === null || value === undefined ? "" : Number(value);
+        if (value === null || value === undefined || value === 0)
+            el._imask.value = "";
+        else
+            el._imask.typedValue = Number(value);
     },
     dispose(el) {
         if (el && el._imask) {

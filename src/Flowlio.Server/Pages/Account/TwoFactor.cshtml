@@ -117,7 +117,7 @@
             <form method="post" asp-page-handler="Enable" asp-route-returnUrl="@safeReturn">
                 <label for="VerificationCode">Kód z aplikace</label>
                 <input id="VerificationCode" name="VerificationCode" type="text" inputmode="numeric"
-                       pattern="[0-9 -]*" autocomplete="one-time-code" autofocus />
+                       pattern="[-0-9 ]*" autocomplete="one-time-code" autofocus />
                 <button type="submit" class="block">Zapnout 2FA</button>
             </form>
 

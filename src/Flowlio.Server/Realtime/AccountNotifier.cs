@@ -1,6 +1,7 @@
 using System.Net;
 using Flowlio.Application.Abstractions;
 using Flowlio.Infrastructure.Identity;
+using Flowlio.Server.Auth;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Flowlio.Server.Realtime;
@@ -36,7 +37,7 @@ public sealed class AccountNotifier(
                 ToEmail = user.Email,
                 ToName = user.DisplayName,
                 Subject = subject,
-                HtmlBody = $"<p>{WebUtility.HtmlEncode(message)}</p>",
+                HtmlBody = EmailLayout.Wrap($"<p>{WebUtility.HtmlEncode(message)}</p>"),
                 TextBody = message,
             }, ct);
         }

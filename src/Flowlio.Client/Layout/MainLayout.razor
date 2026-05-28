@@ -13,66 +13,70 @@
 <FluentMessageBarProvider />
 <FluentMenuProvider />
 
-<div class="page @(_sidebarOpen ? "is-sidebar-open" : "")">
-    <aside class="sidebar">
-        <NavMenu />
-    </aside>
+@if (_suspended)
+{
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+        <FluentCard Class="panel" Style="max-width:460px;">
+            <div class="empty-state">
+                <div class="empty-state-icon">🔒</div>
+                <p>Váš přístup do rodiny byl pozastaven.</p>
+                <p class="hint">Pokud jde o omyl, kontaktujte prosím správce rodiny.</p>
+                <FluentButton Appearance="Appearance.Accent" OnClick="LogOut">Odhlásit se</FluentButton>
+            </div>
+        </FluentCard>
+    </div>
+}
+else
+{
+    <div class="page @(_sidebarOpen ? "is-sidebar-open" : "")">
+        <aside class="sidebar">
+            <NavMenu />
+        </aside>
 
-    @if (_sidebarOpen)
-    {
-        <div class="sidebar-backdrop" @onclick="CloseSidebar"></div>
-    }
+        @if (_sidebarOpen)
+        {
+            <div class="sidebar-backdrop" @onclick="CloseSidebar"></div>
+        }
 
-    <main class="main">
-        <header class="topbar">
-            <button type="button"
-                    class="topbar-burger"
-                    aria-label="Otevřít navigaci"
-                    aria-expanded="@(_sidebarOpen ? "true" : "false")"
-                    @onclick="ToggleSidebar">
-                <span></span><span></span><span></span>
-            </button>
-            <nav class="topbar-breadcrumb" aria-label="Drobečková navigace">
-                @if (_pageTitle == HomeTitle)
-                {
-                    <span class="breadcrumb-current">@HomeTitle</span>
-                }
-                else
-                {
-                    <a class="breadcrumb-link" href="">@HomeTitle</a>
-                    <span class="breadcrumb-sep">›</span>
-                    <span class="breadcrumb-current">@_pageTitle</span>
-                }
-            </nav>
-            <span class="spacer"></span>
-            <ProfileMenu OnThemeChanged="HandleThemeChangedAsync" />
-        </header>
+        <main class="main">
+            <header class="topbar">
+                <button type="button"
+                        class="topbar-burger"
+                        aria-label="Otevřít navigaci"
+                        aria-expanded="@(_sidebarOpen ? "true" : "false")"
+                        @onclick="ToggleSidebar">
+                    <span></span><span></span><span></span>
+                </button>
+                <nav class="topbar-breadcrumb" aria-label="Drobečková navigace">
+                    @if (_pageTitle == HomeTitle)
+                    {
+                        <span class="breadcrumb-current">@HomeTitle</span>
+                    }
+                    else
+                    {
+                        <a class="breadcrumb-link" href="">@HomeTitle</a>
+                        <span class="breadcrumb-sep">›</span>
+                        <span class="breadcrumb-current">@_pageTitle</span>
+                    }
+                </nav>
+                <span class="spacer"></span>
+                <ProfileMenu OnThemeChanged="HandleThemeChangedAsync" />
+            </header>
 
-        <article class="content">
-            @if (_suspended)
-            {
-                <FluentCard Class="panel">
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🔒</div>
-                        <p>Váš přístup do rodiny byl pozastaven.</p>
-                        <p class="hint">Pokud jde o omyl, kontaktujte prosím správce rodiny.</p>
-                    </div>
-                </FluentCard>
-            }
-            else
-            {
-                @if (_me is { TwoFactorEnabled: false, Require2faByUtc: { } deadline })
+            <article class="content">
+                @if (!_bannerDismissed && _me is { TwoFactorEnabled: false, Require2faByUtc: { } deadline })
                 {
                     <FluentMessageBar Intent="MessageIntent.Warning" Class="twofa-reminder" AllowDismiss="false">
                         Zapněte si dvoufaktorové ověření do @deadline.LocalDateTime.ToString("d.M.yyyy") – po této lhůtě se bez něj nepřihlásíte.
                         <a href="/Account/TwoFactor">Zapnout teď</a>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _bannerDismissed = true)">Skrýt</FluentButton>
                     </FluentMessageBar>
                 }
                 @Body
-            }
-        </article>
-    </main>
-</div>
+            </article>
+        </main>
+    </div>
+}
 
 @code {
     private const string HomeTitle = "Přehled";
@@ -90,6 +94,7 @@
 
     private CurrentUserDto? _me;
     private bool _suspended;
+    private bool _bannerDismissed;
 
     protected override void OnInitialized()
     {
@@ -116,7 +121,7 @@
         // Tell the user when an admin changed their access mid-session (but not on the initial load
         // or a suspension, which has its own full-screen message).
         if (!_suspended && previous is not null && _me is not null && AccessDiffers(previous, _me))
-            Toasts.ShowWarning("Vaše oprávnění byla změněna administrátorem.");
+            Toasts.ShowWarning(AccessChangeMessage(previous, _me));
         StateHasChanged();
     });
 
@@ -124,6 +129,22 @@
         a.Role != b.Role || a.IsAdmin != b.IsAdmin
         || a.Permissions.Count != b.Permissions.Count || a.Permissions.Except(b.Permissions).Any()
         || a.SystemPermissions.Count != b.SystemPermissions.Count || a.SystemPermissions.Except(b.SystemPermissions).Any();
+
+    private static string AccessChangeMessage(CurrentUserDto prev, CurrentUserDto now)
+    {
+        var added = now.Permissions.Except(prev.Permissions).Count() + now.SystemPermissions.Except(prev.SystemPermissions).Count();
+        var removed = prev.Permissions.Except(now.Permissions).Count() + prev.SystemPermissions.Except(now.SystemPermissions).Count();
+        var detail = (added, removed) switch
+        {
+            ( > 0, > 0) => $" (přidáno {added}, odebráno {removed})",
+            ( > 0, 0) => $" (přidáno {added})",
+            (0, > 0) => $" (odebráno {removed})",
+            _ => "",
+        };
+        return $"Vaše oprávnění byla změněna administrátorem{detail}.";
+    }
+
+    private void LogOut() => Navigation.NavigateToLogout("authentication/logout");
 
     private bool _sidebarOpen;
 
