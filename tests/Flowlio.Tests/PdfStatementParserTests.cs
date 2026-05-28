@@ -71,6 +71,64 @@ public class PdfTableParserTests
         Assert.Equal("222222222/0300", debit.CounterpartyAccount);
     }
 
+    private static PdfTextRow CsobPeriodJan2026() => Row(762,
+        ("Období:", 34), ("1.", 97), ("1.", 107), ("2026", 117), ("-", 139), ("31.", 145), ("1.", 160), ("2026", 170));
+
+    [Fact]
+    public void Csob_card_payment_takes_merchant_from_misto_and_purchase_date_as_value_date()
+    {
+        // ČSOB card rows hold the type on line 1, "Místo: <merchant> <city@227>" on line 3, and
+        // "Částka: <amount> CZK <purchase date>" on line 4. The merchant (not the city) is the counterparty.
+        var result = ParseCsob(
+            CsobPeriodJan2026(),
+            Row(122, ("12.01.", 34), ("Transakce", 63), ("platební", 105), ("kartou", 138),
+                ("7234", 396), ("-99,00", 466), ("6", 530), ("262,76", 537)),
+            Row(113, ("405000009", 227), ("1178", 298), ("2215298419", 328)),
+            Row(103, ("Místo:", 63), ("GOPAY", 87), ("*IPRIMA.CZ", 119), ("PRAHA", 227)),
+            Row(94, ("Částka:", 63), ("99", 92), ("CZK", 103), ("08.01.2026", 122)));
+
+        var tx = Assert.Single(result.Tx);
+        Assert.Equal(-99.00m, tx.Amount);
+        Assert.Equal(new DateOnly(2026, 1, 12), tx.BookingDate);
+        Assert.Equal(new DateOnly(2026, 1, 8), tx.ValueDate);          // purchase date from the "Částka:" tail
+        Assert.Equal("GOPAY *IPRIMA.CZ", tx.CounterpartyName);          // merchant, not the city (PRAHA)
+        Assert.Equal("Transakce platební kartou — GOPAY *IPRIMA.CZ", tx.Description);
+        Assert.Null(tx.CounterpartyAccount);
+    }
+
+    [Fact]
+    public void Csob_interest_rate_change_row_is_not_folded_into_the_previous_transaction()
+    {
+        // An interest-rate-change notice is a dated row with no amount. It must end the current block rather
+        // than be folded in (which previously polluted the description and stole a bogus value date).
+        var result = ParseCsob(
+            CsobPeriodJan2026(),
+            Row(456, ("09.01.", 34), ("Transakce", 63), ("platební", 105), ("kartou", 138),
+                ("7340", 396), ("-99,00", 466), ("43,02", 537)),
+            Row(446, ("405000039", 227), ("1178", 298), ("2215298419", 328)),
+            Row(437, ("Místo:", 63), ("GOPAY", 87), ("*IPRIMA.CZ", 119), ("PRAHA", 227)),
+            Row(427, ("Částka:", 63), ("99", 92), ("CZK", 103), ("07.01.2026", 122)),
+            // dated, amount-less interest notice — its date is in the date column
+            Row(415, ("09.01.", 34), ("Změna", 63), ("úrokové", 91), ("sazby", 124), ("z", 149),
+                ("0,00", 155), ("%", 173), ("p.", 183), ("a.", 192), ("na", 201), ("7341", 381)),
+            Row(406, ("11,50", 63), ("%", 85), ("p.", 95), ("a.", 104), ("sankční", 113)),
+            Row(392, ("10.01.", 34), ("Příchozí", 63), ("úhrada", 96), ("okamžitá", 125),
+                ("VANKOVA", 227), ("EVA", 266), ("7342", 396), ("75,40", 469), ("19,42", 541)),
+            Row(382, ("269665355/0300", 63)));
+
+        Assert.Equal(2, result.Tx.Count);
+
+        var card = result.Tx[0];
+        Assert.Equal(-99.00m, card.Amount);
+        Assert.Equal("GOPAY *IPRIMA.CZ", card.CounterpartyName);
+        Assert.DoesNotContain("Změna", card.Description!);              // interest notice not folded in
+        Assert.Equal(new DateOnly(2026, 1, 7), card.ValueDate);        // value date is the purchase date, not 09.01.
+
+        var credit = result.Tx[1];
+        Assert.Equal(75.40m, credit.Amount);
+        Assert.Equal("VANKOVA EVA", credit.CounterpartyName);
+    }
+
     // ---- Air Bank ----------------------------------------------------------------------------------
 
     private static PdfTextRow AirBankPeriod() => Row(518,
