@@ -6,6 +6,7 @@
 @inject IDialogService Dialogs
 @inject IToastService Toasts
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 <PageTitle>Transakce – Flowlio</PageTitle>
 
@@ -25,7 +26,7 @@
 </div>
 
 <div class="toolbar">
-    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Účet">
+    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="FilterChangedAsync" Label="Účet">
         <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
         @foreach (var a in _accounts)
         {
@@ -33,7 +34,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Kategorie">
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="FilterChangedAsync" Label="Kategorie">
         <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
         @foreach (var c in _categories)
         {
@@ -41,7 +42,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Typ">
+    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="FilterChangedAsync" Label="Typ">
         <FluentOption TOption="string" Value="">Vše</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
@@ -325,7 +326,52 @@ else
         _categories = await Api.GetCategoriesAsync();
         _categoryColors = _categories.ToDictionary(c => c.Id, c => c.Color);
         _accountNames = _accounts.ToDictionary(a => a.Id, a => a.Name);
+        ReadUrl();
         await LoadAsync();
+    }
+
+    // --- URL state (shareable / survives refresh) ---------------------------
+    private void ReadUrl()
+    {
+        var query = new Uri(Navigation.Uri).Query.TrimStart('?');
+        var qp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            qp[Uri.UnescapeDataString(kv[0])] = kv.Length > 1 ? Uri.UnescapeDataString(kv[1]) : "";
+        }
+        string Get(string k) => qp.GetValueOrDefault(k, "");
+
+        _search = Get("q");
+        _accountValue = Get("ucet");
+        _categoryValue = Get("kat");
+        _typeValue = Get("typ");
+        _groupValue = Get("sesk");
+        if (DateTime.TryParse(Get("od"), out var od)) _dateFrom = od;
+        if (DateTime.TryParse(Get("do"), out var dt)) _dateTo = dt;
+        if (_dateFrom is not null || _dateTo is not null) _periodValue = "custom";
+    }
+
+    private void SyncUrl()
+    {
+        var q = new Dictionary<string, object?>
+        {
+            ["q"] = string.IsNullOrEmpty(_search) ? null : _search,
+            ["ucet"] = string.IsNullOrEmpty(_accountValue) ? null : _accountValue,
+            ["kat"] = string.IsNullOrEmpty(_categoryValue) ? null : _categoryValue,
+            ["typ"] = string.IsNullOrEmpty(_typeValue) ? null : _typeValue,
+            ["od"] = _dateFrom?.ToString("yyyy-MM-dd"),
+            ["do"] = _dateTo?.ToString("yyyy-MM-dd"),
+            ["sesk"] = string.IsNullOrEmpty(_groupValue) ? null : _groupValue,
+        };
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(q), replace: true);
+    }
+
+    // Structured-filter change from a select: sync the URL and re-apply client-side.
+    private Task FilterChangedAsync()
+    {
+        SyncUrl();
+        return ApplyClientFiltersAsync();
     }
 
     // Loads the matching transaction set from the server. The text search is a real PostgreSQL
@@ -357,7 +403,11 @@ else
     }
 
     // The search term runs server-side (FTS), so changing it reloads from the server.
-    private Task SearchChangedAsync() => LoadAsync();
+    private Task SearchChangedAsync()
+    {
+        SyncUrl();
+        return LoadAsync();
+    }
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
@@ -383,6 +433,7 @@ else
     private Task OnDateEditedAsync()
     {
         _periodValue = _dateFrom is null && _dateTo is null ? "" : "custom";
+        SyncUrl();
         return ApplyClientFiltersAsync();
     }
 
@@ -416,6 +467,7 @@ else
                 }
                 break;
         }
+        SyncUrl();
         return ApplyClientFiltersAsync();
     }
 
@@ -429,6 +481,7 @@ else
         _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
+        SyncUrl();
 
         if (hadSearch)
             await LoadAsync(); // reloads the unfiltered set and re-applies (now empty) client filters
@@ -478,8 +531,11 @@ else
             await ApplyClientFiltersAsync();
     }
 
-    private async Task GroupChangedAsync() =>
+    private async Task GroupChangedAsync()
+    {
+        SyncUrl();
         await JS.InvokeVoidAsync("flowlioGrid.setGroup", "tx-grid", _groupValue);
+    }
 
     private async Task ExportCsvAsync() =>
         await JS.InvokeVoidAsync("flowlioGrid.exportCsv", "tx-grid");
