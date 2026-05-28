@@ -23,13 +23,13 @@ public sealed class InvitationService(ApplicationDbContext db, IEmailSender emai
             ToEmail = toEmail,
             ToName = memberName,
             Subject = $"Pozvánka do rodiny {familyName} ve Flowlio",
-            HtmlBody = $"""
+            HtmlBody = EmailLayout.Wrap($"""
                 <p>Dobrý den, {WebUtility.HtmlEncode(memberName)},</p>
                 <p>byli jste pozváni do rodiny <strong>{WebUtility.HtmlEncode(familyName)}</strong> ve Flowlio.
                 Pro vytvoření vlastního přihlášení otevřete následující odkaz:</p>
                 <p><a href="{WebUtility.HtmlEncode(inviteUrl)}">Přijmout pozvánku</a></p>
                 <p>Odkaz je platný 14 dní. Pokud jste o pozvánku nežádali, tento e-mail ignorujte.</p>
-                """,
+                """),
             TextBody = $"Byli jste pozváni do rodiny {familyName} ve Flowlio. Pozvánku přijměte zde: {inviteUrl}",
         };
 

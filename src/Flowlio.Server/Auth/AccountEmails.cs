@@ -43,12 +43,12 @@ public static class AccountEmails
         ToEmail = toEmail,
         ToName = toName,
         Subject = "Potvrďte svůj e-mail – Flowlio",
-        HtmlBody = $"""
+        HtmlBody = EmailLayout.Wrap($"""
             <p>Vítejte ve Flowlio,</p>
             <p>pro dokončení registrace potvrďte svou e-mailovou adresu:</p>
             <p><a href="{WebUtility.HtmlEncode(confirmUrl)}">Potvrdit e-mail</a></p>
             <p>Pokud jste účet nezakládali, tento e-mail ignorujte.</p>
-            """,
+            """),
         TextBody = $"Potvrďte svůj e-mail ve Flowlio: {confirmUrl}",
     };
 }

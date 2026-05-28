@@ -37,7 +37,7 @@
                 <tbody>
                     @foreach (var row in _rows)
                     {
-                        <tr>
+                        <tr style="@(row.Invalid ? "background:#fef2f2" : "")">
                             <td>
                                 <FluentButton Appearance="Appearance.Stealth" Title="Další pole"
                                               OnClick="@(() => row.Expanded = !row.Expanded)">@(row.Expanded ? "▾" : "▸")</FluentButton>
@@ -57,7 +57,8 @@
                                 </FluentSelect>
                             </td>
                             <td>
-                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RemoveRow(row))" Disabled="_rows.Count == 1">×</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" Title="Duplikovat řádek" OnClick="@(() => DuplicateRow(row))">⧉</FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" Title="Odebrat řádek" OnClick="@(() => RemoveRow(row))" Disabled="_rows.Count == 1">×</FluentButton>
                             </td>
                         </tr>
                         @if (row.Expanded)
@@ -161,6 +162,7 @@
     private sealed class MovementRow
     {
         public bool Expanded { get; set; }
+        public bool Invalid { get; set; }
         public DateOnly Booking { get; set; } = DateOnly.FromDateTime(DateTime.Today);
         public DateOnly? Value { get; set; }
         public decimal Amount { get; set; }
@@ -235,6 +237,22 @@
             _rows.Remove(row);
     }
 
+    // Insert a copy of the row right after it — handy for repetitive entries (same counterparty, etc.).
+    private void DuplicateRow(MovementRow row) => _rows.Insert(_rows.IndexOf(row) + 1, new MovementRow
+    {
+        Booking = row.Booking,
+        Value = row.Value,
+        Amount = row.Amount,
+        Counterparty = row.Counterparty,
+        CounterpartyAccount = row.CounterpartyAccount,
+        Vs = row.Vs,
+        Cs = row.Cs,
+        Ss = row.Ss,
+        Description = row.Description,
+        Note = row.Note,
+        Category = row.Category,
+    });
+
     private async Task SaveAsync()
     {
         _error = null;
@@ -295,9 +313,11 @@
             _error = "Vyberte účet.";
             return;
         }
-        if (_rows.Any(r => r.Amount == 0))
+        foreach (var r in _rows)
+            r.Invalid = r.Amount == 0;
+        if (_rows.Any(r => r.Invalid))
         {
-            _error = "Každý řádek musí mít nenulovou částku.";
+            _error = "Zvýrazněné řádky musí mít nenulovou částku.";
             return;
         }
 

@@ -9,50 +9,31 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Registrace – Flowlio</title>
-    <style>
-        body { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; margin: 0; min-height: 100vh;
-               display: flex; align-items: center; justify-content: center;
-               background: linear-gradient(135deg,#1e3a8a,#2563eb); }
-        .card { background:#fff; padding:32px; border-radius:14px; width:100%; max-width:380px;
-                box-shadow:0 20px 50px rgba(0,0,0,.25); }
-        .logo { font-size:22px; font-weight:800; color:#2563eb; margin-bottom:18px; }
-        h1 { font-size:24px; margin:0 0 18px; }
-        label { display:block; font-size:13px; color:#475569; margin:12px 0 4px; }
-        input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #cbd5e1;
-                border-radius:8px; font-size:15px; }
-        button { width:100%; margin-top:20px; padding:11px; border:0; border-radius:8px;
-                 background:#2563eb; color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
-        .err { background:#fee2e2; color:#b91c1c; padding:10px; border-radius:8px; margin-top:14px; font-size:14px; }
-        .switch { text-align:center; margin-top:18px; font-size:14px; color:#64748b; }
-    </style>
+    <link rel="stylesheet" href="~/css/account.css" />
 </head>
-<body>
+<body style="align-items:center;">
 @if (Model.AwaitingConfirmation)
 {
-    <div class="card">
+    <div class="card narrow">
         <div class="logo">₣ Flowlio</div>
         <h1>Zkontrolujte e-mail</h1>
-        <p style="font-size:14px;color:#475569;">Poslali jsme potvrzovací odkaz na <strong>@Model.Email</strong>. Po jeho otevření se budete moci přihlásit.</p>
+        <p class="muted">Poslali jsme potvrzovací odkaz na <strong>@Model.Email</strong>. Po jeho otevření se budete moci přihlásit.</p>
         @if (Model.DevConfirmLink is not null)
         {
-            <div style="background:#fef9c3;color:#854d0e;padding:10px;border-radius:8px;margin-top:14px;font-size:13px;word-break:break-all;">
-                [DEV] <a href="@Model.DevConfirmLink">Potvrdit e-mail</a>
-            </div>
+            <div class="info" style="word-break:break-all;">[DEV] <a href="@Model.DevConfirmLink">Potvrdit e-mail</a></div>
         }
         <div class="switch"><a href="/Account/Login">Zpět na přihlášení</a></div>
     </div>
 }
 else
 {
-    <form class="card" method="post">
+    <form class="card narrow" method="post">
         <div class="logo">₣ Flowlio</div>
         <h1>Vytvořit účet</h1>
 
         @if (!string.IsNullOrEmpty(Model.InvitedToFamily))
         {
-            <div style="background:#dbeafe;color:#1e3a8a;padding:10px;border-radius:8px;margin-top:14px;font-size:14px;">
-                Byli jste pozváni do rodiny ve Flowlio. Dokončete registraci a získáte přístup.
-            </div>
+            <div class="info">Byli jste pozváni do rodiny ve Flowlio. Dokončete registraci a získáte přístup.</div>
         }
 
         @if (!string.IsNullOrEmpty(Model.Error))
@@ -71,7 +52,7 @@ else
 
         <input type="hidden" name="ReturnUrl" value="@Model.ReturnUrl" />
         <input type="hidden" name="Invite" value="@Model.Invite" />
-        <button type="submit">Zaregistrovat se</button>
+        <button type="submit" class="block">Zaregistrovat se</button>
 
         <div class="switch">Už máte účet? <a href="/Account/Login?returnUrl=@Uri.EscapeDataString(Model.ReturnUrl ?? "/")">Přihlaste se</a></div>
     </form>

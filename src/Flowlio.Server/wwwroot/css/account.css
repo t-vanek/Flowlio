@@ -123,14 +123,16 @@ button.block, .btn.block { width: 100%; margin-top: 18px; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 
 .ok,
-.err {
+.err,
+.info {
     padding: 10px;
     border-radius: 8px;
     margin-top: 14px;
     font-size: 14px;
 }
-.ok  { background: var(--acc-ok-bg);  color: var(--acc-ok-fg); }
-.err { background: var(--acc-err-bg); color: var(--acc-err-fg); }
+.ok   { background: var(--acc-ok-bg);  color: var(--acc-ok-fg); }
+.err  { background: var(--acc-err-bg); color: var(--acc-err-fg); }
+.info { background: #dbeafe; color: #1e40af; }
 
 code,
 .code {
@@ -169,6 +171,7 @@ code,
     margin-top: 22px;
     font-size: 14px;
     color: var(--acc-text-muted);
+    text-align: center;
 }
 .switch a { color: var(--acc-accent); text-decoration: none; }
 .switch a:hover { text-decoration: underline; }

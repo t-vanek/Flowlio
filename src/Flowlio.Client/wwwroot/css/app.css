@@ -219,6 +219,8 @@ code { color: #c02d76; }
     color: var(--flowlio-sidebar-text);
     padding: 18px 12px;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .main {
@@ -259,7 +261,7 @@ code { color: #c02d76; }
 .nav-brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px; }
 .nav-logo { font-size: 26px; color: #60a5fa; font-weight: 800; }
 .nav-brand-text { font-size: 20px; font-weight: 700; color: var(--flowlio-sidebar-text-strong); }
-.nav-list { display: flex; flex-direction: column; gap: 4px; }
+.nav-list { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; }
 .nav-link {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px; border-radius: 8px;
@@ -268,6 +270,11 @@ code { color: #c02d76; }
 .nav-link:hover { background: rgba(255,255,255,.08); color: var(--flowlio-sidebar-text-strong); }
 .nav-link.active { background: var(--flowlio-accent); color: var(--flowlio-sidebar-text-strong); }
 .nav-icon { font-size: 18px; }
+
+/* Separator between functional groups in the sidebar. */
+.nav-divider { height: 1px; border: 0; background: rgba(255,255,255,.14); margin: 10px 6px; }
+/* System administration is pinned to the bottom of the sidebar. */
+.nav-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
 
 /* =====================================================================
    KPI cards
