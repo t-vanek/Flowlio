@@ -34,6 +34,9 @@ public static class ApiEndpoints
         api.MapPost("/transactions", CreateTransaction);
         api.MapPut("/transactions/{id:guid}", UpdateTransaction);
         api.MapDelete("/transactions/{id:guid}", DeleteTransaction);
+        api.MapPost("/transactions/bulk-delete", BulkDeleteTransactions);
+        api.MapPost("/transactions/bulk-categorize", BulkCategorizeTransactions);
+        api.MapPost("/transactions/restore", RestoreTransactions);
         api.MapPost("/movement-batches", CreateMovementBatch);
         api.MapGet("/movement-batches", GetMovementBatches);
         api.MapPut("/movement-batches/{id:guid}", UpdateMovementBatch);
@@ -415,7 +418,7 @@ public static class ApiEndpoints
 
     private static async Task<IResult> CreateTransaction(
         CreateTransactionRequest request, IAppDbContext db, ICurrentFamily family,
-        FlowlioMapper mapper, IDistributedCache cache, CancellationToken ct)
+        FlowlioMapper mapper, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -440,6 +443,8 @@ public static class ApiEndpoints
         Apply(transaction, request.Fields);
         db.Transactions.Add(transaction);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("transaction.create", "Transaction", transaction.Id.ToString(),
+            TxLabel(transaction), familyId, "Vytvořen pohyb", ct);
         await InvalidateDashboard(cache, familyId, ct);
 
         return Results.Ok(mapper.ToDto(transaction));
@@ -447,7 +452,7 @@ public static class ApiEndpoints
 
     private static async Task<IResult> UpdateTransaction(
         Guid id, UpdateTransactionRequest request, IAppDbContext db, ICurrentFamily family,
-        FlowlioMapper mapper, IDistributedCache cache, CancellationToken ct)
+        FlowlioMapper mapper, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -467,13 +472,15 @@ public static class ApiEndpoints
         Apply(transaction, request.Fields);
         transaction.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("transaction.update", "Transaction", transaction.Id.ToString(),
+            TxLabel(transaction), familyId, "Upraven pohyb", ct);
         await InvalidateDashboard(cache, familyId, ct);
 
         return Results.Ok(mapper.ToDto(transaction));
     }
 
     private static async Task<IResult> DeleteTransaction(
-        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -484,10 +491,100 @@ public static class ApiEndpoints
         if (transaction is null)
             return Results.NotFound();
 
-        db.Transactions.Remove(transaction);
+        // Soft delete: hidden everywhere but restorable (see /transactions/restore).
+        transaction.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("transaction.delete", "Transaction", transaction.Id.ToString(),
+            TxLabel(transaction), familyId, "Smazán pohyb", ct);
         await InvalidateDashboard(cache, familyId, ct);
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> BulkDeleteTransactions(
+        BulkTransactionRequest request, IAppDbContext db, ICurrentFamily family,
+        IDistributedCache cache, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var ids = request.Ids.Distinct().ToList();
+        if (ids.Count == 0)
+            return Results.Ok(new BulkResultDto { Count = 0 });
+
+        var transactions = await db.Transactions
+            .Where(t => t.FamilyId == familyId && ids.Contains(t.Id))
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var t in transactions)
+            t.DeletedAt = now;
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync("transaction.bulk_delete", "Transaction", null,
+            $"{transactions.Count} pohybů", familyId, $"Hromadně smazáno {transactions.Count} pohybů", ct);
+        await InvalidateDashboard(cache, familyId, ct);
+        return Results.Ok(new BulkResultDto { Count = transactions.Count });
+    }
+
+    private static async Task<IResult> BulkCategorizeTransactions(
+        BulkCategorizeRequest request, IAppDbContext db, ICurrentFamily family,
+        IDistributedCache cache, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        if (!await CategoryBelongsToFamily(db, familyId, request.CategoryId, ct))
+            return Results.BadRequest("Neplatná kategorie.");
+
+        var ids = request.Ids.Distinct().ToList();
+        if (ids.Count == 0)
+            return Results.Ok(new BulkResultDto { Count = 0 });
+
+        var transactions = await db.Transactions
+            .Where(t => t.FamilyId == familyId && ids.Contains(t.Id))
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var t in transactions)
+        {
+            t.CategoryId = request.CategoryId;
+            t.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync("transaction.bulk_categorize", "Transaction", null,
+            $"{transactions.Count} pohybů", familyId, $"Hromadně přeřazeno {transactions.Count} pohybů", ct);
+        await InvalidateDashboard(cache, familyId, ct);
+        return Results.Ok(new BulkResultDto { Count = transactions.Count });
+    }
+
+    private static async Task<IResult> RestoreTransactions(
+        BulkTransactionRequest request, IAppDbContext db, ICurrentFamily family,
+        IDistributedCache cache, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var ids = request.Ids.Distinct().ToList();
+        if (ids.Count == 0)
+            return Results.Ok(new BulkResultDto { Count = 0 });
+
+        // Soft-deleted rows are hidden by the global filter, so look past it to restore them.
+        var transactions = await db.Transactions
+            .IgnoreQueryFilters()
+            .Where(t => t.FamilyId == familyId && t.DeletedAt != null && ids.Contains(t.Id))
+            .ToListAsync(ct);
+
+        foreach (var t in transactions)
+            t.DeletedAt = null;
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync("transaction.restore", "Transaction", null,
+            $"{transactions.Count} pohybů", familyId, $"Obnoveno {transactions.Count} pohybů", ct);
+        await InvalidateDashboard(cache, familyId, ct);
+        return Results.Ok(new BulkResultDto { Count = transactions.Count });
     }
 
     private static async Task<IResult> CreateMovementBatch(
@@ -605,7 +702,7 @@ public static class ApiEndpoints
     }
 
     private static async Task<IResult> DeleteMovementBatch(
-        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -616,11 +713,15 @@ public static class ApiEndpoints
         if (batch is null)
             return Results.NotFound();
 
-        // Removing a batch is an "undo": its transactions are deleted with it rather than orphaned.
+        // Removing a batch is an "undo": its transactions are soft-deleted with it rather than orphaned.
         var transactions = await db.Transactions.Where(t => t.ImportBatchId == id).ToListAsync(ct);
-        db.Transactions.RemoveRange(transactions);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var t in transactions)
+            t.DeletedAt = now;
         db.ImportBatches.Remove(batch);
         await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("batch.delete", "ImportBatch", batch.Id.ToString(),
+            batch.Label ?? batch.FileName, familyId, $"Smazána dávka ({transactions.Count} pohybů)", ct);
         await InvalidateDashboard(cache, familyId, ct);
         return Results.NoContent();
     }
@@ -633,6 +734,12 @@ public static class ApiEndpoints
             return "Částka nesmí být nulová.";
         return null;
     }
+
+    // Short human label for the audit log.
+    private static string TxLabel(Transaction t) =>
+        !string.IsNullOrWhiteSpace(t.CounterpartyName) ? t.CounterpartyName!
+        : !string.IsNullOrWhiteSpace(t.Description) ? t.Description!
+        : t.Amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " " + t.Currency;
 
     private static async Task<bool> CategoryBelongsToFamily(
         IAppDbContext db, Guid familyId, Guid? categoryId, CancellationToken ct) =>

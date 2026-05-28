@@ -3,7 +3,7 @@ using Flowlio.Domain.Common;
 namespace Flowlio.Domain;
 
 /// <summary>A single booked movement on a bank account, parsed from an imported statement.</summary>
-public class Transaction : AuditableEntity
+public class Transaction : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
 
@@ -47,4 +47,7 @@ public class Transaction : AuditableEntity
     /// duplicates when the same statement period is imported more than once.
     /// </summary>
     public required string DedupHash { get; set; }
+
+    /// <summary>When set, the transaction is soft-deleted (hidden) and can be restored.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

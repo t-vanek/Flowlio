@@ -195,8 +195,9 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.ImportBatch).WithMany(x => x.Transactions).HasForeignKey(x => x.ImportBatchId).OnDelete(DeleteBehavior.SetNull);
 
-        // Prevents re-importing the same booked entry into the same account.
-        b.HasIndex(x => new { x.BankAccountId, x.DedupHash }).IsUnique();
+        // Prevents re-importing the same booked entry into the same account. Scoped to live rows so a
+        // soft-deleted transaction does not block re-importing (or re-creating) the same movement.
+        b.HasIndex(x => new { x.BankAccountId, x.DedupHash }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
         b.HasIndex(x => new { x.FamilyId, x.BookingDate });
         b.ToTable(t => t.HasCheckConstraint("CK_Transaction_Currency", "char_length(\"Currency\") = 3"));
 

@@ -103,6 +103,24 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteTransactionAsync(Guid id) =>
         (await http.DeleteAsync($"api/transactions/{id}")).IsSuccessStatusCode;
 
+    public Task<int> BulkDeleteTransactionsAsync(IReadOnlyList<Guid> ids) =>
+        BulkAsync("api/transactions/bulk-delete", new BulkTransactionRequest { Ids = ids });
+
+    public Task<int> BulkCategorizeAsync(IReadOnlyList<Guid> ids, Guid? categoryId) =>
+        BulkAsync("api/transactions/bulk-categorize", new BulkCategorizeRequest { Ids = ids, CategoryId = categoryId });
+
+    public Task<int> RestoreTransactionsAsync(IReadOnlyList<Guid> ids) =>
+        BulkAsync("api/transactions/restore", new BulkTransactionRequest { Ids = ids });
+
+    private async Task<int> BulkAsync(string url, object request)
+    {
+        var response = await http.PostAsJsonAsync(url, request);
+        if (!response.IsSuccessStatusCode)
+            return 0;
+        var result = await response.Content.ReadFromJsonAsync<BulkResultDto>();
+        return result?.Count ?? 0;
+    }
+
     public async Task<MovementBatchResultDto?> CreateMovementBatchAsync(CreateMovementBatchRequest request)
     {
         var response = await http.PostAsJsonAsync("api/movement-batches", request);

@@ -307,6 +307,64 @@ code { color: #c02d76; }
 .chart-legend { margin-top: 12px; }
 
 /* =====================================================================
+   Transactions summary bar (income / expense / net / count for the filter)
+   ===================================================================== */
+.summary-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px 26px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: var(--flowlio-surface);
+    border: 1px solid var(--flowlio-border);
+    border-radius: 10px;
+}
+.summary-item { display: inline-flex; align-items: baseline; gap: 8px; }
+.summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--flowlio-text-muted); }
+.summary-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--flowlio-text); }
+.summary-value.income { color: var(--flowlio-income); }
+.summary-value.expense { color: var(--flowlio-expense); }
+.summary-count { margin-left: auto; }
+
+/* Full-text search match highlight inside grid cells. */
+mark.fts-hit {
+    background: rgba(250, 204, 21, 0.45);
+    color: inherit;
+    padding: 0 1px;
+    border-radius: 2px;
+}
+
+/* Bulk-action bar shown when rows are selected. */
+.bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: var(--flowlio-surface-2);
+    border: 1px solid var(--flowlio-accent);
+    border-radius: 10px;
+}
+.bulk-count { font-weight: 600; color: var(--flowlio-text); }
+
+/* Undo bar shown after a (bulk) delete, offering a restore. */
+.undo-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: #fef3c7;
+    color: #78350f;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+}
+.undo-bar .toolbar-actions { margin-left: auto; }
+
+/* =====================================================================
    Tables / lists
    ===================================================================== */
 .toolbar {

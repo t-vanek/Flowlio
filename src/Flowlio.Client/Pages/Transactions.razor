@@ -6,6 +6,7 @@
 @inject IDialogService Dialogs
 @inject IToastService Toasts
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 <PageTitle>Transakce – Flowlio</PageTitle>
 
@@ -25,7 +26,7 @@
 </div>
 
 <div class="toolbar">
-    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Účet">
+    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="FilterChangedAsync" Label="Účet">
         <FluentOption TOption="string" Value="">Všechny účty</FluentOption>
         @foreach (var a in _accounts)
         {
@@ -33,7 +34,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Kategorie">
+    <FluentSelect TOption="string" @bind-Value="_categoryValue" @bind-Value:after="FilterChangedAsync" Label="Kategorie">
         <FluentOption TOption="string" Value="">Všechny kategorie</FluentOption>
         @foreach (var c in _categories)
         {
@@ -41,7 +42,7 @@
         }
     </FluentSelect>
 
-    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="ApplyClientFiltersAsync" Label="Typ">
+    <FluentSelect TOption="string" @bind-Value="_typeValue" @bind-Value:after="FilterChangedAsync" Label="Typ">
         <FluentOption TOption="string" Value="">Vše</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Incoming).ToString())">Příjmy</FluentOption>
         <FluentOption TOption="string" Value="@(((int)TransactionDirection.Outgoing).ToString())">Výdaje</FluentOption>
@@ -131,6 +132,17 @@
     </FluentCard>
 }
 
+@if (_undoIds.Count > 0)
+{
+    <div class="undo-bar">
+        <span>Smazáno @_undoIds.Count pohybů.</span>
+        <div class="toolbar-actions">
+            <FluentButton Appearance="Appearance.Accent" OnClick="UndoDeleteAsync">Vrátit zpět</FluentButton>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _undoIds = [])">Zavřít</FluentButton>
+        </div>
+    </div>
+}
+
 @if (_loading)
 {
     <FluentProgressRing />
@@ -157,7 +169,6 @@ else
             <FluentOption TOption="string" Value="category">Podle kategorie</FluentOption>
             <FluentOption TOption="string" Value="month">Podle měsíce</FluentOption>
         </FluentSelect>
-        <span class="muted">Celkem @_rows.Count pohybů</span>
         <div class="toolbar-actions">
             @if (HasActiveFilters)
             {
@@ -166,9 +177,103 @@ else
             <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
         </div>
     </div>
+    @if (_canManage && _selectedIds.Count > 0)
+    {
+        <div class="bulk-bar">
+            <span class="bulk-count">Vybráno @_selectedIds.Count pohybů</span>
+            <FluentSelect TOption="string" @bind-Value="_bulkCategory" @bind-Value:after="BulkSetCategoryAsync">
+                <FluentOption TOption="string" Value="">Přeřadit do kategorie…</FluentOption>
+                @foreach (var c in _categories)
+                {
+                    <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                }
+            </FluentSelect>
+            <div class="toolbar-actions">
+                <FluentButton Appearance="Appearance.Stealth" OnClick="BulkDeleteAsync">Smazat vybrané</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="ClearSelectionAsync">Zrušit výběr</FluentButton>
+            </div>
+        </div>
+    }
+    <div class="summary-bar">
+        <span class="summary-item"><span class="summary-label">Příjmy</span><span class="summary-value income">@Money(_sumIncome)</span></span>
+        <span class="summary-item"><span class="summary-label">Výdaje</span><span class="summary-value expense">@Money(_sumExpense)</span></span>
+        <span class="summary-item"><span class="summary-label">Bilance</span><span class="summary-value @(_sumNet >= 0 ? "income" : "expense")">@Money(_sumNet)</span></span>
+        <span class="summary-item summary-count"><span class="summary-label">Pohybů</span><span class="summary-value">@_sumCount</span></span>
+    </div>
     <FluentCard Class="panel no-pad">
         <div id="tx-grid"></div>
     </FluentCard>
+}
+
+@if (_detailTx is { } d)
+{
+    <div class="profile-backdrop" @onclick="@(() => _detailTx = null)"></div>
+    <div class="audit-modal">
+        <h2 class="panel-title">Detail pohybu</h2>
+        <dl class="audit-detail">
+            <dt>Datum zaúčtování</dt>
+            <dd>@d.BookingDate.ToString("d.M.yyyy")</dd>
+            @if (d.ValueDate is { } vd)
+            {
+                <dt>Datum splatnosti</dt>
+                <dd>@vd.ToString("d.M.yyyy")</dd>
+            }
+            <dt>Účet</dt>
+            <dd>@_accountNames.GetValueOrDefault(d.BankAccountId, "—")</dd>
+            <dt>Částka</dt>
+            <dd><span class="num @(d.Amount < 0 ? "expense" : "income")">@Money(d.Amount) @d.Currency</span></dd>
+            <dt>Protistrana</dt>
+            <dd>@(string.IsNullOrWhiteSpace(d.CounterpartyName) ? "—" : d.CounterpartyName)</dd>
+            @if (!string.IsNullOrWhiteSpace(d.CounterpartyAccount))
+            {
+                <dt>Číslo účtu</dt>
+                <dd>@d.CounterpartyAccount</dd>
+            }
+            <dt>Kategorie</dt>
+            <dd>
+                @if (!string.IsNullOrEmpty(d.CategoryName))
+                {
+                    <span class="cat-tag"><span class="cat-dot" style="background:@CategoryColor(d.CategoryId)"></span><span>@d.CategoryName</span></span>
+                }
+                else
+                {
+                    <span class="muted">(bez kategorie)</span>
+                }
+            </dd>
+            @if (!string.IsNullOrWhiteSpace(d.VariableSymbol))
+            {
+                <dt>VS</dt>
+                <dd>@d.VariableSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.ConstantSymbol))
+            {
+                <dt>KS</dt>
+                <dd>@d.ConstantSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.SpecificSymbol))
+            {
+                <dt>SS</dt>
+                <dd>@d.SpecificSymbol</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.Description))
+            {
+                <dt>Popis</dt>
+                <dd>@d.Description</dd>
+            }
+            @if (!string.IsNullOrWhiteSpace(d.Note))
+            {
+                <dt>Poznámka</dt>
+                <dd>@d.Note</dd>
+            }
+        </dl>
+        <div class="btn-row">
+            @if (_canManage)
+            {
+                <FluentButton Appearance="Appearance.Accent" OnClick="@(() => { var t = d; _detailTx = null; OpenEdit(t); })">Upravit</FluentButton>
+            }
+            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _detailTx = null)">Zavřít</FluentButton>
+        </div>
+    </div>
 }
 
 @code {
@@ -177,8 +282,19 @@ else
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
     private Dictionary<Guid, string> _categoryColors = [];
+    private Dictionary<Guid, string> _accountNames = [];
+    private TransactionDto? _detailTx;
+    private List<Guid> _selectedIds = [];
+    private List<Guid> _undoIds = [];
+    private string _bulkCategory = "";
     private bool _canManage;
     private bool _loading = true;
+
+    // Summary over the currently filtered rows (pushed from Tabulator via UpdateSummary).
+    private int _sumCount;
+    private decimal _sumIncome;
+    private decimal _sumExpense;
+    private decimal _sumNet;
 
     // Grid (Tabulator) state
     private DotNetObjectReference<Transactions>? _gridRef;
@@ -221,15 +337,63 @@ else
         _accounts = await Api.GetAccountsAsync();
         _categories = await Api.GetCategoriesAsync();
         _categoryColors = _categories.ToDictionary(c => c.Id, c => c.Color);
+        _accountNames = _accounts.ToDictionary(a => a.Id, a => a.Name);
+        ReadUrl();
         await LoadAsync();
+    }
+
+    // --- URL state (shareable / survives refresh) ---------------------------
+    private void ReadUrl()
+    {
+        var query = new Uri(Navigation.Uri).Query.TrimStart('?');
+        var qp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            qp[Uri.UnescapeDataString(kv[0])] = kv.Length > 1 ? Uri.UnescapeDataString(kv[1]) : "";
+        }
+        string Get(string k) => qp.GetValueOrDefault(k, "");
+
+        _search = Get("q");
+        _accountValue = Get("ucet");
+        _categoryValue = Get("kat");
+        _typeValue = Get("typ");
+        _groupValue = Get("sesk");
+        if (DateTime.TryParse(Get("od"), out var od)) _dateFrom = od;
+        if (DateTime.TryParse(Get("do"), out var dt)) _dateTo = dt;
+        if (_dateFrom is not null || _dateTo is not null) _periodValue = "custom";
+    }
+
+    private void SyncUrl()
+    {
+        var q = new Dictionary<string, object?>
+        {
+            ["q"] = string.IsNullOrEmpty(_search) ? null : _search,
+            ["ucet"] = string.IsNullOrEmpty(_accountValue) ? null : _accountValue,
+            ["kat"] = string.IsNullOrEmpty(_categoryValue) ? null : _categoryValue,
+            ["typ"] = string.IsNullOrEmpty(_typeValue) ? null : _typeValue,
+            ["od"] = _dateFrom?.ToString("yyyy-MM-dd"),
+            ["do"] = _dateTo?.ToString("yyyy-MM-dd"),
+            ["sesk"] = string.IsNullOrEmpty(_groupValue) ? null : _groupValue,
+        };
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(q), replace: true);
+    }
+
+    // Structured-filter change from a select: sync the URL and re-apply client-side.
+    private Task FilterChangedAsync()
+    {
+        SyncUrl();
+        return ApplyClientFiltersAsync();
     }
 
     // Loads the matching transaction set from the server. The text search is a real PostgreSQL
     // full-text query (diacritics-insensitive, ranked); the structured filters below stay
     // client-side in Tabulator for instant feedback. The server caps pageSize at 200, so we page
     // through to load the whole matching set for client-side pagination/grouping/footer sums.
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool keepUndo = false)
     {
+        if (!keepUndo)
+            _undoIds = [];
         _loading = true;
         StateHasChanged();
 
@@ -253,7 +417,11 @@ else
     }
 
     // The search term runs server-side (FTS), so changing it reloads from the server.
-    private Task SearchChangedAsync() => LoadAsync();
+    private Task SearchChangedAsync()
+    {
+        SyncUrl();
+        return LoadAsync();
+    }
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
@@ -279,6 +447,7 @@ else
     private Task OnDateEditedAsync()
     {
         _periodValue = _dateFrom is null && _dateTo is null ? "" : "custom";
+        SyncUrl();
         return ApplyClientFiltersAsync();
     }
 
@@ -312,6 +481,7 @@ else
                 }
                 break;
         }
+        SyncUrl();
         return ApplyClientFiltersAsync();
     }
 
@@ -325,6 +495,7 @@ else
         _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
+        SyncUrl();
 
         if (hadSearch)
             await LoadAsync(); // reloads the unfiltered set and re-applies (now empty) client filters
@@ -353,6 +524,7 @@ else
         {
             id = t.Id.ToString(),
             accountId = t.BankAccountId.ToString(),
+            accountName = _accountNames.GetValueOrDefault(t.BankAccountId, ""),
             categoryId = t.CategoryId?.ToString() ?? "",
             bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
             counterparty = t.CounterpartyName ?? "",
@@ -363,16 +535,21 @@ else
             amount = (double)t.Amount,
         });
 
+        var categories = _categories.Select(c => new { id = c.Id.ToString(), name = c.Name, color = c.Color });
+
         await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
-            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50 }, _gridRef);
+            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50, search = _search ?? "", categories }, _gridRef);
 
         // Re-applies any active filters after a (re)render, e.g. after save/delete.
         if (HasActiveFilters)
             await ApplyClientFiltersAsync();
     }
 
-    private async Task GroupChangedAsync() =>
+    private async Task GroupChangedAsync()
+    {
+        SyncUrl();
         await JS.InvokeVoidAsync("flowlioGrid.setGroup", "tx-grid", _groupValue);
+    }
 
     private async Task ExportCsvAsync() =>
         await JS.InvokeVoidAsync("flowlioGrid.exportCsv", "tx-grid");
@@ -392,6 +569,118 @@ else
     {
         if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
             await DeleteAsync(t);
+    }
+
+    [JSInvokable]
+    public void GridRowClick(string id)
+    {
+        if (Guid.TryParse(id, out var gid) && _byId.TryGetValue(gid, out var t))
+        {
+            _detailTx = t;
+            StateHasChanged();
+        }
+    }
+
+    // All editable fields of a transaction, used to re-save it with one field changed.
+    private static TransactionFields FieldsFrom(TransactionDto t) => new()
+    {
+        BookingDate = t.BookingDate,
+        ValueDate = t.ValueDate,
+        Amount = t.Amount,
+        Currency = t.Currency,
+        CounterpartyName = t.CounterpartyName,
+        CounterpartyAccount = t.CounterpartyAccount,
+        VariableSymbol = t.VariableSymbol,
+        ConstantSymbol = t.ConstantSymbol,
+        SpecificSymbol = t.SpecificSymbol,
+        Description = t.Description,
+        Note = t.Note,
+        CategoryId = t.CategoryId,
+    };
+
+    // Inline re-categorisation from the grid: persist the new category and reload.
+    [JSInvokable]
+    public async Task GridSetCategory(string id, string categoryId)
+    {
+        if (!Guid.TryParse(id, out var gid) || !_byId.TryGetValue(gid, out var t))
+            return;
+        Guid? newCat = Guid.TryParse(categoryId, out var c) ? c : null;
+        if (newCat == t.CategoryId)
+            return;
+
+        var updated = await Api.UpdateTransactionAsync(gid,
+            new UpdateTransactionRequest { Fields = FieldsFrom(t) with { CategoryId = newCat } });
+        if (updated is not null)
+            Toasts.ShowSuccess("Kategorie změněna.");
+        else
+            Toasts.ShowError("Změnu kategorie se nepodařilo uložit.");
+        await LoadAsync();
+    }
+
+    [JSInvokable]
+    public void GridSelectionChanged(string[] ids)
+    {
+        _selectedIds = ids
+            .Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private async Task BulkDeleteAsync()
+    {
+        if (_selectedIds.Count == 0)
+            return;
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"Opravdu smazat {_selectedIds.Count} vybraných pohybů?",
+            "Smazat", "Zrušit", "Hromadné smazání");
+        if ((await dialog.Result).Cancelled)
+            return;
+
+        var ids = _selectedIds.ToList();
+        var count = await Api.BulkDeleteTransactionsAsync(ids);
+        if (count > 0)
+        {
+            _undoIds = ids;
+            Toasts.ShowSuccess($"Smazáno {count} pohybů.");
+        }
+        else
+        {
+            Toasts.ShowError("Pohyby se nepodařilo smazat.");
+        }
+        _selectedIds = [];
+        await LoadAsync(keepUndo: true);
+    }
+
+    private async Task BulkSetCategoryAsync()
+    {
+        if (_selectedIds.Count == 0 || string.IsNullOrEmpty(_bulkCategory))
+            return;
+        Guid? newCat = Guid.TryParse(_bulkCategory, out var c) ? c : null;
+
+        var count = await Api.BulkCategorizeAsync(_selectedIds.ToList(), newCat);
+        Toasts.ShowSuccess($"Kategorie nastavena u {count} pohybů.");
+        _bulkCategory = "";
+        _selectedIds = [];
+        await LoadAsync();
+    }
+
+    private async Task ClearSelectionAsync()
+    {
+        _selectedIds = [];
+        _bulkCategory = "";
+        await JS.InvokeVoidAsync("flowlioGrid.clearSelection", "tx-grid");
+    }
+
+    // Pushed by the grid whenever the filtered set changes; drives the summary bar.
+    [JSInvokable]
+    public void UpdateSummary(int count, double income, double expense, double net)
+    {
+        _sumCount = count;
+        _sumIncome = (decimal)income;
+        _sumExpense = (decimal)expense;
+        _sumNet = (decimal)net;
+        StateHasChanged();
     }
 
     private void OpenCreate()
@@ -500,7 +789,7 @@ else
     {
         var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Money(t.Amount) : t.CounterpartyName!;
         var dialog = await Dialogs.ShowConfirmationAsync(
-            $"Opravdu smazat tento pohyb: {label}? Tuto akci nelze vrátit zpět.",
+            $"Opravdu smazat tento pohyb: {label}?",
             "Smazat", "Zrušit", "Smazání pohybu");
         var result = await dialog.Result;
         if (result.Cancelled)
@@ -508,13 +797,24 @@ else
 
         if (await Api.DeleteTransactionAsync(t.Id))
         {
+            _undoIds = [t.Id];
             Toasts.ShowSuccess("Pohyb byl smazán.");
-            await LoadAsync();
+            await LoadAsync(keepUndo: true);
         }
         else
         {
             Toasts.ShowError("Pohyb se nepodařilo smazat.");
         }
+    }
+
+    private async Task UndoDeleteAsync()
+    {
+        if (_undoIds.Count == 0)
+            return;
+        var count = await Api.RestoreTransactionsAsync(_undoIds);
+        Toasts.ShowSuccess($"Obnoveno {count} pohybů.");
+        _undoIds = [];
+        await LoadAsync();
     }
 
     private string CategoryColor(Guid? categoryId) =>
