@@ -57,12 +57,14 @@ public static class InfrastructureModule
         services.AddSingleton<Exchange.CnbExchangeRateClient>();
         services.AddHostedService<Exchange.ExchangeRateRefresher>();
 
-        // Open Banking (PSD2) access via the Enable Banking aggregator: a self-signed JWT (RS256) authenticates
-        // the app, the consent flow links an account, and transactions are pulled into the import pipeline.
+        // Open Banking (PSD2) access via the Enable Banking aggregator. Credentials are per user ("bring your
+        // own application"): a self-signed JWT (RS256) authenticates each user's app, the consent flow links an
+        // account, and transactions are pulled into the shared import pipeline.
         services.Configure<Banking.EnableBankingOptions>(configuration.GetSection(Banking.EnableBankingOptions.SectionName));
         services.AddHttpClient(Banking.EnableBankingClient.HttpClientName);
         services.AddSingleton<Banking.EnableBankingTokenProvider>();
         services.AddScoped<IBankDataProvider, Banking.EnableBankingClient>();
+        services.AddScoped<IBankCredentialProvider, Banking.EnableBankingCredentialProvider>();
 
         return services;
     }

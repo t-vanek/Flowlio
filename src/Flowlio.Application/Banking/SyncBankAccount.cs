@@ -32,6 +32,7 @@ public sealed class SyncBankAccountHandler
         SyncBankAccountCommand command,
         IAppDbContext db,
         IBankDataProvider provider,
+        IBankCredentialProvider credentialProvider,
         IAuditLog audit,
         IMessageContext messaging,
         CancellationToken ct)
@@ -54,6 +55,16 @@ public sealed class SyncBankAccountHandler
         var account = connection.BankAccount
             ?? throw new InvalidOperationException("Připojení banky odkazuje na neexistující účet.");
 
+        // The connection is synced with the credentials of the user who created it (their Enable Banking app).
+        var credentials = await credentialProvider.GetAsync(connection.CreatedByUserId, ct);
+        if (credentials is null)
+        {
+            connection.Status = BankConnectionStatus.Error;
+            connection.LastError = "Chybí přístupy k Enable Banking.";
+            await db.SaveChangesAsync(ct);
+            return new ImportResultDto { Status = ImportStatus.Failed, Error = connection.LastError };
+        }
+
         var since = connection.LastSyncedAt is { } last
             ? DateOnly.FromDateTime(last.UtcDateTime).AddDays(-OverlapDays)
             : DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-InitialLookbackDays);
@@ -74,7 +85,7 @@ public sealed class SyncBankAccountHandler
         IReadOnlyList<ParsedTransaction> fetched;
         try
         {
-            fetched = await provider.FetchTransactionsAsync(connection.AccountUid, since, ct);
+            fetched = await provider.FetchTransactionsAsync(credentials, connection.AccountUid, since, ct);
         }
         catch (BankConsentExpiredException ex)
         {

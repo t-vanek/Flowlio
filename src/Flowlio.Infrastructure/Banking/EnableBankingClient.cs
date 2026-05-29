@@ -34,13 +34,12 @@ internal sealed class EnableBankingClient(
 
     private readonly EnableBankingOptions _options = options.Value;
 
-    public bool IsConfigured => _options.IsConfigured;
-
     private string BaseUrl => _options.BaseUrl.TrimEnd('/');
 
-    public async Task<IReadOnlyList<BankAspsp>> ListBanksAsync(string country, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<BankAspsp>> ListBanksAsync(
+        BankProviderCredentials credentials, string country, CancellationToken cancellationToken = default)
     {
-        var response = await SendAsync(HttpMethod.Get, $"{BaseUrl}/aspsps?country={Uri.EscapeDataString(country)}", null, cancellationToken);
+        var response = await SendAsync(credentials, HttpMethod.Get, $"{BaseUrl}/aspsps?country={Uri.EscapeDataString(country)}", null, cancellationToken);
         var payload = await ReadAsync<AspspsResponse>(response, cancellationToken);
         return payload.Aspsps
             .Select(a => new BankAspsp(a.Name ?? "", a.Country ?? country))
@@ -49,8 +48,8 @@ internal sealed class EnableBankingClient(
     }
 
     public async Task<BankAuthorizationStart> StartAuthorizationAsync(
-        string aspspName, string country, string state, DateTimeOffset accessValidUntil,
-        CancellationToken cancellationToken = default)
+        BankProviderCredentials credentials, string aspspName, string country, string state,
+        DateTimeOffset accessValidUntil, CancellationToken cancellationToken = default)
     {
         var body = new AuthRequest
         {
@@ -61,7 +60,7 @@ internal sealed class EnableBankingClient(
             PsuType = _options.PsuType,
         };
 
-        var response = await SendAsync(HttpMethod.Post, $"{BaseUrl}/auth", body, cancellationToken);
+        var response = await SendAsync(credentials, HttpMethod.Post, $"{BaseUrl}/auth", body, cancellationToken);
         var payload = await ReadAsync<AuthResponse>(response, cancellationToken);
         if (string.IsNullOrEmpty(payload.Url))
             throw new InvalidOperationException("Enable Banking nevrátil autorizační URL.");
@@ -69,9 +68,10 @@ internal sealed class EnableBankingClient(
         return new BankAuthorizationStart(payload.Url, payload.AuthorizationId ?? "");
     }
 
-    public async Task<BankAuthorizationSession> CreateSessionAsync(string code, CancellationToken cancellationToken = default)
+    public async Task<BankAuthorizationSession> CreateSessionAsync(
+        BankProviderCredentials credentials, string code, CancellationToken cancellationToken = default)
     {
-        var response = await SendAsync(HttpMethod.Post, $"{BaseUrl}/sessions", new SessionRequest { Code = code }, cancellationToken);
+        var response = await SendAsync(credentials, HttpMethod.Post, $"{BaseUrl}/sessions", new SessionRequest { Code = code }, cancellationToken);
         var payload = await ReadAsync<SessionResponse>(response, cancellationToken);
 
         var accounts = payload.Accounts
@@ -83,7 +83,8 @@ internal sealed class EnableBankingClient(
     }
 
     public async Task<IReadOnlyList<ParsedTransaction>> FetchTransactionsAsync(
-        string accountUid, DateOnly dateFrom, CancellationToken cancellationToken = default)
+        BankProviderCredentials credentials, string accountUid, DateOnly dateFrom,
+        CancellationToken cancellationToken = default)
     {
         var result = new List<ParsedTransaction>();
         string? continuationKey = null;
@@ -96,7 +97,7 @@ internal sealed class EnableBankingClient(
             if (continuationKey is not null)
                 url += $"&continuation_key={Uri.EscapeDataString(continuationKey)}";
 
-            var response = await SendAsync(HttpMethod.Get, url, null, cancellationToken);
+            var response = await SendAsync(credentials, HttpMethod.Get, url, null, cancellationToken);
             var payload = await ReadAsync<TransactionsResponse>(response, cancellationToken);
 
             foreach (var tx in payload.Transactions)
@@ -163,9 +164,9 @@ internal sealed class EnableBankingClient(
     }
 
     private async Task<HttpResponseMessage> SendAsync(
-        HttpMethod method, string url, object? body, CancellationToken ct)
+        BankProviderCredentials credentials, HttpMethod method, string url, object? body, CancellationToken ct)
     {
-        var token = await tokenProvider.GetTokenAsync(ct);
+        var token = tokenProvider.GetToken(credentials.ApplicationId, credentials.PrivateKeyPem);
         using var request = new HttpRequestMessage(method, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null)

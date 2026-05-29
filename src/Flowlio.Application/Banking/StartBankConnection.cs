@@ -28,11 +28,12 @@ public sealed class StartBankConnectionHandler
         StartBankConnectionCommand command,
         IAppDbContext db,
         IBankDataProvider provider,
+        IBankCredentialProvider credentialProvider,
         IAuditLog audit,
         CancellationToken ct)
     {
-        if (!provider.IsConfigured)
-            throw new InvalidOperationException("Enable Banking není nakonfigurováno (chybí ApplicationId nebo privátní klíč).");
+        var credentials = await credentialProvider.GetAsync(command.CreatedByUserId, ct)
+            ?? throw new InvalidOperationException("Nemáte uložené přístupy k Enable Banking. Nejprve je vyplňte.");
 
         var account = await db.BankAccounts
             .FirstOrDefaultAsync(a => a.Id == command.BankAccountId && a.FamilyId == command.FamilyId, ct)
@@ -42,7 +43,7 @@ public sealed class StartBankConnectionHandler
         var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var validUntil = DateTimeOffset.UtcNow.AddDays(ConsentValidityDays);
 
-        var start = await provider.StartAuthorizationAsync(command.AspspName, command.Country, state, validUntil, ct);
+        var start = await provider.StartAuthorizationAsync(credentials, command.AspspName, command.Country, state, validUntil, ct);
 
         var connection = new BankConnection
         {

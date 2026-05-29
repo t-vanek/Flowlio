@@ -48,6 +48,9 @@ builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<InvitationService>();
 builder.Services.AddScoped<AccountNotifier>();
 
+// Encrypts per-user Open Banking private keys at rest (Data Protection key ring is persisted to Redis below).
+builder.Services.AddSingleton<Flowlio.Application.Abstractions.ISecretProtector, Flowlio.Server.Banking.DataProtectionSecretProtector>();
+
 // Background "automatic import": periodically pulls new transactions for active Open Banking connections.
 builder.Services.AddHostedService<Flowlio.Server.Banking.BankSyncService>();
 
@@ -223,6 +226,7 @@ app.Use(async (context, next) =>
 app.MapControllers();
 app.MapRazorPages();
 app.MapApiEndpoints();
+app.MapBankConnectionCallback();
 app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapFallbackToFile("index.html");
 

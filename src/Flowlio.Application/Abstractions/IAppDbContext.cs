@@ -29,6 +29,7 @@ public interface IAppDbContext
     DbSet<Budget> Budgets { get; }
     DbSet<Goal> Goals { get; }
     DbSet<BankConnection> BankConnections { get; }
+    DbSet<EnableBankingCredential> EnableBankingCredentials { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

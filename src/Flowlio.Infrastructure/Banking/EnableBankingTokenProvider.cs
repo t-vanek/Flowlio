@@ -1,49 +1,35 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace Flowlio.Infrastructure.Banking;
 
 /// <summary>
-/// Mints and caches the self-signed JWT (RS256) that authenticates every Enable Banking request. The token
-/// is signed with the configured RSA private key, carries the Application ID as its <c>kid</c>, and is reused
-/// until shortly before expiry. Signing uses the BCL directly (no JWT package needed).
+/// Mints the self-signed JWT (RS256) that authenticates Enable Banking requests. Because credentials are
+/// per user, the token is built from the supplied Application ID and RSA private key and cached per
+/// Application ID until shortly before expiry. Signing uses the BCL directly (no JWT package needed).
 /// </summary>
-internal sealed class EnableBankingTokenProvider(IOptions<EnableBankingOptions> options)
+internal sealed class EnableBankingTokenProvider
 {
-    private readonly EnableBankingOptions _options = options.Value;
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private string? _token;
-    private DateTimeOffset _expiresAt;
+    private readonly ConcurrentDictionary<string, (string Token, DateTimeOffset ExpiresAt)> _cache = new();
 
-    public async Task<string> GetTokenAsync(CancellationToken cancellationToken = default)
+    public string GetToken(string applicationId, string privateKeyPem)
     {
-        if (_token is not null && DateTimeOffset.UtcNow < _expiresAt)
-            return _token;
+        if (_cache.TryGetValue(applicationId, out var cached) && DateTimeOffset.UtcNow < cached.ExpiresAt)
+            return cached.Token;
 
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            if (_token is not null && DateTimeOffset.UtcNow < _expiresAt)
-                return _token;
-
-            var now = DateTimeOffset.UtcNow;
-            // Enable Banking allows up to 24h; renew a few minutes early to avoid edge expiry mid-request.
-            var expires = now.AddHours(23);
-            _token = BuildJwt(now, expires);
-            _expiresAt = expires.AddMinutes(-5);
-            return _token;
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        var now = DateTimeOffset.UtcNow;
+        // Enable Banking allows up to 24h; renew a few minutes early to avoid edge expiry mid-request.
+        var expires = now.AddHours(23);
+        var token = BuildJwt(applicationId, privateKeyPem, now, expires);
+        _cache[applicationId] = (token, expires.AddMinutes(-5));
+        return token;
     }
 
-    private string BuildJwt(DateTimeOffset issuedAt, DateTimeOffset expiresAt)
+    private static string BuildJwt(string applicationId, string privateKeyPem, DateTimeOffset issuedAt, DateTimeOffset expiresAt)
     {
-        var header = new Dictionary<string, object> { ["typ"] = "JWT", ["alg"] = "RS256", ["kid"] = _options.ApplicationId };
+        var header = new Dictionary<string, object> { ["typ"] = "JWT", ["alg"] = "RS256", ["kid"] = applicationId };
         var payload = new Dictionary<string, object>
         {
             ["iss"] = "enablebanking.com",
@@ -55,7 +41,7 @@ internal sealed class EnableBankingTokenProvider(IOptions<EnableBankingOptions> 
         var signingInput =
             $"{Base64Url(JsonSerializer.SerializeToUtf8Bytes(header))}.{Base64Url(JsonSerializer.SerializeToUtf8Bytes(payload))}";
 
-        using var rsa = CreateRsa(_options.PrivateKeyPem);
+        using var rsa = CreateRsa(privateKeyPem);
         var signature = rsa.SignData(
             Encoding.ASCII.GetBytes(signingInput), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 

@@ -2,10 +2,12 @@
 
 Modern personal finance app focused on family budgeting, recurring payments, subscriptions and expense tracking.
 
-Because Flowlio is **not** certified for direct bank-API access, transactions are brought in by
-**importing PDF account statements** or **entered by hand** as manual movements — rather than
-through live banking connections. (Legacy CSV/XLSX import still parses but is deprecated and hidden
-from the UI.)
+Transactions come in three ways: **automatically over Open Banking** (PSD2) using each user's own
+[Enable Banking](https://enablebanking.com) application (the free "restricted" mode — see the
+[Open Banking setup guide](docs/enable-banking.md)), by **importing PDF account statements**, or
+**entered by hand** as manual movements. Flowlio itself is not a certified AISP: every user brings
+their own Enable Banking credentials, so a connection reaches only that user's own pre-linked
+accounts. (Legacy CSV/XLSX import still parses but is deprecated and hidden from the UI.)
 
 ## Key features
 
@@ -14,6 +16,10 @@ from the UI.)
 - **Transactions:** PDF statement import with de-duplication and rule-based auto-categorization,
   plus hand-entered movements and movement batches; filter by account, category, type and date range,
   with server-side pagination.
+- **Open Banking (PSD2):** optional automatic transaction sync via the **Enable Banking** aggregator,
+  with per-user "bring your own application" credentials (private key encrypted at rest), a consent
+  setup wizard and a background re-sync. Synced movements flow through the same dedup/categorization
+  pipeline as imports. See the [Open Banking setup guide](docs/enable-banking.md).
 - **Accounts & cards:** bank accounts with owners, authorized users ("disponents") and per-account
   access levels, payment cards, and child accounts under a guardian.
 - **Role-based access control:** per-family roles (Owner / Adult / Viewer / Child) with editable
@@ -64,6 +70,8 @@ The UI is in Czech. Click any image to enlarge.
   by OpenIddict via the **client-credentials** grant, with **smtp4dev** as the local test inbox
 - **Riok.Mapperly** for entity ↔ DTO mapping
 - **PdfPig** for PDF statement text extraction (Tesseract OCR planned for scanned PDFs)
+- **Enable Banking** (PSD2 / Open Banking aggregator) for optional live transaction sync, authenticated
+  with a self-signed RS256 JWT; per-user credentials encrypted via ASP.NET Data Protection
 - **OpenTelemetry** (traces + metrics) exported via OTLP, with **Jaeger**, **Prometheus** and
   **Grafana** for the local observability stack; optional **Sentry** error reporting
 
@@ -116,6 +124,26 @@ observability/            otel-collector, Prometheus and Grafana provisioning
   Creating, editing and deleting transactions/batches requires the `ManageTransactions` permission.
 - **Browsing:** the transaction list supports free-text search plus filters by account, category, type
   (income / expense) and booking-date range, with server-side pagination and a page-size selector.
+
+## Open Banking (Enable Banking)
+
+Beyond files and manual entry, Flowlio can pull transactions directly from a bank's **PSD2 / Open
+Banking** API through the [Enable Banking](https://enablebanking.com) aggregator.
+
+- **Bring your own application (per user):** each user registers their own Enable Banking application
+  (free *restricted* mode) and links their own accounts in the Enable Banking portal. The Application
+  ID and RSA private key are stored **per user, encrypted at rest** (ASP.NET Data Protection, key ring
+  in Redis); Flowlio never acts as a certified AISP and only ever reaches that user's pre-linked
+  accounts. Requests are authenticated with a self-signed **RS256 JWT**.
+- **Consent flow:** a setup wizard (`/bank-connect`) starts the authorization, the user completes
+  strong customer authentication at their bank, and the bank's redirect to `/bank-connections/callback`
+  finalizes the consent (correlated by an unguessable state token) and binds it to a Flowlio account.
+- **Sync:** transactions are fetched (paged) and run through the **same dedup + auto-categorization
+  pipeline** as statement import, emitting the same completion event (dashboard cache invalidation +
+  live notification). A background service re-syncs active connections periodically; the PSD2 consent
+  expires after ~90 days and prompts re-authorization.
+
+See the [step-by-step setup guide](docs/enable-banking.md).
 
 ## Families, roles & access control
 

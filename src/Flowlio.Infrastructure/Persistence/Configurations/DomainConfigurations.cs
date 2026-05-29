@@ -374,6 +374,21 @@ public class BankConnectionConfiguration : IEntityTypeConfiguration<BankConnecti
     }
 }
 
+public class EnableBankingCredentialConfiguration : IEntityTypeConfiguration<EnableBankingCredential>
+{
+    public void Configure(EntityTypeBuilder<EnableBankingCredential> b)
+    {
+        b.Property(x => x.ApplicationId).HasMaxLength(200).IsRequired();
+        // Encrypted PEM blob; Data Protection inflates it, so leave it as unbounded text.
+        b.Property(x => x.PrivateKeyEncrypted).IsRequired();
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        // One Enable Banking application per user.
+        b.HasIndex(x => x.UserId).IsUnique();
+        b.HasIndex(x => x.FamilyId);
+        b.Property<uint>("xmin").IsRowVersion();
+    }
+}
+
 public class RuleSuggestionDismissalConfiguration : IEntityTypeConfiguration<RuleSuggestionDismissal>
 {
     public void Configure(EntityTypeBuilder<RuleSuggestionDismissal> b)
