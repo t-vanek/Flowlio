@@ -35,6 +35,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<Goal> Goals => Set<Goal>();
     public DbSet<BankConnection> BankConnections => Set<BankConnection>();
+    public DbSet<EnableBankingCredential> EnableBankingCredentials => Set<EnableBankingCredential>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

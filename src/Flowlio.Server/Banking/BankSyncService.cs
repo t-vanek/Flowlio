@@ -1,4 +1,3 @@
-using Flowlio.Application.Abstractions;
 using Flowlio.Application.Banking;
 using Flowlio.Domain;
 using Flowlio.Infrastructure.Persistence;
@@ -49,13 +48,11 @@ internal sealed class BankSyncService(IServiceScopeFactory scopeFactory, ILogger
         try
         {
             using var scope = scopeFactory.CreateScope();
-            var provider = scope.ServiceProvider.GetRequiredService<IBankDataProvider>();
-            if (!provider.IsConfigured)
-                return;
-
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
+            // Only active connections are due; each sync resolves its own user's credentials and skips itself
+            // gracefully if they are missing, so there is nothing to gate on here.
             var due = await db.BankConnections
                 .Where(c => c.Status == BankConnectionStatus.Active)
                 .Select(c => c.Id)

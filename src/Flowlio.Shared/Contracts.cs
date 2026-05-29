@@ -441,14 +441,25 @@ public sealed record StartBankConnectionResultDto
     public string AuthorizationUrl { get; init; } = "";
 }
 
-/// <summary>Finalizes a connection from the authorisation code returned on the bank's redirect callback.</summary>
-public sealed record CompleteBankConnectionRequest
+/// <summary>Stores the current user's own Enable Banking application credentials ("bring your own").</summary>
+public sealed record SaveEnableBankingCredentialRequest
 {
-    [Required]
-    public string Code { get; init; } = "";
+    [Required, StringLength(200, MinimumLength = 1)]
+    public string ApplicationId { get; init; } = "";
 
-    [Required]
-    public string State { get; init; } = "";
+    /// <summary>RSA private key in PEM form (the file downloaded from the Enable Banking control panel).</summary>
+    [Required, StringLength(100_000, MinimumLength = 1)]
+    public string PrivateKeyPem { get; init; } = "";
+}
+
+/// <summary>Whether the current user has Enable Banking credentials stored (the private key is never returned).</summary>
+public sealed record EnableBankingCredentialStatusDto
+{
+    public bool Configured { get; init; }
+    public string? ApplicationId { get; init; }
+
+    /// <summary>The callback URL the user must register as the redirect URL in their Enable Banking app.</summary>
+    public string? CallbackUrl { get; init; }
 }
 
 /// <summary>An Open Banking connection between an account and a bank, with its consent status.</summary>

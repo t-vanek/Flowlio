@@ -1,40 +1,139 @@
+using System.Security.Cryptography;
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Banking;
 using Flowlio.Domain;
 using Flowlio.Shared;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Wolverine;
 using static Flowlio.Server.Auth.MemberAuthorization;
 
 namespace Flowlio.Server.Endpoints;
 
 /// <summary>
-/// Open Banking (PSD2) connections via Enable Banking: list available banks, start a consent, finalize it
-/// from the redirect callback, sync transactions on demand and disconnect. The heavy lifting runs in the
-/// Wolverine handlers (transactional, with the same completion event as a file import).
+/// Open Banking (PSD2) connections via Enable Banking, with per-user "bring your own" credentials: store your
+/// Enable Banking application, list available banks, start a consent, sync transactions on demand and
+/// disconnect. The consent is finalized by the bank's redirect to the public <c>/bank-connections/callback</c>.
 /// </summary>
 public static class BankConnectionEndpoints
 {
     public static void MapBankConnectionEndpoints(this IEndpointRouteBuilder api)
     {
+        api.MapGet("/bank-connections/credentials", GetCredentialStatus);
+        api.MapPut("/bank-connections/credentials", SaveCredentials);
+        api.MapDelete("/bank-connections/credentials", DeleteCredentials);
+
         api.MapGet("/bank-connections/banks", ListBanks);
         api.MapGet("/bank-connections", ListConnections);
         api.MapPost("/bank-connections", StartConnection);
-        api.MapPost("/bank-connections/complete", CompleteConnection);
         api.MapPost("/bank-connections/{id:guid}/sync", SyncConnection);
         api.MapDelete("/bank-connections/{id:guid}", Disconnect);
     }
 
-    private static async Task<IResult> ListBanks(
-        [FromQuery] string? country, IBankDataProvider provider, ICurrentFamily family, CancellationToken ct)
+    /// <summary>The public redirect target the bank sends the user back to after SCA. Anonymous: it is
+    /// correlated to a pending connection purely by the unguessable state token, then redirects to the SPA.</summary>
+    public static void MapBankConnectionCallback(this IEndpointRouteBuilder app) =>
+        app.MapGet("/bank-connections/callback", Callback).AllowAnonymous();
+
+    // ---- Credentials --------------------------------------------------------
+
+    private static async Task<IResult> GetCredentialStatus(
+        ICurrentUser user, IAppDbContext db, ICurrentFamily family,
+        IOptions<Flowlio.Infrastructure.Banking.EnableBankingOptions> options, CancellationToken ct)
     {
         if (!await family.CanAsync(Permission.ImportStatements, ct))
             return Forbidden();
-        if (!provider.IsConfigured)
+
+        var userId = user.UserId ?? Guid.Empty;
+        var credential = await db.EnableBankingCredentials.FirstOrDefaultAsync(c => c.UserId == userId, ct);
+        return Results.Ok(new EnableBankingCredentialStatusDto
+        {
+            Configured = credential is not null,
+            ApplicationId = credential?.ApplicationId,
+            CallbackUrl = options.Value.RedirectUrl,
+        });
+    }
+
+    private static async Task<IResult> SaveCredentials(
+        SaveEnableBankingCredentialRequest request, ICurrentUser user, ICurrentFamily family,
+        IAppDbContext db, ISecretProtector protector, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ImportStatements, ct))
+            return Forbidden();
+
+        // Validate the PEM up front so a bad paste fails clearly instead of at the first bank call.
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(request.PrivateKeyPem);
+        }
+        catch (Exception ex) when (ex is ArgumentException or CryptographicException)
+        {
+            return Results.BadRequest("Neplatný privátní klíč – očekává se obsah PEM souboru z Enable Banking.");
+        }
+
+        var userId = user.UserId ?? Guid.Empty;
+        var encrypted = protector.Protect(request.PrivateKeyPem);
+
+        var credential = await db.EnableBankingCredentials.FirstOrDefaultAsync(c => c.UserId == userId, ct);
+        if (credential is null)
+        {
+            db.EnableBankingCredentials.Add(new EnableBankingCredential
+            {
+                UserId = userId,
+                FamilyId = familyId,
+                ApplicationId = request.ApplicationId.Trim(),
+                PrivateKeyEncrypted = encrypted,
+            });
+        }
+        else
+        {
+            credential.ApplicationId = request.ApplicationId.Trim();
+            credential.PrivateKeyEncrypted = encrypted;
+            credential.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("bank.credentials.save", "EnableBankingCredential", userId.ToString(),
+            null, familyId, "Uloženy přístupy k Enable Banking", ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeleteCredentials(
+        ICurrentUser user, ICurrentFamily family, IAppDbContext db, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ImportStatements, ct))
+            return Forbidden();
+
+        var userId = user.UserId ?? Guid.Empty;
+        var credential = await db.EnableBankingCredentials.FirstOrDefaultAsync(c => c.UserId == userId, ct);
+        if (credential is null)
+            return Results.NotFound();
+
+        db.EnableBankingCredentials.Remove(credential);
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("bank.credentials.delete", "EnableBankingCredential", userId.ToString(),
+            null, familyId, "Smazány přístupy k Enable Banking", ct);
+        return Results.NoContent();
+    }
+
+    // ---- Banks & connections ------------------------------------------------
+
+    private static async Task<IResult> ListBanks(
+        [FromQuery] string? country, IBankDataProvider provider, IBankCredentialProvider credentials,
+        ICurrentUser user, ICurrentFamily family, CancellationToken ct)
+    {
+        if (!await family.CanAsync(Permission.ImportStatements, ct))
+            return Forbidden();
+
+        var creds = await credentials.GetAsync(user.UserId ?? Guid.Empty, ct);
+        if (creds is null)
             return NotConfigured();
 
-        var banks = await provider.ListBanksAsync(country ?? "CZ", ct);
+        var banks = await provider.ListBanksAsync(creds, country ?? "CZ", ct);
         return Results.Ok(banks.Select(b => new BankAspspDto { Name = b.Name, Country = b.Country }).ToList());
     }
 
@@ -65,39 +164,24 @@ public static class BankConnectionEndpoints
     }
 
     private static async Task<IResult> StartConnection(
-        StartBankConnectionRequest request, IBankDataProvider provider, ICurrentFamily family,
+        StartBankConnectionRequest request, IBankCredentialProvider credentials, ICurrentFamily family,
         ICurrentUser user, IMessageBus bus, CancellationToken ct)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ImportStatements, ct))
             return Forbidden();
-        if (!provider.IsConfigured)
+
+        var userId = user.UserId ?? Guid.Empty;
+        if (!await credentials.HasAsync(userId, ct))
             return NotConfigured();
 
         var result = await bus.InvokeAsync<StartBankConnectionResultDto>(new StartBankConnectionCommand
         {
             FamilyId = familyId,
-            CreatedByUserId = user.UserId ?? Guid.Empty,
+            CreatedByUserId = userId,
             BankAccountId = request.BankAccountId,
             AspspName = request.AspspName,
             Country = request.Country.ToUpperInvariant(),
-        }, ct);
-
-        return Results.Ok(result);
-    }
-
-    private static async Task<IResult> CompleteConnection(
-        CompleteBankConnectionRequest request, ICurrentFamily family, IMessageBus bus, CancellationToken ct)
-    {
-        var familyId = await family.RequireAsync(ct);
-        if (!await family.CanAsync(Permission.ImportStatements, ct))
-            return Forbidden();
-
-        var result = await bus.InvokeAsync<BankConnectionDto>(new CompleteBankConnectionCommand
-        {
-            FamilyId = familyId,
-            Code = request.Code,
-            State = request.State,
         }, ct);
 
         return Results.Ok(result);
@@ -140,7 +224,24 @@ public static class BankConnectionEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> Callback(
+        [FromQuery] string? code, [FromQuery] string? state, IMessageBus bus, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+            return Results.Redirect("/import?bank=error");
+
+        try
+        {
+            await bus.InvokeAsync(new CompleteBankConnectionCommand { Code = code, State = state }, ct);
+            return Results.Redirect("/import?bank=connected");
+        }
+        catch
+        {
+            return Results.Redirect("/import?bank=error");
+        }
+    }
+
     private static IResult NotConfigured() =>
-        Results.Problem(detail: "Připojení k bance (Enable Banking) není na serveru nakonfigurováno.",
-            statusCode: StatusCodes.Status503ServiceUnavailable);
+        Results.Problem(detail: "Nemáte uložené přístupy k Enable Banking. Nejprve je vyplňte.",
+            statusCode: StatusCodes.Status400BadRequest);
 }
