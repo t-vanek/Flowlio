@@ -8,11 +8,15 @@ public class TransactionCategorizerTests
 {
     private static CategorizationRule Rule(
         RuleMatchField field, string pattern, Guid categoryId, int priority = 0,
-        RuleMatchMode mode = RuleMatchMode.Substring, CategoryKind? kind = null) =>
+        RuleMatchMode mode = RuleMatchMode.Substring, CategoryKind? kind = null,
+        RuleScope scope = RuleScope.Family, Guid? ownerMemberId = null, Guid? bankAccountId = null) =>
         new()
         {
             Field = field,
             MatchMode = mode,
+            Scope = scope,
+            OwnerMemberId = ownerMemberId,
+            BankAccountId = bankAccountId,
             Pattern = pattern,
             CategoryId = categoryId,
             Priority = priority,
@@ -191,5 +195,81 @@ public class TransactionCategorizerTests
         var rules = new[] { Rule(RuleMatchField.Any, "Albert", expense, kind: CategoryKind.Expense) };
 
         Assert.Null(Match("ALBERT", null, null, null, rules, TransactionDirection.Incoming));
+    }
+
+    // ---- Scope (personal / account / family) --------------------------------
+
+    [Fact]
+    public void Account_rule_wins_over_personal_and_family_for_that_account()
+    {
+        var account = Guid.NewGuid();
+        var owner = Guid.NewGuid();
+        Guid family = Guid.NewGuid(), personal = Guid.NewGuid(), accountCat = Guid.NewGuid();
+        var rules = new[]
+        {
+            Rule(RuleMatchField.Any, "Albert", family, scope: RuleScope.Family),
+            Rule(RuleMatchField.Any, "Albert", personal, scope: RuleScope.Personal, ownerMemberId: owner),
+            Rule(RuleMatchField.Any, "Albert", accountCat, scope: RuleScope.Account, bankAccountId: account),
+        };
+
+        var ordered = TransactionCategorizer.ForAccount(rules, account, owner);
+
+        Assert.Equal(accountCat, Match("ALBERT", null, null, null, ordered));
+    }
+
+    [Fact]
+    public void Personal_rule_wins_over_family_even_with_lower_priority()
+    {
+        var owner = Guid.NewGuid();
+        var family = Guid.NewGuid();
+        var personal = Guid.NewGuid();
+        var rules = new[]
+        {
+            Rule(RuleMatchField.Any, "Albert", family, priority: 99, scope: RuleScope.Family),
+            Rule(RuleMatchField.Any, "Albert", personal, priority: 0, scope: RuleScope.Personal, ownerMemberId: owner),
+        };
+
+        var ordered = TransactionCategorizer.ForAccount(rules, Guid.NewGuid(), owner);
+
+        Assert.Equal(personal, Match("ALBERT", null, null, null, ordered));
+    }
+
+    [Fact]
+    public void Another_members_personal_rule_does_not_apply()
+    {
+        var rules = new[]
+        {
+            Rule(RuleMatchField.Any, "Albert", Guid.NewGuid(), scope: RuleScope.Personal, ownerMemberId: Guid.NewGuid()),
+        };
+
+        // Account owned by a different member than the rule's owner.
+        var ordered = TransactionCategorizer.ForAccount(rules, Guid.NewGuid(), ownerMemberId: Guid.NewGuid());
+
+        Assert.Empty(ordered);
+        Assert.Null(Match("ALBERT", null, null, null, ordered));
+    }
+
+    [Fact]
+    public void Account_rule_for_a_different_account_does_not_apply()
+    {
+        var rules = new[]
+        {
+            Rule(RuleMatchField.Any, "Albert", Guid.NewGuid(), scope: RuleScope.Account, bankAccountId: Guid.NewGuid()),
+        };
+
+        var ordered = TransactionCategorizer.ForAccount(rules, accountId: Guid.NewGuid(), ownerMemberId: Guid.NewGuid());
+
+        Assert.Empty(ordered);
+    }
+
+    [Fact]
+    public void Family_rule_applies_to_any_account()
+    {
+        var family = Guid.NewGuid();
+        var rules = new[] { Rule(RuleMatchField.Any, "Albert", family, scope: RuleScope.Family) };
+
+        var ordered = TransactionCategorizer.ForAccount(rules, Guid.NewGuid(), ownerMemberId: null);
+
+        Assert.Equal(family, Match("ALBERT", null, null, null, ordered));
     }
 }

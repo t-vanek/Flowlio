@@ -10,6 +10,18 @@ public class CategorizationRule : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
 
+    /// <summary>Who the rule applies to (personal / single account / whole family). Drives both who may
+    /// manage it and which transactions it can categorize.</summary>
+    public RuleScope Scope { get; set; } = RuleScope.Family;
+
+    /// <summary>The owning member for a <see cref="RuleScope.Personal"/> rule; null otherwise.</summary>
+    public Guid? OwnerMemberId { get; set; }
+    public FamilyMember? OwnerMember { get; set; }
+
+    /// <summary>The target account for a <see cref="RuleScope.Account"/> rule; null otherwise.</summary>
+    public Guid? BankAccountId { get; set; }
+    public BankAccount? BankAccount { get; set; }
+
     public RuleMatchField Field { get; set; } = RuleMatchField.Any;
 
     /// <summary>How <see cref="Pattern"/> is matched (substring, whole word, or regex).</summary>

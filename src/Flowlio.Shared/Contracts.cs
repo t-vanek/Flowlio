@@ -176,6 +176,20 @@ public sealed record CategorizationRuleDto
     public int Priority { get; init; }
     public bool IsActive { get; init; }
 
+    /// <summary>Who the rule applies to (personal / account / family).</summary>
+    public RuleScope Scope { get; init; }
+
+    /// <summary>Target account for an account-scoped rule (with its name for display); null otherwise.</summary>
+    public Guid? BankAccountId { get; init; }
+    public string? BankAccountName { get; init; }
+
+    /// <summary>Owning member for a personal rule (with display name); null otherwise.</summary>
+    public Guid? OwnerMemberId { get; init; }
+    public string? OwnerName { get; init; }
+
+    /// <summary>True when the current member may edit/delete this rule (owner of it, or family owner).</summary>
+    public bool CanManage { get; init; }
+
     /// <summary>Row-version concurrency token (Postgres xmin); echoed back on update.</summary>
     public uint Version { get; init; }
 
@@ -186,6 +200,12 @@ public sealed record CategorizationRuleDto
 /// <summary>Create or update a categorization rule (shared shape; rules carry no concurrency token).</summary>
 public sealed record CategorizationRuleRequest
 {
+    /// <summary>Scope of the rule. Personal is forced to the current member; Account/Family are owner-only.</summary>
+    public RuleScope Scope { get; set; } = RuleScope.Personal;
+
+    /// <summary>Required when <see cref="Scope"/> is <see cref="RuleScope.Account"/>: the target account.</summary>
+    public Guid? BankAccountId { get; set; }
+
     public RuleMatchField Field { get; set; } = RuleMatchField.Any;
 
     public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;

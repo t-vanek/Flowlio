@@ -33,43 +33,51 @@ public static class RuleEndpoints
     /// before Flowlio suggests turning it into a rule.</summary>
     private const int SuggestionThreshold = 2;
 
-    /// <summary>Suggests rules learned from repeated manual categorization: counterparties a person has
-    /// filed into the same category at least <see cref="SuggestionThreshold"/> times and which the current
-    /// active rules don't already categorize that way. The user accepts (creates a rule) or dismisses.</summary>
+    /// <summary>Suggests personal rules learned from the member's own repeated manual categorization:
+    /// counterparties they filed into the same category at least <see cref="SuggestionThreshold"/> times on
+    /// their own accounts, and which the rules applicable to those accounts don't already categorize that way.
+    /// Accepting creates a personal rule. The suggestions only cover the member's owned accounts, matching the
+    /// scope a learned personal rule would have.</summary>
     private static async Task<IResult> GetSuggestions(
         IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
 
+        var ownedAccountIds = await db.BankAccounts
+            .Where(a => a.FamilyId == me.FamilyId && a.OwnerMemberId == me.Id)
+            .Select(a => a.Id)
+            .ToListAsync(ct);
+        if (ownedAccountIds.Count == 0)
+            return Results.Ok(new List<RuleSuggestionDto>());
+
         var manual = await db.Transactions
-            .Where(t => t.FamilyId == familyId
+            .Where(t => t.FamilyId == me.FamilyId
                 && t.CategorySource == CategorySource.Manual
                 && t.CategoryId != null
                 && t.CounterpartyName != null
-                && t.CounterpartyName != "")
-            .Select(t => new { Name = t.CounterpartyName!, Direction = t.Direction, CategoryId = t.CategoryId!.Value })
+                && t.CounterpartyName != ""
+                && ownedAccountIds.Contains(t.BankAccountId))
+            .Select(t => new { Name = t.CounterpartyName!, t.Direction, t.BankAccountId, CategoryId = t.CategoryId!.Value })
             .ToListAsync(ct);
         if (manual.Count == 0)
             return Results.Ok(new List<RuleSuggestionDto>());
 
         var dismissed = (await db.RuleSuggestionDismissals
-                .Where(d => d.FamilyId == familyId)
+                .Where(d => d.FamilyId == me.FamilyId)
                 .Select(d => new { d.CounterpartyKey, d.CategoryId })
                 .ToListAsync(ct))
             .Select(d => (d.CounterpartyKey, d.CategoryId))
             .ToHashSet();
 
-        var rules = await db.CategorizationRules
+        var familyRules = await db.CategorizationRules
             .Include(r => r.Category)
-            .Where(r => r.FamilyId == familyId && r.IsActive)
-            .OrderByDescending(r => r.Priority)
-            .ThenBy(r => r.CreatedAt)
+            .Where(r => r.FamilyId == me.FamilyId && r.IsActive)
             .ToListAsync(ct);
 
         var categoryNames = await db.Categories
-            .Where(c => c.FamilyId == familyId)
+            .Where(c => c.FamilyId == me.FamilyId)
             .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
 
         var suggestions = manual
@@ -83,11 +91,13 @@ public static class RuleEndpoints
                 var pattern = g.GroupBy(x => x.Name.Trim())
                     .OrderByDescending(s => s.Count())
                     .First().Key;
-                var direction = g.First().Direction;
-                return (Pattern: pattern, g.Key.CategoryId, Count: g.Count(), Direction: direction);
+                var sample = g.First();
+                return (Pattern: pattern, g.Key.CategoryId, Count: g.Count(), sample.Direction, sample.BankAccountId);
             })
-            // Skip merchants the active rules already file into this same category.
-            .Where(s => TransactionCategorizer.Match(s.Pattern, null, null, null, s.Direction, rules) != s.CategoryId)
+            // Skip merchants the rules applicable to that account already file into this same category.
+            .Where(s => TransactionCategorizer.Match(
+                s.Pattern, null, null, null, s.Direction,
+                TransactionCategorizer.ForAccount(familyRules, s.BankAccountId, me.Id)) != s.CategoryId)
             .OrderByDescending(s => s.Count)
             .ThenBy(s => s.Pattern)
             .Take(20)
@@ -136,53 +146,71 @@ public static class RuleEndpoints
     private static async Task<IResult> GetRules(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
 
-        var rules = await db.CategorizationRules
-            .Include(r => r.Category)
-            .Where(r => r.FamilyId == familyId)
+        var rules = await VisibleRules(db, me, isOwner)
             .OrderByDescending(r => r.Priority)
             .ThenBy(r => r.CreatedAt)
             .ToListAsync(ct);
 
-        return Results.Ok(rules.Select(r => mapper.ToDto(r) with { Version = db.GetRowVersion(r) }).ToList());
+        return Results.Ok(rules.Select(r => ToScopedDto(db, mapper, r, me, isOwner)).ToList());
     }
 
     /// <summary>Soft-deleted rules, newest first, for the "deleted rules" panel and restore.</summary>
     private static async Task<IResult> GetDeletedRules(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
 
-        var rules = await db.CategorizationRules
+        var rules = await VisibleRules(db, me, isOwner)
             .IgnoreQueryFilters()
-            .Include(r => r.Category)
-            .Where(r => r.FamilyId == familyId && r.DeletedAt != null)
+            .Where(r => r.FamilyId == me.FamilyId && r.DeletedAt != null)
             .OrderByDescending(r => r.DeletedAt)
             .ToListAsync(ct);
 
-        return Results.Ok(rules.Select(r => mapper.ToDto(r) with { Version = db.GetRowVersion(r) }).ToList());
+        return Results.Ok(rules.Select(r => ToScopedDto(db, mapper, r, me, isOwner)).ToList());
+    }
+
+    /// <summary>Rules the member may see: the owner sees the whole family's rules; everyone else sees only
+    /// their own personal rules (the only kind they can manage).</summary>
+    private static IQueryable<CategorizationRule> VisibleRules(IAppDbContext db, FamilyMember me, bool isOwner)
+    {
+        var q = db.CategorizationRules
+            .Include(r => r.Category)
+            .Include(r => r.BankAccount)
+            .Include(r => r.OwnerMember)
+            .Where(r => r.FamilyId == me.FamilyId);
+        return isOwner ? q : q.Where(r => r.Scope == RuleScope.Personal && r.OwnerMemberId == me.Id);
     }
 
     private static async Task<IResult> CreateRule(
         CategorizationRuleRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
         IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
-        if (!await CategoryBelongsToFamily(db, familyId, request.CategoryId, ct))
+        var isOwner = me.Role == MemberRole.Owner;
+
+        if (await ValidateScope(me, isOwner, request, db, ct) is { } error)
+            return error;
+        if (!await CategoryBelongsToFamily(db, me.FamilyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
         if (InvalidRegex(request))
             return Results.BadRequest("Neplatný regulární výraz.");
 
         var rule = new CategorizationRule
         {
-            FamilyId = familyId,
+            FamilyId = me.FamilyId,
+            Scope = request.Scope,
+            OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null,
+            BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null,
             Field = request.Field,
             MatchMode = request.MatchMode,
             Pattern = request.Pattern.Trim(),
@@ -192,32 +220,40 @@ public static class RuleEndpoints
         };
         db.CategorizationRules.Add(rule);
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.create", "CategorizationRule", rule.Id.ToString(), rule.Pattern, familyId,
+        await audit.RecordAsync("rule.create", "CategorizationRule", rule.Id.ToString(), rule.Pattern, me.FamilyId,
             $"Vytvořeno pravidlo „{rule.Pattern}“", ct);
 
         // Backfill uncategorized transactions so the new rule applies to history too.
-        await RecategorizeAsync(db, cache, familyId, onlyUncategorized: true, ct);
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
 
-        return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, ct));
+        return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, me, isOwner, ct));
     }
 
     private static async Task<IResult> UpdateRule(
         Guid id, CategorizationRuleRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
         IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
 
         var rule = await db.CategorizationRules
-            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == familyId, ct);
+            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == me.FamilyId, ct);
         if (rule is null)
             return Results.NotFound();
-        if (!await CategoryBelongsToFamily(db, familyId, request.CategoryId, ct))
+        if (!CanManageRule(rule, me, isOwner))
+            return Forbidden();
+        if (await ValidateScope(me, isOwner, request, db, ct) is { } error)
+            return error;
+        if (!await CategoryBelongsToFamily(db, me.FamilyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
         if (InvalidRegex(request))
             return Results.BadRequest("Neplatný regulární výraz.");
 
+        rule.Scope = request.Scope;
+        rule.OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null;
+        rule.BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null;
         rule.Field = request.Field;
         rule.MatchMode = request.MatchMode;
         rule.Pattern = request.Pattern.Trim();
@@ -228,31 +264,33 @@ public static class RuleEndpoints
         // Optimistic concurrency: a stale Version makes SaveChanges throw, turned into HTTP 409 (Program.cs).
         db.SetOriginalRowVersion(rule, request.Version);
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), rule.Pattern, familyId,
+        await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), rule.Pattern, me.FamilyId,
             $"Upraveno pravidlo „{rule.Pattern}“", ct);
 
-        await RecategorizeAsync(db, cache, familyId, onlyUncategorized: true, ct);
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
 
-        return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, ct));
+        return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, me, isOwner, ct));
     }
 
     private static async Task<IResult> DeleteRule(
         Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
 
         var rule = await db.CategorizationRules
-            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == familyId, ct);
+            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == me.FamilyId, ct);
         if (rule is null)
             return Results.NotFound();
+        if (!CanManageRule(rule, me, me.Role == MemberRole.Owner))
+            return Forbidden();
 
         // Soft delete: the rule stops categorizing but is recoverable via restore. Already-categorized
         // transactions keep their category (we don't track which rule assigned what).
         rule.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), rule.Pattern, familyId,
+        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), rule.Pattern, me.FamilyId,
             $"Smazáno pravidlo „{rule.Pattern}“", ct);
         return Results.NoContent();
     }
@@ -260,23 +298,62 @@ public static class RuleEndpoints
     private static async Task<IResult> RestoreRule(
         Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
     {
-        var familyId = await family.RequireAsync(ct);
+        var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
 
         var rule = await db.CategorizationRules
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == familyId && r.DeletedAt != null, ct);
+            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == me.FamilyId && r.DeletedAt != null, ct);
         if (rule is null)
             return Results.NotFound();
+        if (!CanManageRule(rule, me, me.Role == MemberRole.Owner))
+            return Forbidden();
 
         rule.DeletedAt = null;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), rule.Pattern, familyId,
+        await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), rule.Pattern, me.FamilyId,
             $"Obnoveno pravidlo „{rule.Pattern}“", ct);
         return Results.NoContent();
     }
+
+    /// <summary>The owner manages every rule; anyone else manages only their own personal rules.</summary>
+    private static bool CanManageRule(CategorizationRule rule, FamilyMember me, bool isOwner) =>
+        isOwner || (rule.Scope == RuleScope.Personal && rule.OwnerMemberId == me.Id);
+
+    /// <summary>Authorizes the requested scope: family/account rules are owner-only and an account rule must
+    /// target a real family account. Returns null when allowed, otherwise the error result (as a task).</summary>
+    private static Task<IResult?> ValidateScope(
+        FamilyMember me, bool isOwner, CategorizationRuleRequest request, IAppDbContext db, CancellationToken ct) =>
+        request.Scope switch
+        {
+            RuleScope.Personal => Task.FromResult<IResult?>(null),
+            RuleScope.Family => Task.FromResult<IResult?>(isOwner ? null : Forbidden()),
+            RuleScope.Account => ValidateAccountScope(me, isOwner, request, db, ct),
+            _ => Task.FromResult<IResult?>(Results.BadRequest("Neplatný rozsah pravidla.")),
+        };
+
+    private static async Task<IResult?> ValidateAccountScope(
+        FamilyMember me, bool isOwner, CategorizationRuleRequest request, IAppDbContext db, CancellationToken ct)
+    {
+        if (!isOwner)
+            return Forbidden();
+        if (request.BankAccountId is not { } accountId ||
+            !await db.BankAccounts.AnyAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct))
+            return Results.BadRequest("Neplatný účet pro pravidlo.");
+        return null;
+    }
+
+    private static CategorizationRuleDto ToScopedDto(
+        IAppDbContext db, FlowlioMapper mapper, CategorizationRule r, FamilyMember me, bool isOwner) =>
+        mapper.ToDto(r) with
+        {
+            Version = db.GetRowVersion(r),
+            BankAccountName = r.BankAccount?.Name,
+            OwnerName = r.OwnerMember?.DisplayName,
+            CanManage = CanManageRule(r, me, isOwner),
+        };
 
     private static async Task<IResult> Recategorize(
         RecategorizeRequest request, IAppDbContext db, ICurrentFamily family,
@@ -298,13 +375,11 @@ public static class RuleEndpoints
     private static async Task<int> RecategorizeAsync(
         IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct)
     {
-        var rules = await db.CategorizationRules
+        var familyRules = await db.CategorizationRules
             .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
-            .OrderByDescending(r => r.Priority)
-            .ThenBy(r => r.CreatedAt)
             .ToListAsync(ct);
-        if (rules.Count == 0)
+        if (familyRules.Count == 0)
             return 0;
 
         // Never touch human choices: rules only fill in or replace rule-assigned/empty categories.
@@ -312,13 +387,30 @@ public static class RuleEndpoints
         if (onlyUncategorized)
             query = query.Where(t => t.CategoryId == null);
         var transactions = await query.ToListAsync(ct);
+        if (transactions.Count == 0)
+            return 0;
+
+        // Resolve account ownership so personal/account-scoped rules apply to the right rows.
+        var owners = await db.BankAccounts
+            .Where(a => a.FamilyId == familyId)
+            .Select(a => new { a.Id, a.OwnerMemberId })
+            .ToDictionaryAsync(a => a.Id, a => a.OwnerMemberId, ct);
+
+        // The scope-ordered rule list is the same for every transaction on a given account — resolve once.
+        var rulesByAccount = new Dictionary<Guid, IReadOnlyList<CategorizationRule>>();
+        IReadOnlyList<CategorizationRule> RulesFor(Guid accountId) =>
+            rulesByAccount.TryGetValue(accountId, out var cached)
+                ? cached
+                : rulesByAccount[accountId] =
+                    TransactionCategorizer.ForAccount(familyRules, accountId, owners.GetValueOrDefault(accountId));
 
         var now = DateTimeOffset.UtcNow;
         var changed = 0;
         foreach (var t in transactions)
         {
             var match = TransactionCategorizer.Match(
-                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount, t.Direction, rules);
+                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount, t.Direction,
+                RulesFor(t.BankAccountId));
             if (match is { } categoryId && categoryId != t.CategoryId)
             {
                 t.CategoryId = categoryId;
@@ -337,12 +429,14 @@ public static class RuleEndpoints
     }
 
     private static async Task<CategorizationRuleDto> LoadDtoAsync(
-        IAppDbContext db, FlowlioMapper mapper, Guid ruleId, CancellationToken ct)
+        IAppDbContext db, FlowlioMapper mapper, Guid ruleId, FamilyMember me, bool isOwner, CancellationToken ct)
     {
         var rule = await db.CategorizationRules
             .Include(r => r.Category)
+            .Include(r => r.BankAccount)
+            .Include(r => r.OwnerMember)
             .FirstAsync(r => r.Id == ruleId, ct);
-        return mapper.ToDto(rule) with { Version = db.GetRowVersion(rule) };
+        return ToScopedDto(db, mapper, rule, me, isOwner);
     }
 
     private static async Task<bool> CategoryBelongsToFamily(

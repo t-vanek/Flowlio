@@ -162,3 +162,19 @@ public enum RuleMatchMode
     /// text). For power users, e.g. "albert|billa|lidl".</summary>
     Regex = 2,
 }
+
+/// <summary>
+/// Who a categorization rule applies to. More specific scopes win over broader ones when several match
+/// the same transaction (Account &gt; Personal &gt; Family), with rule priority breaking ties within a scope.
+/// </summary>
+public enum RuleScope
+{
+    /// <summary>Belongs to one member; applies only to transactions on accounts that member owns.</summary>
+    Personal = 0,
+
+    /// <summary>Applies only to transactions on one specific bank account. Managed by the family owner.</summary>
+    Account = 1,
+
+    /// <summary>Applies to every account in the family. Managed by the family owner.</summary>
+    Family = 2,
+}
