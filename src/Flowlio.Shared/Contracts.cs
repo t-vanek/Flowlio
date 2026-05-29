@@ -369,8 +369,19 @@ public sealed record DashboardSummaryDto
     /// <summary>Currency the headline totals are expressed in (the family's base currency).</summary>
     public string Currency { get; init; } = "CZK";
 
+    /// <summary>Amounts that couldn't be converted to the base currency because a rate was missing,
+    /// summed per original currency. Surfaced to the user instead of being assumed 1:1.</summary>
+    public IReadOnlyList<CurrencyAmountDto> Unconverted { get; init; } = [];
+
     public IReadOnlyList<CategorySpendDto> TopExpenseCategories { get; init; } = [];
     public IReadOnlyList<UpcomingPaymentDto> Upcoming { get; init; } = [];
+}
+
+/// <summary>An amount in a specific currency (used for residual, un-converted dashboard sums).</summary>
+public sealed record CurrencyAmountDto
+{
+    public string Currency { get; init; } = "CZK";
+    public decimal Amount { get; init; }
 }
 
 /// <summary>The signed-in member together with the effective permissions their role grants.</summary>

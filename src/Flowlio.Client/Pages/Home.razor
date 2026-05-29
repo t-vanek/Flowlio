@@ -40,6 +40,14 @@ else
         </FluentCard>
     </div>
 
+    @if (_summary.Unconverted.Count > 0)
+    {
+        <FluentMessageBar Intent="MessageIntent.Warning" Style="margin-bottom:12px">
+            Některé částky nejsou v součtech zahrnuty, protože chybí kurz k @_summary.Currency:
+            @string.Join(", ", _summary.Unconverted.Select(u => Formatting.Money(u.Amount, u.Currency)))
+        </FluentMessageBar>
+    }
+
     <div class="panel-grid">
         <FluentCard Class="panel">
             <h2 class="panel-title">Největší výdaje (tento měsíc)</h2>
