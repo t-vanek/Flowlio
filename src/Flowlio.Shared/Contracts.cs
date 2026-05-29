@@ -414,6 +414,57 @@ public sealed record ImportResultDto
     public string? Error { get; init; }
 }
 
+/// <summary>A bank (ASPSP) available through Enable Banking for a given country.</summary>
+public sealed record BankAspspDto
+{
+    public string Name { get; init; } = "";
+    public string Country { get; init; } = "";
+}
+
+/// <summary>Starts an Open Banking connection for an account against a chosen bank.</summary>
+public sealed record StartBankConnectionRequest
+{
+    [Required]
+    public Guid BankAccountId { get; init; }
+
+    [Required, StringLength(200, MinimumLength = 1)]
+    public string AspspName { get; init; } = "";
+
+    [Required, RegularExpression("^[A-Za-z]{2}$")]
+    public string Country { get; init; } = "";
+}
+
+/// <summary>The redirect URL the user must visit to authorise the connection at their bank.</summary>
+public sealed record StartBankConnectionResultDto
+{
+    public Guid ConnectionId { get; init; }
+    public string AuthorizationUrl { get; init; } = "";
+}
+
+/// <summary>Finalizes a connection from the authorisation code returned on the bank's redirect callback.</summary>
+public sealed record CompleteBankConnectionRequest
+{
+    [Required]
+    public string Code { get; init; } = "";
+
+    [Required]
+    public string State { get; init; } = "";
+}
+
+/// <summary>An Open Banking connection between an account and a bank, with its consent status.</summary>
+public sealed record BankConnectionDto
+{
+    public Guid Id { get; init; }
+    public Guid BankAccountId { get; init; }
+    public string? AccountName { get; init; }
+    public string AspspName { get; init; } = "";
+    public string AspspCountry { get; init; } = "";
+    public BankConnectionStatus Status { get; init; }
+    public DateTimeOffset? ConsentValidUntil { get; init; }
+    public DateTimeOffset? LastSyncedAt { get; init; }
+    public string? LastError { get; init; }
+}
+
 public sealed record CategorySpendDto
 {
     public string CategoryName { get; init; } = "";

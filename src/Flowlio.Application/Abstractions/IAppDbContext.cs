@@ -28,6 +28,7 @@ public interface IAppDbContext
     DbSet<ExchangeRate> ExchangeRates { get; }
     DbSet<Budget> Budgets { get; }
     DbSet<Goal> Goals { get; }
+    DbSet<BankConnection> BankConnections { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
