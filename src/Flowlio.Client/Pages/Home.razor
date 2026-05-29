@@ -24,21 +24,29 @@ else
     <div class="kpi-grid">
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Celkový zůstatek</div>
-            <div class="kpi-value">@Formatting.Money(_summary.TotalBalance)</div>
+            <div class="kpi-value">@Formatting.Money(_summary.TotalBalance, _summary.Currency)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Příjmy tento měsíc</div>
-            <div class="kpi-value income">@Formatting.Money(_summary.IncomeThisMonth)</div>
+            <div class="kpi-value income">@Formatting.Money(_summary.IncomeThisMonth, _summary.Currency)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Výdaje tento měsíc</div>
-            <div class="kpi-value expense">@Formatting.Money(_summary.ExpenseThisMonth)</div>
+            <div class="kpi-value expense">@Formatting.Money(_summary.ExpenseThisMonth, _summary.Currency)</div>
         </FluentCard>
         <FluentCard Class="kpi-card">
             <div class="kpi-label">Bilance měsíce</div>
-            <div class="kpi-value @(_summary.NetThisMonth >= 0 ? "income" : "expense")">@Formatting.Money(_summary.NetThisMonth)</div>
+            <div class="kpi-value @(_summary.NetThisMonth >= 0 ? "income" : "expense")">@Formatting.Money(_summary.NetThisMonth, _summary.Currency)</div>
         </FluentCard>
     </div>
+
+    @if (_summary.Unconverted.Count > 0)
+    {
+        <FluentMessageBar Intent="MessageIntent.Warning" Style="margin-bottom:12px">
+            Některé částky nejsou v součtech zahrnuty, protože chybí kurz k @_summary.Currency:
+            @string.Join(", ", _summary.Unconverted.Select(u => Formatting.Money(u.Amount, u.Currency)))
+        </FluentMessageBar>
+    }
 
     <div class="panel-grid">
         <FluentCard Class="panel">
@@ -63,7 +71,7 @@ else
                         <div class="bar-row">
                             <span class="bar-dot" style="background:@c.Color"></span>
                             <span class="bar-name">@c.CategoryName</span>
-                            <span class="bar-amount">@Formatting.Money(c.Amount)</span>
+                            <span class="bar-amount">@Formatting.Money(c.Amount, _summary.Currency)</span>
                         </div>
                     }
                 </div>
@@ -95,7 +103,7 @@ else
                     <div class="bar-row">
                         <span class="bar-name">@u.Name</span>
                         <span class="muted">@Formatting.Date(u.DueDate)</span>
-                        <span class="bar-amount expense">@Formatting.Money(u.Amount)</span>
+                        <span class="bar-amount expense">@Formatting.Money(u.Amount, u.Currency)</span>
                     </div>
                 }
             }

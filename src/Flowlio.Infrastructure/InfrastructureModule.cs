@@ -51,6 +51,12 @@ public static class InfrastructureModule
         services.AddSingleton<ISmtpTokenProvider, OpenIddictSmtpTokenProvider>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
+        // Foreign-exchange rates from the Czech National Bank, refreshed in the background. Best-effort:
+        // the dashboard converts to the family's base currency where a rate is available.
+        services.AddHttpClient(Exchange.CnbExchangeRateClient.HttpClientName);
+        services.AddSingleton<Exchange.CnbExchangeRateClient>();
+        services.AddHostedService<Exchange.ExchangeRateRefresher>();
+
         return services;
     }
 }

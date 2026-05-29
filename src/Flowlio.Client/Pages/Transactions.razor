@@ -497,6 +497,7 @@ else
             description = t.Description ?? "",
             vs = t.VariableSymbol ?? "",
             amount = (double)t.Amount,
+            currency = t.Currency,
         });
 
         var categories = _categories.Select(c => new { id = c.Id.ToString(), name = c.Name, color = c.Color });
@@ -551,7 +552,6 @@ else
         BookingDate = t.BookingDate,
         ValueDate = t.ValueDate,
         Amount = t.Amount,
-        Currency = t.Currency,
         CounterpartyName = t.CounterpartyName,
         CounterpartyAccount = t.CounterpartyAccount,
         VariableSymbol = t.VariableSymbol,

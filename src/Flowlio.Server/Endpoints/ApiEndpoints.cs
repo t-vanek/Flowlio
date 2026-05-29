@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Flowlio.Application.Abstractions;
+using Flowlio.Application.Currency;
 using Flowlio.Application.Mapping;
 using Flowlio.Application.Statements;
 using Flowlio.Domain;
@@ -358,49 +359,91 @@ public static class ApiEndpoints
         var nextMonth = monthStart.AddMonths(1);
         var horizon = today.AddDays(30);
 
-        // Archived accounts are excluded from the opening balance (query filter) and from every
-        // transaction roll-up below, so the dashboard reflects only live accounts.
-        var openingTotal = await db.BankAccounts.Where(a => a.FamilyId == familyId).SumAsync(a => a.OpeningBalance, ct);
-        var movementTotal = await db.Transactions
+        var baseCurrency = await db.Families
+            .Where(f => f.Id == familyId)
+            .Select(f => f.BaseCurrency)
+            .FirstAsync(ct);
+
+        // Convert every amount to the family base currency at the rate of its date (ČNB, via CZK). Amounts
+        // with no available rate are accumulated separately and surfaced rather than assumed 1:1.
+        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+        var residual = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        decimal ToBase(decimal amount, string currency, DateOnly date)
+        {
+            if (converter.Convert(amount, currency, baseCurrency, date) is { } converted)
+                return converted;
+            residual[currency] = residual.GetValueOrDefault(currency) + amount;
+            return 0m;
+        }
+
+        // Opening balances are point-in-time, so convert them at today's rate.
+        var accounts = await db.BankAccounts
+            .Where(a => a.FamilyId == familyId)
+            .Select(a => new { a.OpeningBalance, a.Currency })
+            .ToListAsync(ct);
+        var balance = accounts.Sum(a => ToBase(a.OpeningBalance, a.Currency, today));
+
+        // All live-account transactions, converted at their booking date; month figures are derived in memory.
+        var movements = await db.Transactions
             .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null)
-            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
+            .Select(t => new { t.Amount, t.Currency, t.BookingDate })
+            .ToListAsync(ct);
 
-        var income = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
-                        && t.Amount > 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
-            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
+        decimal income = 0m, expense = 0m;
+        foreach (var m in movements)
+        {
+            var inBase = ToBase(m.Amount, m.Currency, m.BookingDate);
+            balance += inBase;
+            if (m.BookingDate >= monthStart && m.BookingDate < nextMonth)
+            {
+                if (inBase > 0) income += inBase;
+                else expense += inBase;
+            }
+        }
 
-        var expense = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
-                        && t.Amount < 0 && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
-            .SumAsync(t => (decimal?)t.Amount, ct) ?? 0m;
-
-        var topCategories = await db.Transactions
+        var monthlyExpense = await db.Transactions
             .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
                         && t.Amount < 0 && t.CategoryId != null
                         && t.BookingDate >= monthStart && t.BookingDate < nextMonth)
-            .GroupBy(t => new { t.Category!.Name, t.Category.Color })
-            .Select(g => new CategorySpendDto { CategoryName = g.Key.Name, Color = g.Key.Color, Amount = -g.Sum(x => x.Amount) })
+            .Select(t => new { t.Amount, t.Currency, t.BookingDate, Name = t.Category!.Name, t.Category.Color })
+            .ToListAsync(ct);
+
+        var topCategories = monthlyExpense
+            .GroupBy(t => new { t.Name, t.Color })
+            // Convert directly (not via ToBase) so these don't double-count into the residual already
+            // accumulated from the full movements pass above.
+            .Select(g => new CategorySpendDto
+            {
+                CategoryName = g.Key.Name,
+                Color = g.Key.Color,
+                Amount = -g.Sum(x => converter.Convert(x.Amount, x.Currency, baseCurrency, x.BookingDate) ?? 0m),
+            })
+            .Where(c => c.Amount > 0)
             .OrderByDescending(c => c.Amount)
             .Take(5)
-            .ToListAsync(ct);
+            .ToList();
 
         var recurring = await db.RecurringPayments
             .Where(r => r.FamilyId == familyId && r.IsActive && r.NextDueDate != null && r.NextDueDate <= horizon)
-            .Select(r => new UpcomingPaymentDto { Name = r.Name, Amount = r.ExpectedAmount, DueDate = r.NextDueDate })
+            .Select(r => new UpcomingPaymentDto { Name = r.Name, Amount = r.ExpectedAmount, Currency = r.Currency, DueDate = r.NextDueDate })
             .ToListAsync(ct);
 
         var subs = await db.Subscriptions
             .Where(s => s.FamilyId == familyId && s.IsActive && s.NextRenewalDate != null && s.NextRenewalDate <= horizon)
-            .Select(s => new UpcomingPaymentDto { Name = s.Name, Amount = s.Amount, DueDate = s.NextRenewalDate })
+            .Select(s => new UpcomingPaymentDto { Name = s.Name, Amount = s.Amount, Currency = s.Currency, DueDate = s.NextRenewalDate })
             .ToListAsync(ct);
 
         return new DashboardSummaryDto
         {
-            TotalBalance = openingTotal + movementTotal,
+            TotalBalance = balance,
             IncomeThisMonth = income,
             ExpenseThisMonth = -expense,
             NetThisMonth = income + expense,
+            Currency = baseCurrency,
+            Unconverted = residual
+                .Where(r => r.Value != 0)
+                .Select(r => new CurrencyAmountDto { Currency = r.Key, Amount = r.Value })
+                .ToList(),
             TopExpenseCategories = topCategories,
             Upcoming = recurring.Concat(subs).OrderBy(u => u.DueDate).Take(5).ToList(),
         };
@@ -462,6 +505,7 @@ public static class ApiEndpoints
             DedupHash = DedupHasher.Unique(),
         };
         Apply(transaction, request.Fields);
+        transaction.Currency = account.Currency;
         db.Transactions.Add(transaction);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("transaction.create", "Transaction", transaction.Id.ToString(),
@@ -667,6 +711,7 @@ public static class ApiEndpoints
                 DedupHash = DedupHasher.Unique(),
             };
             Apply(transaction, movement);
+            transaction.Currency = account.Currency;
             db.Transactions.Add(transaction);
         }
 
@@ -764,11 +809,6 @@ public static class ApiEndpoints
             return "Zadejte datum pohybu.";
         if (fields.Amount == 0)
             return "Částka nesmí být nulová.";
-        // A blank currency defaults to CZK in Apply; anything else must be a 3-letter code so it
-        // satisfies the CK_Transaction_Currency check (returns 400 here instead of a DB 500).
-        var currency = fields.Currency?.Trim();
-        if (!string.IsNullOrEmpty(currency) && currency.Length != 3)
-            return "Měna musí mít kód o 3 znacích.";
         return null;
     }
 
@@ -787,7 +827,7 @@ public static class ApiEndpoints
         transaction.BookingDate = fields.BookingDate;
         transaction.ValueDate = fields.ValueDate;
         transaction.Amount = fields.Amount;
-        transaction.Currency = string.IsNullOrWhiteSpace(fields.Currency) ? "CZK" : fields.Currency.Trim().ToUpperInvariant();
+        // Currency is not taken from the request: it always mirrors the account (set by the caller).
         transaction.Direction = fields.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
         transaction.CounterpartyName = NullIfBlank(fields.CounterpartyName);
         transaction.CounterpartyAccount = NullIfBlank(fields.CounterpartyAccount);

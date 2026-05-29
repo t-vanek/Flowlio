@@ -300,6 +300,22 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
     }
 }
 
+public class ExchangeRateConfiguration : IEntityTypeConfiguration<ExchangeRate>
+{
+    public void Configure(EntityTypeBuilder<ExchangeRate> b)
+    {
+        b.Property(x => x.Currency).HasMaxLength(3).IsRequired();
+        b.Property(x => x.CzkPerUnit).HasPrecision(18, 6);
+        // One rate per currency per day; lookups fetch the latest rate on/before a date.
+        b.HasIndex(x => new { x.Currency, x.Date }).IsUnique();
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_ExchangeRate_Currency", "char_length(\"Currency\") = 3");
+            t.HasCheckConstraint("CK_ExchangeRate_CzkPerUnit", "\"CzkPerUnit\" > 0");
+        });
+    }
+}
+
 public class RuleSuggestionDismissalConfiguration : IEntityTypeConfiguration<RuleSuggestionDismissal>
 {
     public void Configure(EntityTypeBuilder<RuleSuggestionDismissal> b)
