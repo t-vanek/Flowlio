@@ -30,6 +30,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
     public DbSet<CategorizationRule> CategorizationRules => Set<CategorizationRule>();
+    public DbSet<RuleSuggestionDismissal> RuleSuggestionDismissals => Set<RuleSuggestionDismissal>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -48,6 +49,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<FamilyMember>().HasQueryFilter(m => m.DeletedAt == null);
         builder.Entity<BankCard>().HasQueryFilter(c => c.DeletedAt == null);
         builder.Entity<Transaction>().HasQueryFilter(t => t.DeletedAt == null);
+        builder.Entity<CategorizationRule>().HasQueryFilter(r => r.DeletedAt == null);
     }
 
     private const string RowVersion = "xmin";

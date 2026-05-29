@@ -3,14 +3,15 @@
 Modern personal finance app focused on family budgeting, recurring payments, subscriptions and expense tracking.
 
 Because Flowlio is **not** certified for direct bank-API access, transactions are brought in by
-**importing account statements** (CSV / PDF) or **entered by hand** as manual movements — rather than
-through live banking connections.
+**importing PDF account statements** or **entered by hand** as manual movements — rather than
+through live banking connections. (Legacy CSV/XLSX import still parses but is deprecated and hidden
+from the UI.)
 
 ## Key features
 
 - **Family-scoped finances:** every account, transaction, card and budget belongs to a family
   (tenant); members join with their own login or are managed by a guardian.
-- **Transactions:** statement import (CSV/PDF) with de-duplication and rule-based auto-categorization,
+- **Transactions:** PDF statement import with de-duplication and rule-based auto-categorization,
   plus hand-entered movements and movement batches; filter by account, category, type and date range,
   with server-side pagination.
 - **Accounts & cards:** bank accounts with owners, authorized users ("disponents") and per-account
@@ -98,16 +99,17 @@ observability/            otel-collector, Prometheus and Grafana provisioning
 
 ## Transactions
 
-- **Statement import:** `Flowlio.Infrastructure/Statements` contains a profile-driven CSV parser with
-  best-effort layouts for **ČSOB, Komerční banka, Česká spořitelna, Fio, Air Bank and Revolut**. PDF
-  statements (for banks whose internet banking offers no CSV) are read by a **coordinate-based table
-  parser** (`Statements/Pdf`): PdfPig yields positioned words, columns are reconstructed from their
-  X-positions, each transaction is anchored on the row carrying its amount, and continuation rows
-  (counterparty account, value date, multi-line details) are folded in — so the amount is never confused
-  with the running balance. Dedicated layouts cover **ČSOB** (year-less dates inferred from the statement
-  period) and **Air Bank** (inline VS/KS/SS, merchant from card-payment details); unknown layouts fall
-  back to a heuristic parser flagged as experimental. Imported rows are de-duplicated (per account
-  fingerprint) and auto-categorized via user rules.
+- **Statement import:** PDF is the primary supported format. PDF statements are read by a
+  **coordinate-based table parser** (`Statements/Pdf`): PdfPig yields positioned words, columns are
+  reconstructed from their X-positions, each transaction is anchored on the row carrying its amount, and
+  continuation rows (counterparty account, value date, multi-line details) are folded in — so the amount
+  is never confused with the running balance. Dedicated layouts cover **ČSOB** (year-less dates inferred
+  from the statement period) and **Air Bank** (inline VS/KS/SS, merchant from card-payment details);
+  unknown layouts fall back to a heuristic parser. Imported rows are de-duplicated (per account
+  fingerprint) and auto-categorized via user rules. The profile-driven **CSV/XLSX** parsers
+  (`Flowlio.Infrastructure/Statements`, with layouts for ČSOB, Komerční banka, Česká spořitelna, Fio,
+  Air Bank and Revolut) are deprecated and hidden from the UI, but still parse uploads for backward
+  compatibility.
 - **Manual movements:** transactions can also be entered by hand and grouped into a labelled
   **movement batch**. Every batch (`ImportBatch`) records its `BatchOrigin` — `FileImport` for a parsed
   statement or `Manual` for hand-entered movements — so the source of any transaction stays traceable.
@@ -233,6 +235,7 @@ dotnet test
 ## Notes / next steps
 
 - Tesseract OCR for scanned PDF statements is stubbed (`ImportFormat.PdfOcr`) pending the native library.
-- Bank CSV/PDF profiles are a starting point and may need tuning against specific export variants.
+- Bank PDF layouts are a starting point and may need tuning against specific statement variants. The
+  legacy CSV/XLSX profiles are deprecated (hidden from the UI) and kept only for backward compatibility.
 </content>
 </invoke>

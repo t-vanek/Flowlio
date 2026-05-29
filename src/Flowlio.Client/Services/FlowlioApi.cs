@@ -156,6 +156,18 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<CategorizationRuleDto>> GetRulesAsync() =>
         await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules") ?? [];
 
+    /// <summary>Rules learned from repeated manual categorization, offered for one-click confirmation.</summary>
+    public async Task<IReadOnlyList<RuleSuggestionDto>> GetRuleSuggestionsAsync() =>
+        await http.GetFromJsonAsync<List<RuleSuggestionDto>>("api/rules/suggestions") ?? [];
+
+    /// <summary>Permanently dismisses a learned suggestion so it isn't offered again.</summary>
+    public async Task<bool> DismissRuleSuggestionAsync(string pattern, Guid categoryId)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/suggestions/dismiss",
+            new RuleSuggestionDismissRequest { Pattern = pattern, CategoryId = categoryId });
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
     {
         var response = await http.PostAsJsonAsync("api/rules", request);
@@ -174,6 +186,13 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<bool> DeleteRuleAsync(Guid id) =>
         (await http.DeleteAsync($"api/rules/{id}")).IsSuccessStatusCode;
+
+    /// <summary>Soft-deleted rules, for the "deleted rules" panel.</summary>
+    public async Task<IReadOnlyList<CategorizationRuleDto>> GetDeletedRulesAsync() =>
+        await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules/deleted") ?? [];
+
+    public async Task<bool> RestoreRuleAsync(Guid id) =>
+        (await http.PostAsync($"api/rules/{id}/restore", null)).IsSuccessStatusCode;
 
     /// <summary>Re-runs the family's rules over existing transactions; returns how many were categorized.</summary>
     public async Task<int> RecategorizeAsync(bool onlyUncategorized)

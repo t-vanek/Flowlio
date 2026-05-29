@@ -68,6 +68,7 @@ public sealed class ImportStatementHandler
         }
 
         var rules = await db.CategorizationRules
+            .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
             .OrderByDescending(r => r.Priority)
             .ToListAsync(ct);
@@ -90,6 +91,11 @@ public sealed class ImportStatementHandler
                 continue;
             }
 
+            var direction = parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
+            var matchedCategory = TransactionCategorizer.Match(
+                parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount,
+                direction, rules);
+
             db.Transactions.Add(new Transaction
             {
                 FamilyId = familyId,
@@ -98,15 +104,15 @@ public sealed class ImportStatementHandler
                 ValueDate = parsed.ValueDate,
                 Amount = parsed.Amount,
                 Currency = parsed.Currency,
-                Direction = parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming,
+                Direction = direction,
                 CounterpartyName = parsed.CounterpartyName,
                 CounterpartyAccount = parsed.CounterpartyAccount,
                 VariableSymbol = parsed.VariableSymbol,
                 ConstantSymbol = parsed.ConstantSymbol,
                 SpecificSymbol = parsed.SpecificSymbol,
                 Description = parsed.Description,
-                CategoryId = TransactionCategorizer.Match(
-                    parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount, rules),
+                CategoryId = matchedCategory,
+                CategorySource = matchedCategory is null ? CategorySource.None : CategorySource.Rule,
                 ImportBatchId = batch.Id,
                 DedupHash = hash,
             });

@@ -169,17 +169,26 @@ public sealed record CategorizationRuleDto
 {
     public Guid Id { get; init; }
     public RuleMatchField Field { get; init; }
+    public RuleMatchMode MatchMode { get; init; }
     public string Pattern { get; init; } = "";
     public Guid CategoryId { get; init; }
     public string? CategoryName { get; init; }
     public int Priority { get; init; }
     public bool IsActive { get; init; }
+
+    /// <summary>Row-version concurrency token (Postgres xmin); echoed back on update.</summary>
+    public uint Version { get; init; }
+
+    /// <summary>When the rule was soft-deleted; null for live rules. Set on the "deleted rules" listing.</summary>
+    public DateTimeOffset? DeletedAt { get; init; }
 }
 
 /// <summary>Create or update a categorization rule (shared shape; rules carry no concurrency token).</summary>
 public sealed record CategorizationRuleRequest
 {
     public RuleMatchField Field { get; set; } = RuleMatchField.Any;
+
+    public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;
 
     [Required(ErrorMessage = "Vzor je povinný.")]
     [StringLength(200, MinimumLength = 1, ErrorMessage = "Vzor může mít nejvýše 200 znaků.")]
@@ -190,6 +199,29 @@ public sealed record CategorizationRuleRequest
     public int Priority { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Row-version token from the loaded rule; a stale value makes the update fail with HTTP 409.</summary>
+    public uint Version { get; set; }
+}
+
+/// <summary>A rule Flowlio suggests after seeing the same counterparty categorized by hand more than once,
+/// so the next import classifies it automatically. The user confirms or dismisses it.</summary>
+public sealed record RuleSuggestionDto
+{
+    /// <summary>The counterparty text the suggested rule would match on (whole word, across all fields).</summary>
+    public string Pattern { get; init; } = "";
+    public Guid CategoryId { get; init; }
+    public string CategoryName { get; init; } = "";
+
+    /// <summary>How many manually-categorized transactions back this suggestion.</summary>
+    public int MatchCount { get; init; }
+}
+
+/// <summary>Permanently dismiss a learned suggestion for a counterparty + category so it isn't offered again.</summary>
+public sealed record RuleSuggestionDismissRequest
+{
+    public string Pattern { get; init; } = "";
+    public Guid CategoryId { get; init; }
 }
 
 /// <summary>Re-runs the family's rules over existing transactions. By default only fills transactions

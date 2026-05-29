@@ -11,7 +11,7 @@
 <div class="panel-grid">
     <FluentCard Class="panel">
         <h2 class="panel-title">Nahrát výpis z účtu</h2>
-        <p class="muted">Vyberte účet, banku a soubor (CSV, XLSX, nebo experimentálně PDF). Transakce se naparsují, deduplikují a roztřídí.</p>
+        <p class="muted">Vyberte účet, banku a PDF výpis z účtu. Transakce se naparsují, deduplikují a roztřídí.</p>
 
         @if (!_canImport)
         {
@@ -42,14 +42,8 @@
                     }
                 </FluentSelect>
 
-                <FluentSelect TOption="string" @bind-Value="_formatValue" Label="Formát" Style="width:100%">
-                    <FluentOption TOption="string" Value="0">CSV</FluentOption>
-                    <FluentOption TOption="string" Value="3">XLSX (Excel)</FluentOption>
-                    <FluentOption TOption="string" Value="1">PDF (experimentální)</FluentOption>
-                </FluentSelect>
-
                 <label class="file-field">
-                    <InputFile OnChange="OnFileSelected" />
+                    <InputFile OnChange="OnFileSelected" accept=".pdf" />
                 </label>
 
                 <FluentButton Appearance="Appearance.Accent" OnClick="UploadAsync" Loading="_busy" Disabled="_file is null">
@@ -104,7 +98,8 @@
     private IReadOnlyList<BankAccountDto>? _accounts;
     private string _accountValue = "";
     private string _bankValue = "4";
-    private string _formatValue = "0";
+    // PDF is the only supported import format in the UI; CSV/XLSX are deprecated and hidden.
+    private readonly string _formatValue = ((int)ImportFormat.Pdf).ToString();
     private IBrowserFile? _file;
     private ImportResultDto? _result;
     private string? _error;

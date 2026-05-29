@@ -26,6 +26,18 @@ public enum TransactionDirection
     Incoming = 1,
 }
 
+/// <summary>How a transaction's category was assigned. Lets rule recategorization leave human choices
+/// untouched, and lets Flowlio learn rule suggestions from repeated manual categorizations.</summary>
+public enum CategorySource
+{
+    /// <summary>No category assigned yet.</summary>
+    None = 0,
+    /// <summary>Assigned automatically by a categorization rule (at import or recategorization).</summary>
+    Rule = 1,
+    /// <summary>Set by a person (manual edit or bulk categorize). Never overwritten by rules.</summary>
+    Manual = 2,
+}
+
 /// <summary>How often a recurring payment or subscription repeats.</summary>
 public enum RecurrenceFrequency
 {
@@ -89,9 +101,16 @@ public enum InvitationStatus
 /// <summary>File format a statement was imported from.</summary>
 public enum ImportFormat
 {
+    /// <summary>Deprecated: CSV import proved unreliable across banks and is hidden from the UI.
+    /// Still parsed server-side for backward compatibility; prefer <see cref="Pdf"/>.</summary>
+    [Obsolete("CSV import is unstable and hidden from the UI; import PDF statements instead. Kept for backward compatibility only.")]
     Csv = 0,
     Pdf = 1,
     PdfOcr = 2,
+
+    /// <summary>Deprecated: XLSX import proved unreliable across banks and is hidden from the UI.
+    /// Still parsed server-side for backward compatibility; prefer <see cref="Pdf"/>.</summary>
+    [Obsolete("XLSX import is unstable and hidden from the UI; import PDF statements instead. Kept for backward compatibility only.")]
     Xlsx = 3,
 }
 
@@ -126,4 +145,20 @@ public enum RuleMatchField
     /// Card payments rarely carry a counterparty, so the merchant lives in the description — this is the
     /// sensible default so a rule still matches when the counterparty is empty.</summary>
     Any = 4,
+}
+
+/// <summary>How a categorization rule's <c>Pattern</c> is matched against the chosen field.</summary>
+public enum RuleMatchMode
+{
+    /// <summary>Pattern matches anywhere in the field (default). Simple but prone to false positives on
+    /// short patterns: "PID" would match "rapid", "Plat" would match "platba".</summary>
+    Substring = 0,
+
+    /// <summary>Pattern matches only as a whole word (bounded by word boundaries), so "Plat" no longer
+    /// matches "platba" and "PID" no longer matches "rapid".</summary>
+    WholeWord = 1,
+
+    /// <summary>Pattern is a regular expression (case-insensitive, evaluated against the diacritics-folded
+    /// text). For power users, e.g. "albert|billa|lidl".</summary>
+    Regex = 2,
 }

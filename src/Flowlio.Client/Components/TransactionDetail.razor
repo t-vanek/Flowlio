@@ -89,6 +89,12 @@
         : !string.IsNullOrWhiteSpace(Transaction.Description) ? Transaction.Description
         : null;
 
-    private void CreateRule() =>
-        Nav.NavigateTo($"rules?pattern={Uri.EscapeDataString(RulePattern!)}");
+    private void CreateRule()
+    {
+        var url = $"rules?pattern={Uri.EscapeDataString(RulePattern!)}";
+        // Carry the current category so the rule form is prefilled end-to-end ("learn this for next time").
+        if (Transaction.CategoryId is { } cid)
+            url += $"&categoryId={cid}";
+        Nav.NavigateTo(url);
+    }
 }

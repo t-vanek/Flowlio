@@ -17,12 +17,38 @@
 }
 else
 {
+@if (_suggestions.Count > 0)
+{
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Navrhovaná pravidla</h2>
+        <p class="muted">
+            Tyto obchodníky jste opakovaně zařadili ručně. Flowlio z nich umí vytvořit pravidlo,
+            aby se příště zařadily samy. Potvrďte, nebo skryjte.
+        </p>
+        @foreach (var s in _suggestions)
+        {
+            <div class="account-row">
+                <div>
+                    <div class="account-name">„@s.Pattern"</div>
+                    <div class="muted">→ @s.CategoryName · ručně zařazeno @s.MatchCount×</div>
+                </div>
+                <div>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => AcceptSuggestionAsync(s))">Vytvořit pravidlo</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DismissSuggestion(s))">Skrýt</FluentButton>
+                </div>
+            </div>
+        }
+    </FluentCard>
+}
 <div class="panel-grid">
     <FluentCard Class="panel">
         <h2 class="panel-title">@(_editingId is null ? "Nové pravidlo" : "Upravit pravidlo")</h2>
         <p class="muted">
-            Transakci dostane kategorii, když zvolené pole obsahuje zadaný text (nezáleží na velikosti písmen).
-            „Kdekoliv" hledá ve všech textových polích – vhodné pro platby kartou, kde obchodník bývá jen v popisu.
+            Transakci dostane kategorii, když zvolené pole odpovídá zadanému vzoru (nezáleží na velikosti
+            písmen ani diakritice). „Kdekoliv" hledá ve všech textových polích – vhodné pro platby kartou,
+            kde obchodník bývá jen v popisu. Způsob shody: „Část textu" hledá vzor kdekoliv, „Celé slovo"
+            jen jako samostatné slovo (vhodné pro krátké vzory jako „Plat"), „Regulární výraz" pro pokročilé.
+            Příjmová pravidla se uplatní jen na příjmy, výdajová jen na výdaje.
         </p>
         <EditForm Model="_model" OnValidSubmit="SaveAsync">
             <DataAnnotationsValidator />
@@ -35,6 +61,12 @@ else
                     @foreach (var f in Enum.GetValues<RuleMatchField>())
                     {
                         <FluentOption TOption="string" Value="@(((int)f).ToString())">@FieldLabel(f)</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_modeValue" Label="Způsob shody" Style="width:100%">
+                    @foreach (var m in Enum.GetValues<RuleMatchMode>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)m).ToString())">@ModeLabel(m)</FluentOption>
                     }
                 </FluentSelect>
                 <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie" Style="width:100%">
@@ -103,7 +135,7 @@ else
                             }
                         </div>
                         <div class="muted">
-                            @FieldLabel(r.Field) → @(r.CategoryName ?? "—") · priorita @r.Priority
+                            @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—") · priorita @r.Priority
                         </div>
                     </div>
                     <div>
@@ -118,14 +150,43 @@ else
         }
     </FluentCard>
 </div>
+
+@if (_deletedRules.Count > 0)
+{
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Smazaná pravidla</h2>
+        <p class="muted">Smazaná pravidla už nezařazují, ale můžete je obnovit.</p>
+        @foreach (var r in _deletedRules)
+        {
+            <div class="account-row">
+                <div>
+                    <div class="account-name">„@r.Pattern"</div>
+                    <div class="muted">
+                        @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—")
+                        @if (r.DeletedAt is { } d)
+                        {
+                            <span> · smazáno @Formatting.Date(d)</span>
+                        }
+                    </div>
+                </div>
+                <div>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreAsync(r))">Obnovit</FluentButton>
+                </div>
+            </div>
+        }
+    </FluentCard>
+}
 }
 
 @code {
     private IReadOnlyList<CategorizationRuleDto>? _rules;
+    private IReadOnlyList<CategorizationRuleDto> _deletedRules = [];
     private IReadOnlyList<CategoryDto>? _categories;
+    private IReadOnlyList<RuleSuggestionDto> _suggestions = [];
 
     private CategorizationRuleRequest _model = new();
     private string _fieldValue = ((int)RuleMatchField.Any).ToString();
+    private string _modeValue = ((int)RuleMatchMode.Substring).ToString();
     private string _categoryValue = "";
     private string _activeValue = "true";
     private Guid? _editingId;
@@ -135,8 +196,10 @@ else
     private bool _recategorizing;
     private bool _canManage;
 
-    /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction (/rules?pattern=...).</summary>
+    /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction
+    /// (/rules?pattern=...&amp;categoryId=...).</summary>
     [SupplyParameterFromQuery] public string? Pattern { get; set; }
+    [SupplyParameterFromQuery] public Guid? CategoryId { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -150,11 +213,56 @@ else
 
         if (!string.IsNullOrWhiteSpace(Pattern))
             _model.Pattern = Pattern!.Trim();
+        // Prefill the category when arriving from a transaction's "Vytvořit pravidlo".
+        if (CategoryId is { } cid && _categories.Any(c => c.Id == cid))
+            _categoryValue = cid.ToString();
 
         await LoadRulesAsync();
     }
 
-    private async Task LoadRulesAsync() => _rules = await Api.GetRulesAsync();
+    private async Task LoadRulesAsync()
+    {
+        _rules = await Api.GetRulesAsync();
+        _deletedRules = await Api.GetDeletedRulesAsync();
+        _suggestions = await Api.GetRuleSuggestionsAsync();
+    }
+
+    private async Task RestoreAsync(CategorizationRuleDto r)
+    {
+        if (await Api.RestoreRuleAsync(r.Id))
+            Toasts.ShowSuccess($"Pravidlo „{r.Pattern}“ bylo obnoveno.");
+        else
+            Toasts.ShowError("Pravidlo se nepodařilo obnovit.");
+        await LoadRulesAsync();
+    }
+
+    private async Task AcceptSuggestionAsync(RuleSuggestionDto s)
+    {
+        var created = await Api.CreateRuleAsync(new CategorizationRuleRequest
+        {
+            Field = RuleMatchField.Any,
+            MatchMode = RuleMatchMode.Substring,
+            Pattern = s.Pattern,
+            CategoryId = s.CategoryId,
+            Priority = 0,
+            IsActive = true,
+        });
+        if (created is null)
+        {
+            Toasts.ShowError("Pravidlo se nepodařilo vytvořit.");
+            return;
+        }
+        Toasts.ShowSuccess($"Pravidlo „{s.Pattern}“ bylo vytvořeno.");
+        await LoadRulesAsync();
+    }
+
+    private async Task DismissSuggestion(RuleSuggestionDto s)
+    {
+        if (await Api.DismissRuleSuggestionAsync(s.Pattern, s.CategoryId))
+            _suggestions = _suggestions.Where(x => x != s).ToList();
+        else
+            Toasts.ShowError("Návrh se nepodařilo skrýt.");
+    }
 
     private async Task SaveAsync()
     {
@@ -168,6 +276,7 @@ else
         try
         {
             _model.Field = (RuleMatchField)int.Parse(_fieldValue);
+            _model.MatchMode = (RuleMatchMode)int.Parse(_modeValue);
             _model.CategoryId = categoryId;
             _model.IsActive = _activeValue == "true";
 
@@ -177,7 +286,9 @@ else
 
             if (saved is null)
             {
-                Toasts.ShowError("Pravidlo se nepodařilo uložit.");
+                Toasts.ShowError(_editingId is null
+                    ? "Pravidlo se nepodařilo uložit."
+                    : "Pravidlo se nepodařilo uložit (mezitím ho možná změnil někdo jiný — zavřete a otevřete znovu).");
                 return;
             }
 
@@ -194,8 +305,9 @@ else
     private void EditRule(CategorizationRuleDto r)
     {
         _editingId = r.Id;
-        _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority };
+        _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority, Version = r.Version };
         _fieldValue = ((int)r.Field).ToString();
+        _modeValue = ((int)r.MatchMode).ToString();
         _categoryValue = r.CategoryId.ToString();
         _activeValue = r.IsActive ? "true" : "false";
     }
@@ -207,6 +319,7 @@ else
         _editingId = null;
         _model = new CategorizationRuleRequest();
         _fieldValue = ((int)RuleMatchField.Any).ToString();
+        _modeValue = ((int)RuleMatchMode.Substring).ToString();
         _categoryValue = _categories?.FirstOrDefault()?.Id.ToString() ?? "";
         _activeValue = "true";
     }
@@ -216,20 +329,22 @@ else
         var updated = await Api.UpdateRuleAsync(r.Id, new CategorizationRuleRequest
         {
             Field = r.Field,
+            MatchMode = r.MatchMode,
             Pattern = r.Pattern,
             CategoryId = r.CategoryId,
             Priority = r.Priority,
             IsActive = !r.IsActive,
+            Version = r.Version,
         });
         if (updated is null)
-            Toasts.ShowError("Změnu se nepodařilo uložit.");
+            Toasts.ShowError("Změnu se nepodařilo uložit (pravidlo mezitím možná změnil někdo jiný).");
         await LoadRulesAsync();
     }
 
     private async Task DeleteAsync(CategorizationRuleDto r)
     {
         var dialog = await Dialogs.ShowConfirmationAsync(
-            $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny.",
+            $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny a pravidlo lze později obnovit.",
             "Smazat", "Zrušit", "Smazání pravidla");
         if ((await dialog.Result).Cancelled)
             return;
@@ -266,6 +381,14 @@ else
         RuleMatchField.CounterpartyAccount => "Protiúčet",
         RuleMatchField.Any => "Kdekoliv",
         _ => field.ToString(),
+    };
+
+    private static string ModeLabel(RuleMatchMode mode) => mode switch
+    {
+        RuleMatchMode.Substring => "Část textu",
+        RuleMatchMode.WholeWord => "Celé slovo",
+        RuleMatchMode.Regex => "Regulární výraz",
+        _ => mode.ToString(),
     };
 
     private static string KindLabel(CategoryKind kind) => kind switch

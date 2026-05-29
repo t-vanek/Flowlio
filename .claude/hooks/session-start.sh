@@ -55,9 +55,14 @@ else
   done
 fi
 
+SERVICES_UP=0
 if docker info >/dev/null 2>&1; then
   echo "  starting postgres, redis, rabbitmq..."
-  docker compose -f "$CLAUDE_PROJECT_DIR/docker-compose.yml" up -d postgres redis rabbitmq
+  if docker compose -f "$CLAUDE_PROJECT_DIR/docker-compose.yml" up -d postgres redis rabbitmq; then
+    SERVICES_UP=1
+  else
+    echo "  WARNING: could not start backing services (image pull/registry failure?); continuing." >&2
+  fi
 else
   echo "  WARNING: docker daemon unavailable; skipping postgres/redis/rabbitmq." >&2
   echo "  ($(tail -1 /tmp/dockerd.log 2>/dev/null || echo 'no dockerd log'))" >&2
@@ -76,5 +81,23 @@ echo "  restoring .NET local tools (dotnet-ef)..."
 dotnet tool restore
 echo "  building solution (warms the build cache, runs analyzers)..."
 dotnet build Flowlio.slnx -c Debug
+
+# --- Database schema (EF Core migrations) ---------------------------------
+# The app also applies migrations on startup (DbInitializer), but doing it here means the schema is
+# ready for direct DB work or tests before the server is launched. Best-effort: needs Postgres up.
+if [ "$SERVICES_UP" = "1" ]; then
+  echo "  waiting for postgres to accept connections..."
+  for _ in $(seq 1 30); do
+    docker exec flowlio-pg pg_isready -U flowlio >/dev/null 2>&1 && break
+    sleep 1
+  done
+  echo "  applying EF Core migrations..."
+  dotnet ef database update \
+    --project src/Flowlio.Infrastructure \
+    --startup-project src/Flowlio.Server \
+    || echo "  WARNING: EF Core migrations failed (the app will retry on startup)." >&2
+else
+  echo "  skipping EF Core migrations (postgres not available)."
+fi
 
 echo "session-start: environment ready."

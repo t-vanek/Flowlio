@@ -274,5 +274,21 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
+
+        // Optimistic concurrency via the Postgres xmin system column (same as transaction/card/member).
+        b.Property<uint>("xmin").IsRowVersion();
+        b.ToTable(t => t.HasCheckConstraint("CK_CategorizationRule_Pattern", "char_length(btrim(\"Pattern\")) > 0"));
+    }
+}
+
+public class RuleSuggestionDismissalConfiguration : IEntityTypeConfiguration<RuleSuggestionDismissal>
+{
+    public void Configure(EntityTypeBuilder<RuleSuggestionDismissal> b)
+    {
+        b.Property(x => x.CounterpartyKey).HasMaxLength(200).IsRequired();
+        b.HasOne<Category>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        // One dismissal per family + counterparty + category; lookups filter by family.
+        b.HasIndex(x => new { x.FamilyId, x.CounterpartyKey, x.CategoryId }).IsUnique();
     }
 }

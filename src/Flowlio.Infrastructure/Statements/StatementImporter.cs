@@ -6,8 +6,9 @@ namespace Flowlio.Infrastructure.Statements;
 /// <summary>
 /// The statement import pipeline: detect the format, extract a <see cref="RawStatement"/> with the matching
 /// reader, resolve the bank profile (the caller's hint wins; otherwise auto-detect, else fall back to the
-/// universal profile), and map to the canonical shape. PDF is handled by a separate heuristic parser and
-/// flagged as experimental.
+/// universal profile), and map to the canonical shape. PDF is the primary supported format and is handled
+/// by a separate heuristic parser. CSV/XLSX are deprecated and hidden from the UI, but still parsed here
+/// for backward compatibility.
 /// </summary>
 internal sealed class StatementImporter : IStatementImporter
 {

@@ -43,6 +43,8 @@ internal sealed class FormatDetector : IFormatDetector
 {
     public ImportFormat Detect(byte[] content, string fileName, ImportFormat fallback)
     {
+        // CSV/XLSX are deprecated (hidden from the UI) but still detected so existing uploads keep working.
+#pragma warning disable CS0618 // Type or member is obsolete
         // XLSX is a ZIP container ("PK").
         if (content.Length >= 2 && content[0] == 0x50 && content[1] == 0x4B)
             return ImportFormat.Xlsx;
@@ -59,5 +61,6 @@ internal sealed class FormatDetector : IFormatDetector
             ".pdf" => ImportFormat.Pdf,
             _ => fallback,
         };
+#pragma warning restore CS0618
     }
 }
