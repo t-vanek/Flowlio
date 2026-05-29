@@ -26,6 +26,18 @@ public enum TransactionDirection
     Incoming = 1,
 }
 
+/// <summary>How a transaction's category was assigned. Lets rule recategorization leave human choices
+/// untouched, and lets Flowlio learn rule suggestions from repeated manual categorizations.</summary>
+public enum CategorySource
+{
+    /// <summary>No category assigned yet.</summary>
+    None = 0,
+    /// <summary>Assigned automatically by a categorization rule (at import or recategorization).</summary>
+    Rule = 1,
+    /// <summary>Set by a person (manual edit or bulk categorize). Never overwritten by rules.</summary>
+    Manual = 2,
+}
+
 /// <summary>How often a recurring payment or subscription repeats.</summary>
 public enum RecurrenceFrequency
 {

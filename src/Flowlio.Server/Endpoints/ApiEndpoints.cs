@@ -573,6 +573,7 @@ public static class ApiEndpoints
         foreach (var t in transactions)
         {
             t.CategoryId = request.CategoryId;
+            t.CategorySource = request.CategoryId is null ? CategorySource.None : CategorySource.Manual;
             t.UpdatedAt = now;
         }
         await db.SaveChangesAsync(ct);
@@ -796,6 +797,8 @@ public static class ApiEndpoints
         transaction.Description = NullIfBlank(fields.Description);
         transaction.Note = NullIfBlank(fields.Note);
         transaction.CategoryId = fields.CategoryId;
+        // Hand-entered/edited movements: a chosen category is a human decision rules must not override.
+        transaction.CategorySource = fields.CategoryId is null ? CategorySource.None : CategorySource.Manual;
     }
 
     private static string? NullIfBlank(string? value) =>

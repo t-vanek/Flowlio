@@ -19,10 +19,77 @@ public static class RuleEndpoints
     public static void MapRuleEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapGet("/rules", GetRules);
+        api.MapGet("/rules/suggestions", GetSuggestions);
         api.MapPost("/rules", CreateRule);
         api.MapPut("/rules/{id:guid}", UpdateRule);
         api.MapDelete("/rules/{id:guid}", DeleteRule);
         api.MapPost("/rules/recategorize", Recategorize);
+    }
+
+    /// <summary>Number of times the same counterparty must be manually categorized into the same category
+    /// before Flowlio suggests turning it into a rule.</summary>
+    private const int SuggestionThreshold = 2;
+
+    /// <summary>Suggests rules learned from repeated manual categorization: counterparties a person has
+    /// filed into the same category at least <see cref="SuggestionThreshold"/> times and which the current
+    /// active rules don't already categorize that way. The user accepts (creates a rule) or dismisses.</summary>
+    private static async Task<IResult> GetSuggestions(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var manual = await db.Transactions
+            .Where(t => t.FamilyId == familyId
+                && t.CategorySource == CategorySource.Manual
+                && t.CategoryId != null
+                && t.CounterpartyName != null
+                && t.CounterpartyName != "")
+            .Select(t => new { Name = t.CounterpartyName!, Direction = t.Direction, CategoryId = t.CategoryId!.Value })
+            .ToListAsync(ct);
+        if (manual.Count == 0)
+            return Results.Ok(new List<RuleSuggestionDto>());
+
+        var rules = await db.CategorizationRules
+            .Include(r => r.Category)
+            .Where(r => r.FamilyId == familyId && r.IsActive)
+            .OrderByDescending(r => r.Priority)
+            .ThenBy(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        var categoryNames = await db.Categories
+            .Where(c => c.FamilyId == familyId)
+            .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+
+        var suggestions = manual
+            // Consolidate case variants of the same merchant filed into the same category.
+            .GroupBy(x => (Key: x.Name.Trim().ToLowerInvariant(), x.CategoryId))
+            .Where(g => g.Key.Key.Length > 0 && g.Count() >= SuggestionThreshold)
+            .Select(g =>
+            {
+                // Show the merchant's most common original spelling as the rule pattern.
+                var pattern = g.GroupBy(x => x.Name.Trim())
+                    .OrderByDescending(s => s.Count())
+                    .First().Key;
+                var direction = g.First().Direction;
+                return (Pattern: pattern, g.Key.CategoryId, Count: g.Count(), Direction: direction);
+            })
+            // Skip merchants the active rules already file into this same category.
+            .Where(s => TransactionCategorizer.Match(s.Pattern, null, null, null, s.Direction, rules) != s.CategoryId)
+            .OrderByDescending(s => s.Count)
+            .ThenBy(s => s.Pattern)
+            .Take(20)
+            .Select(s => new RuleSuggestionDto
+            {
+                Pattern = s.Pattern,
+                CategoryId = s.CategoryId,
+                CategoryName = categoryNames.GetValueOrDefault(s.CategoryId, "—"),
+                MatchCount = s.Count,
+            })
+            .ToList();
+
+        return Results.Ok(suggestions);
     }
 
     private static async Task<IResult> GetRules(
@@ -158,7 +225,8 @@ public static class RuleEndpoints
         if (rules.Count == 0)
             return 0;
 
-        var query = db.Transactions.Where(t => t.FamilyId == familyId);
+        // Never touch human choices: rules only fill in or replace rule-assigned/empty categories.
+        var query = db.Transactions.Where(t => t.FamilyId == familyId && t.CategorySource != CategorySource.Manual);
         if (onlyUncategorized)
             query = query.Where(t => t.CategoryId == null);
         var transactions = await query.ToListAsync(ct);
@@ -172,6 +240,7 @@ public static class RuleEndpoints
             if (match is { } categoryId && categoryId != t.CategoryId)
             {
                 t.CategoryId = categoryId;
+                t.CategorySource = CategorySource.Rule;
                 t.UpdatedAt = now;
                 changed++;
             }

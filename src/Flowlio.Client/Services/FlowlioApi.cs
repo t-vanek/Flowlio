@@ -156,6 +156,10 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<CategorizationRuleDto>> GetRulesAsync() =>
         await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules") ?? [];
 
+    /// <summary>Rules learned from repeated manual categorization, offered for one-click confirmation.</summary>
+    public async Task<IReadOnlyList<RuleSuggestionDto>> GetRuleSuggestionsAsync() =>
+        await http.GetFromJsonAsync<List<RuleSuggestionDto>>("api/rules/suggestions") ?? [];
+
     public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
     {
         var response = await http.PostAsJsonAsync("api/rules", request);

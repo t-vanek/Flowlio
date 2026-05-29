@@ -17,6 +17,29 @@
 }
 else
 {
+@if (VisibleSuggestions.Count > 0)
+{
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Navrhovaná pravidla</h2>
+        <p class="muted">
+            Tyto obchodníky jste opakovaně zařadili ručně. Flowlio z nich umí vytvořit pravidlo,
+            aby se příště zařadily samy. Potvrďte, nebo skryjte.
+        </p>
+        @foreach (var s in VisibleSuggestions)
+        {
+            <div class="account-row">
+                <div>
+                    <div class="account-name">„@s.Pattern"</div>
+                    <div class="muted">→ @s.CategoryName · ručně zařazeno @s.MatchCount×</div>
+                </div>
+                <div>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => AcceptSuggestionAsync(s))">Vytvořit pravidlo</FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DismissSuggestion(s))">Skrýt</FluentButton>
+                </div>
+            </div>
+        }
+    </FluentCard>
+}
 <div class="panel-grid">
     <FluentCard Class="panel">
         <h2 class="panel-title">@(_editingId is null ? "Nové pravidlo" : "Upravit pravidlo")</h2>
@@ -132,6 +155,14 @@ else
 @code {
     private IReadOnlyList<CategorizationRuleDto>? _rules;
     private IReadOnlyList<CategoryDto>? _categories;
+    private IReadOnlyList<RuleSuggestionDto> _suggestions = [];
+    // Suggestions hidden this session via "Skrýt" (keyed by pattern + category).
+    private readonly HashSet<string> _dismissed = [];
+
+    private IReadOnlyList<RuleSuggestionDto> VisibleSuggestions =>
+        _suggestions.Where(s => !_dismissed.Contains(SuggestionKey(s))).ToList();
+
+    private static string SuggestionKey(RuleSuggestionDto s) => $"{s.CategoryId}|{s.Pattern}";
 
     private CategorizationRuleRequest _model = new();
     private string _fieldValue = ((int)RuleMatchField.Any).ToString();
@@ -145,8 +176,10 @@ else
     private bool _recategorizing;
     private bool _canManage;
 
-    /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction (/rules?pattern=...).</summary>
+    /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction
+    /// (/rules?pattern=...&amp;categoryId=...).</summary>
     [SupplyParameterFromQuery] public string? Pattern { get; set; }
+    [SupplyParameterFromQuery] public Guid? CategoryId { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -160,11 +193,40 @@ else
 
         if (!string.IsNullOrWhiteSpace(Pattern))
             _model.Pattern = Pattern!.Trim();
+        // Prefill the category when arriving from a transaction's "Vytvořit pravidlo".
+        if (CategoryId is { } cid && _categories.Any(c => c.Id == cid))
+            _categoryValue = cid.ToString();
 
         await LoadRulesAsync();
     }
 
-    private async Task LoadRulesAsync() => _rules = await Api.GetRulesAsync();
+    private async Task LoadRulesAsync()
+    {
+        _rules = await Api.GetRulesAsync();
+        _suggestions = await Api.GetRuleSuggestionsAsync();
+    }
+
+    private async Task AcceptSuggestionAsync(RuleSuggestionDto s)
+    {
+        var created = await Api.CreateRuleAsync(new CategorizationRuleRequest
+        {
+            Field = RuleMatchField.Any,
+            MatchMode = RuleMatchMode.Substring,
+            Pattern = s.Pattern,
+            CategoryId = s.CategoryId,
+            Priority = 0,
+            IsActive = true,
+        });
+        if (created is null)
+        {
+            Toasts.ShowError("Pravidlo se nepodařilo vytvořit.");
+            return;
+        }
+        Toasts.ShowSuccess($"Pravidlo „{s.Pattern}“ bylo vytvořeno.");
+        await LoadRulesAsync();
+    }
+
+    private void DismissSuggestion(RuleSuggestionDto s) => _dismissed.Add(SuggestionKey(s));
 
     private async Task SaveAsync()
     {

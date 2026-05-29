@@ -195,6 +195,19 @@ public sealed record CategorizationRuleRequest
     public bool IsActive { get; set; } = true;
 }
 
+/// <summary>A rule Flowlio suggests after seeing the same counterparty categorized by hand more than once,
+/// so the next import classifies it automatically. The user confirms or dismisses it.</summary>
+public sealed record RuleSuggestionDto
+{
+    /// <summary>The counterparty text the suggested rule would match on (whole word, across all fields).</summary>
+    public string Pattern { get; init; } = "";
+    public Guid CategoryId { get; init; }
+    public string CategoryName { get; init; } = "";
+
+    /// <summary>How many manually-categorized transactions back this suggestion.</summary>
+    public int MatchCount { get; init; }
+}
+
 /// <summary>Re-runs the family's rules over existing transactions. By default only fills transactions
 /// that have no category yet, so manual categorizations are preserved.</summary>
 public sealed record RecategorizeRequest

@@ -39,6 +39,10 @@ public class Transaction : AuditableEntity, ISoftDeletable
     public Guid? CategoryId { get; set; }
     public Category? Category { get; set; }
 
+    /// <summary>Whether the category was set by a rule or by a person — protects manual choices from
+    /// recategorization and feeds the rule-suggestion ("learning") engine.</summary>
+    public CategorySource CategorySource { get; set; } = CategorySource.None;
+
     public Guid? ImportBatchId { get; set; }
     public ImportBatch? ImportBatch { get; set; }
 
