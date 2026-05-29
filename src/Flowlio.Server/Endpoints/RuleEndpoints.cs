@@ -22,6 +22,7 @@ public static class RuleEndpoints
         api.MapGet("/rules/deleted", GetDeletedRules);
         api.MapGet("/rules/suggestions", GetSuggestions);
         api.MapPost("/rules/suggestions/dismiss", DismissSuggestion);
+        api.MapPost("/rules/preview", PreviewRule);
         api.MapPost("/rules", CreateRule);
         api.MapPut("/rules/{id:guid}", UpdateRule);
         api.MapDelete("/rules/{id:guid}", DeleteRule);
@@ -188,6 +189,93 @@ public static class RuleEndpoints
             .Include(r => r.OwnerMember)
             .Where(r => r.FamilyId == me.FamilyId);
         return isOwner ? q : q.Where(r => r.Scope == RuleScope.Personal && r.OwnerMemberId == me.Id);
+    }
+
+    /// <summary>Dry-run: how many transactions the (unsaved) rule would match in its scope, how many already
+    /// have a different non-manual category it would change, and a few examples. Lets the user see the impact
+    /// of a regex / amount / global rule before committing.</summary>
+    private static async Task<IResult> PreviewRule(
+        CategorizationRuleRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
+
+        if (await ValidateScope(me, isOwner, request, db, ct) is { } scopeError)
+            return scopeError;
+        if (ValidateConditions(request) is { } condError)
+            return condError;
+
+        var category = await db.Categories
+            .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.FamilyId == me.FamilyId, ct);
+        if (category is null)
+            return Results.BadRequest("Neplatná kategorie.");
+
+        // Build the rule as it would be saved (with its category, for the income/expense filter).
+        var candidate = new CategorizationRule
+        {
+            FamilyId = me.FamilyId,
+            Scope = request.Scope,
+            OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null,
+            BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null,
+            CategoryId = request.CategoryId,
+            Category = category,
+            IsActive = true,
+        };
+        ApplyConditions(candidate, request);
+        var rules = new[] { candidate };
+
+        // Restrict to the transactions the rule's scope can reach.
+        var query = db.Transactions.Where(t => t.FamilyId == me.FamilyId && t.BankAccount!.DeletedAt == null);
+        if (request.Scope == RuleScope.Account)
+        {
+            query = query.Where(t => t.BankAccountId == request.BankAccountId);
+        }
+        else if (request.Scope == RuleScope.Personal)
+        {
+            var owned = await db.BankAccounts
+                .Where(a => a.FamilyId == me.FamilyId && a.OwnerMemberId == me.Id)
+                .Select(a => a.Id)
+                .ToListAsync(ct);
+            query = query.Where(t => owned.Contains(t.BankAccountId));
+        }
+
+        var transactions = await query
+            .Select(t => new
+            {
+                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
+                t.Amount, t.Currency, t.Direction, t.BookingDate,
+                t.CategoryId, t.CategorySource, CategoryName = t.Category!.Name,
+            })
+            .ToListAsync(ct);
+
+        var matches = 0;
+        var wouldRecategorize = 0;
+        var samples = new List<RulePreviewSampleDto>();
+        foreach (var t in transactions)
+        {
+            if (TransactionCategorizer.MatchRule(
+                    t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
+                    t.Amount, t.Currency, t.Direction, rules) is null)
+                continue;
+
+            matches++;
+            // Manual categories are protected; only a different rule/empty category would actually change.
+            if (t.CategorySource != CategorySource.Manual && t.CategoryId != null && t.CategoryId != request.CategoryId)
+                wouldRecategorize++;
+            if (samples.Count < 5)
+                samples.Add(new RulePreviewSampleDto
+                {
+                    BookingDate = t.BookingDate,
+                    Counterparty = t.CounterpartyName,
+                    Amount = t.Amount,
+                    Currency = t.Currency,
+                    CurrentCategoryName = t.CategoryId == null ? null : t.CategoryName,
+                });
+        }
+
+        return Results.Ok(new RulePreviewDto { Matches = matches, WouldRecategorize = wouldRecategorize, Samples = samples });
     }
 
     private static async Task<IResult> CreateRule(

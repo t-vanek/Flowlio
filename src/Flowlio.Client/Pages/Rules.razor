@@ -114,11 +114,27 @@ else
                     <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Loading="_busy" Disabled="@(_categories is null or { Count: 0 })">
                         @(_editingId is null ? "Přidat pravidlo" : "Uložit změny")
                     </FluentButton>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="PreviewAsync" Loading="_previewing">Náhled dopadu</FluentButton>
                     @if (_editingId is not null)
                     {
                         <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit úpravu</FluentButton>
                     }
                 </FluentStack>
+                @if (_preview is { } p)
+                {
+                    <FluentMessageBar Intent="@(p.Matches == 0 ? MessageIntent.Warning : MessageIntent.Info)">
+                        Sedne na <strong>@p.Matches</strong> pohybů@(p.WouldRecategorize > 0 ? $" (z toho {p.WouldRecategorize} už zařazených by se přeřadilo)" : "").
+                        @if (p.Samples.Count > 0)
+                        {
+                            <ul class="muted" style="margin:4px 0 0">
+                                @foreach (var s in p.Samples)
+                                {
+                                    <li>@Formatting.Date(s.BookingDate) · @(string.IsNullOrWhiteSpace(s.Counterparty) ? "—" : s.Counterparty) · @Formatting.Money(s.Amount, s.Currency) · @(s.CurrentCategoryName ?? "bez kategorie")</li>
+                                }
+                            </ul>
+                        }
+                    </FluentMessageBar>
+                }
                 @if (_categories is { Count: 0 })
                 {
                     <FluentMessageBar Intent="MessageIntent.Info">Nejprve vytvořte alespoň jednu kategorii.</FluentMessageBar>
@@ -238,6 +254,8 @@ else
     private Guid? _editingId;
 
     private string _scopeValue = "true"; // recategorize scope (uncategorized vs all)
+    private RulePreviewDto? _preview;
+    private bool _previewing;
     private bool _busy;
     private bool _recategorizing;
     private bool _canManage;
@@ -312,6 +330,85 @@ else
             _suggestions = _suggestions.Where(x => x != s).ToList();
         else
             Toasts.ShowError("Návrh se nepodařilo skrýt.");
+    }
+
+    /// <summary>Builds a rule request from the form, or null + a toast when the inputs are invalid.</summary>
+    private CategorizationRuleRequest? BuildRequest()
+    {
+        if (!Guid.TryParse(_categoryValue, out var categoryId))
+        {
+            Toasts.ShowError("Vyberte kategorii.");
+            return null;
+        }
+
+        var scope = (RuleScope)int.Parse(_ruleScopeValue);
+        Guid? accountId = Guid.TryParse(_accountValue, out var aid) ? aid : null;
+        if (scope == RuleScope.Account && accountId is null)
+        {
+            Toasts.ShowError("Pro pravidlo na konkrétní účet vyberte účet.");
+            return null;
+        }
+
+        decimal? min = null, max = null;
+        if (!string.IsNullOrWhiteSpace(_minAmount) && !TryParseAmount(_minAmount, out min))
+        {
+            Toasts.ShowError("Neplatná částka „od“.");
+            return null;
+        }
+        if (!string.IsNullOrWhiteSpace(_maxAmount) && !TryParseAmount(_maxAmount, out max))
+        {
+            Toasts.ShowError("Neplatná částka „do“.");
+            return null;
+        }
+        var hasAmount = min is not null || max is not null;
+        if (string.IsNullOrWhiteSpace(_model.Pattern) && !hasAmount)
+        {
+            Toasts.ShowError("Zadejte vzor nebo podmínku na částku.");
+            return null;
+        }
+        if (hasAmount && string.IsNullOrWhiteSpace(_amountCurrency))
+        {
+            Toasts.ShowError("U podmínky na částku zadejte měnu.");
+            return null;
+        }
+        if (min is { } mn && max is { } mx && mn > mx)
+        {
+            Toasts.ShowError("Částka „od“ nesmí být větší než „do“.");
+            return null;
+        }
+
+        return new CategorizationRuleRequest
+        {
+            Scope = scope,
+            BankAccountId = scope == RuleScope.Account ? accountId : null,
+            Field = (RuleMatchField)int.Parse(_fieldValue),
+            MatchMode = (RuleMatchMode)int.Parse(_modeValue),
+            Pattern = _model.Pattern,
+            MinAmount = hasAmount ? min : null,
+            MaxAmount = hasAmount ? max : null,
+            AmountCurrency = hasAmount ? _amountCurrency.Trim().ToUpperInvariant() : null,
+            CategoryId = categoryId,
+            Priority = _model.Priority,
+            IsActive = _activeValue == "true",
+            Version = _model.Version,
+        };
+    }
+
+    private async Task PreviewAsync()
+    {
+        if (BuildRequest() is not { } req)
+            return;
+        _previewing = true;
+        try
+        {
+            _preview = await Api.PreviewRuleAsync(req);
+            if (_preview is null)
+                Toasts.ShowError("Náhled se nepodařilo spočítat.");
+        }
+        finally
+        {
+            _previewing = false;
+        }
     }
 
     private async Task SaveAsync()
@@ -413,6 +510,7 @@ else
     private void ResetForm()
     {
         _editingId = null;
+        _preview = null;
         _model = new CategorizationRuleRequest();
         _fieldValue = ((int)RuleMatchField.Any).ToString();
         _modeValue = ((int)RuleMatchMode.Substring).ToString();
