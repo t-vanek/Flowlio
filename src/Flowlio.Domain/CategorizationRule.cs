@@ -12,7 +12,11 @@ public class CategorizationRule : AuditableEntity
 
     public RuleMatchField Field { get; set; } = RuleMatchField.Any;
 
-    /// <summary>Case-insensitive substring matched against the chosen field.</summary>
+    /// <summary>How <see cref="Pattern"/> is matched (substring, whole word, or regex).</summary>
+    public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;
+
+    /// <summary>Pattern matched (case- and diacritics-insensitively) against the chosen field,
+    /// interpreted according to <see cref="MatchMode"/>.</summary>
     public required string Pattern { get; set; }
 
     public Guid CategoryId { get; set; }

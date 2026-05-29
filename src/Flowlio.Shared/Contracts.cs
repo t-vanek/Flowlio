@@ -169,6 +169,7 @@ public sealed record CategorizationRuleDto
 {
     public Guid Id { get; init; }
     public RuleMatchField Field { get; init; }
+    public RuleMatchMode MatchMode { get; init; }
     public string Pattern { get; init; } = "";
     public Guid CategoryId { get; init; }
     public string? CategoryName { get; init; }
@@ -180,6 +181,8 @@ public sealed record CategorizationRuleDto
 public sealed record CategorizationRuleRequest
 {
     public RuleMatchField Field { get; set; } = RuleMatchField.Any;
+
+    public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;
 
     [Required(ErrorMessage = "Vzor je povinný.")]
     [StringLength(200, MinimumLength = 1, ErrorMessage = "Vzor může mít nejvýše 200 znaků.")]

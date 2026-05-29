@@ -68,6 +68,7 @@ public sealed class ImportStatementHandler
         }
 
         var rules = await db.CategorizationRules
+            .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
             .OrderByDescending(r => r.Priority)
             .ToListAsync(ct);
@@ -106,7 +107,8 @@ public sealed class ImportStatementHandler
                 SpecificSymbol = parsed.SpecificSymbol,
                 Description = parsed.Description,
                 CategoryId = TransactionCategorizer.Match(
-                    parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount, rules),
+                    parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount,
+                    parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming, rules),
                 ImportBatchId = batch.Id,
                 DedupHash = hash,
             });

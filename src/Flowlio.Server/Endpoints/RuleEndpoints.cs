@@ -51,11 +51,14 @@ public static class RuleEndpoints
             return Forbidden();
         if (!await CategoryBelongsToFamily(db, familyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
+        if (InvalidRegex(request))
+            return Results.BadRequest("Neplatný regulární výraz.");
 
         var rule = new CategorizationRule
         {
             FamilyId = familyId,
             Field = request.Field,
+            MatchMode = request.MatchMode,
             Pattern = request.Pattern.Trim(),
             CategoryId = request.CategoryId,
             Priority = request.Priority,
@@ -86,8 +89,11 @@ public static class RuleEndpoints
             return Results.NotFound();
         if (!await CategoryBelongsToFamily(db, familyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
+        if (InvalidRegex(request))
+            return Results.BadRequest("Neplatný regulární výraz.");
 
         rule.Field = request.Field;
+        rule.MatchMode = request.MatchMode;
         rule.Pattern = request.Pattern.Trim();
         rule.CategoryId = request.CategoryId;
         rule.Priority = request.Priority;
@@ -144,6 +150,7 @@ public static class RuleEndpoints
         IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct)
     {
         var rules = await db.CategorizationRules
+            .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
             .OrderByDescending(r => r.Priority)
             .ThenBy(r => r.CreatedAt)
@@ -161,7 +168,7 @@ public static class RuleEndpoints
         foreach (var t in transactions)
         {
             var match = TransactionCategorizer.Match(
-                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount, rules);
+                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount, t.Direction, rules);
             if (match is { } categoryId && categoryId != t.CategoryId)
             {
                 t.CategoryId = categoryId;
@@ -190,4 +197,9 @@ public static class RuleEndpoints
     private static async Task<bool> CategoryBelongsToFamily(
         IAppDbContext db, Guid familyId, Guid categoryId, CancellationToken ct) =>
         await db.Categories.AnyAsync(c => c.Id == categoryId && c.FamilyId == familyId, ct);
+
+    /// <summary>True when the rule uses regex mode but the pattern doesn't compile, so we reject it early
+    /// instead of silently never matching at import time.</summary>
+    private static bool InvalidRegex(CategorizationRuleRequest request) =>
+        request.MatchMode == RuleMatchMode.Regex && !TransactionCategorizer.IsValidRegex(request.Pattern.Trim());
 }

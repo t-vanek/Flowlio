@@ -21,8 +21,11 @@ else
     <FluentCard Class="panel">
         <h2 class="panel-title">@(_editingId is null ? "Nové pravidlo" : "Upravit pravidlo")</h2>
         <p class="muted">
-            Transakci dostane kategorii, když zvolené pole obsahuje zadaný text (nezáleží na velikosti písmen).
-            „Kdekoliv" hledá ve všech textových polích – vhodné pro platby kartou, kde obchodník bývá jen v popisu.
+            Transakci dostane kategorii, když zvolené pole odpovídá zadanému vzoru (nezáleží na velikosti
+            písmen ani diakritice). „Kdekoliv" hledá ve všech textových polích – vhodné pro platby kartou,
+            kde obchodník bývá jen v popisu. Způsob shody: „Část textu" hledá vzor kdekoliv, „Celé slovo"
+            jen jako samostatné slovo (vhodné pro krátké vzory jako „Plat"), „Regulární výraz" pro pokročilé.
+            Příjmová pravidla se uplatní jen na příjmy, výdajová jen na výdaje.
         </p>
         <EditForm Model="_model" OnValidSubmit="SaveAsync">
             <DataAnnotationsValidator />
@@ -35,6 +38,12 @@ else
                     @foreach (var f in Enum.GetValues<RuleMatchField>())
                     {
                         <FluentOption TOption="string" Value="@(((int)f).ToString())">@FieldLabel(f)</FluentOption>
+                    }
+                </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_modeValue" Label="Způsob shody" Style="width:100%">
+                    @foreach (var m in Enum.GetValues<RuleMatchMode>())
+                    {
+                        <FluentOption TOption="string" Value="@(((int)m).ToString())">@ModeLabel(m)</FluentOption>
                     }
                 </FluentSelect>
                 <FluentSelect TOption="string" @bind-Value="_categoryValue" Label="Kategorie" Style="width:100%">
@@ -103,7 +112,7 @@ else
                             }
                         </div>
                         <div class="muted">
-                            @FieldLabel(r.Field) → @(r.CategoryName ?? "—") · priorita @r.Priority
+                            @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—") · priorita @r.Priority
                         </div>
                     </div>
                     <div>
@@ -126,6 +135,7 @@ else
 
     private CategorizationRuleRequest _model = new();
     private string _fieldValue = ((int)RuleMatchField.Any).ToString();
+    private string _modeValue = ((int)RuleMatchMode.Substring).ToString();
     private string _categoryValue = "";
     private string _activeValue = "true";
     private Guid? _editingId;
@@ -168,6 +178,7 @@ else
         try
         {
             _model.Field = (RuleMatchField)int.Parse(_fieldValue);
+            _model.MatchMode = (RuleMatchMode)int.Parse(_modeValue);
             _model.CategoryId = categoryId;
             _model.IsActive = _activeValue == "true";
 
@@ -196,6 +207,7 @@ else
         _editingId = r.Id;
         _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority };
         _fieldValue = ((int)r.Field).ToString();
+        _modeValue = ((int)r.MatchMode).ToString();
         _categoryValue = r.CategoryId.ToString();
         _activeValue = r.IsActive ? "true" : "false";
     }
@@ -207,6 +219,7 @@ else
         _editingId = null;
         _model = new CategorizationRuleRequest();
         _fieldValue = ((int)RuleMatchField.Any).ToString();
+        _modeValue = ((int)RuleMatchMode.Substring).ToString();
         _categoryValue = _categories?.FirstOrDefault()?.Id.ToString() ?? "";
         _activeValue = "true";
     }
@@ -216,6 +229,7 @@ else
         var updated = await Api.UpdateRuleAsync(r.Id, new CategorizationRuleRequest
         {
             Field = r.Field,
+            MatchMode = r.MatchMode,
             Pattern = r.Pattern,
             CategoryId = r.CategoryId,
             Priority = r.Priority,
@@ -266,6 +280,14 @@ else
         RuleMatchField.CounterpartyAccount => "Protiúčet",
         RuleMatchField.Any => "Kdekoliv",
         _ => field.ToString(),
+    };
+
+    private static string ModeLabel(RuleMatchMode mode) => mode switch
+    {
+        RuleMatchMode.Substring => "Část textu",
+        RuleMatchMode.WholeWord => "Celé slovo",
+        RuleMatchMode.Regex => "Regulární výraz",
+        _ => mode.ToString(),
     };
 
     private static string KindLabel(CategoryKind kind) => kind switch

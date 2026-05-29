@@ -134,3 +134,19 @@ public enum RuleMatchField
     /// sensible default so a rule still matches when the counterparty is empty.</summary>
     Any = 4,
 }
+
+/// <summary>How a categorization rule's <c>Pattern</c> is matched against the chosen field.</summary>
+public enum RuleMatchMode
+{
+    /// <summary>Pattern matches anywhere in the field (default). Simple but prone to false positives on
+    /// short patterns: "PID" would match "rapid", "Plat" would match "platba".</summary>
+    Substring = 0,
+
+    /// <summary>Pattern matches only as a whole word (bounded by word boundaries), so "Plat" no longer
+    /// matches "platba" and "PID" no longer matches "rapid".</summary>
+    WholeWord = 1,
+
+    /// <summary>Pattern is a regular expression (case-insensitive, evaluated against the diacritics-folded
+    /// text). For power users, e.g. "albert|billa|lidl".</summary>
+    Regex = 2,
+}
