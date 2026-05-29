@@ -95,7 +95,7 @@ public sealed class ImportStatementHandler
             var direction = parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
             var matchedCategory = TransactionCategorizer.Match(
                 parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount,
-                direction, rules);
+                parsed.Amount, parsed.Currency, direction, rules);
 
             db.Transactions.Add(new Transaction
             {

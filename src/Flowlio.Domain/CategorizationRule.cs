@@ -28,8 +28,19 @@ public class CategorizationRule : AuditableEntity, ISoftDeletable
     public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;
 
     /// <summary>Pattern matched (case- and diacritics-insensitively) against the chosen field,
-    /// interpreted according to <see cref="MatchMode"/>.</summary>
-    public required string Pattern { get; set; }
+    /// interpreted according to <see cref="MatchMode"/>. Optional: a rule may match on amount alone.</summary>
+    public string? Pattern { get; set; }
+
+    /// <summary>Optional amount condition (with <see cref="MaxAmount"/>): the transaction's absolute amount
+    /// must be ≥ this, in <see cref="AmountCurrency"/>. Combined with the text condition by AND.</summary>
+    public decimal? MinAmount { get; set; }
+
+    /// <summary>Optional upper bound (inclusive) for the transaction's absolute amount.</summary>
+    public decimal? MaxAmount { get; set; }
+
+    /// <summary>Currency the amount bounds are expressed in; required when a bound is set. The amount
+    /// condition only applies to transactions in this currency.</summary>
+    public string? AmountCurrency { get; set; }
 
     public Guid CategoryId { get; set; }
     public Category? Category { get; set; }

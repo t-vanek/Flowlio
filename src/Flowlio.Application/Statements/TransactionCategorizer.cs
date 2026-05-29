@@ -26,6 +26,8 @@ public static class TransactionCategorizer
         string? description,
         string? variableSymbol,
         string? counterpartyAccount,
+        decimal amount,
+        string currency,
         TransactionDirection direction,
         IReadOnlyList<CategorizationRule> rules)
     {
@@ -46,21 +48,50 @@ public static class TransactionCategorizer
             if (rule.Category is { } category && !KindMatchesDirection(category.Kind, direction))
                 continue;
 
-            var haystack = rule.Field switch
-            {
-                RuleMatchField.CounterpartyName => name,
-                RuleMatchField.Description => desc,
-                RuleMatchField.VariableSymbol => vs,
-                RuleMatchField.CounterpartyAccount => account,
-                RuleMatchField.Any => any,
-                _ => null,
-            };
+            // Both the (optional) text and (optional) amount conditions must hold; at least one is set.
+            if (!TextMatches(rule, name, desc, vs, account, any) || !AmountMatches(rule, amount, currency))
+                continue;
 
-            if (!string.IsNullOrEmpty(haystack) && IsMatch(haystack, rule))
-                return rule.CategoryId;
+            return rule.CategoryId;
         }
 
         return null;
+    }
+
+    /// <summary>True when the rule has no text condition, or its pattern matches the relevant field.</summary>
+    private static bool TextMatches(
+        CategorizationRule rule, string name, string desc, string vs, string account, string any)
+    {
+        if (string.IsNullOrEmpty(rule.Pattern))
+            return true;
+
+        var haystack = rule.Field switch
+        {
+            RuleMatchField.CounterpartyName => name,
+            RuleMatchField.Description => desc,
+            RuleMatchField.VariableSymbol => vs,
+            RuleMatchField.CounterpartyAccount => account,
+            RuleMatchField.Any => any,
+            _ => null,
+        };
+        return !string.IsNullOrEmpty(haystack) && IsMatch(haystack, rule);
+    }
+
+    /// <summary>True when the rule has no amount condition, or the transaction's absolute amount falls within
+    /// the rule's inclusive [Min, Max] bounds and is in the rule's currency.</summary>
+    private static bool AmountMatches(CategorizationRule rule, decimal amount, string currency)
+    {
+        if (rule.MinAmount is null && rule.MaxAmount is null)
+            return true;
+        if (!string.Equals(currency, rule.AmountCurrency, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var magnitude = Math.Abs(amount);
+        if (rule.MinAmount is { } min && magnitude < min)
+            return false;
+        if (rule.MaxAmount is { } max && magnitude > max)
+            return false;
+        return true;
     }
 
     /// <summary>

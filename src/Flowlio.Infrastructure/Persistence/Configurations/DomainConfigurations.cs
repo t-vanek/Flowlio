@@ -270,7 +270,11 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
 {
     public void Configure(EntityTypeBuilder<CategorizationRule> b)
     {
-        b.Property(x => x.Pattern).HasMaxLength(200).IsRequired();
+        // Pattern is optional: a rule may match on amount alone.
+        b.Property(x => x.Pattern).HasMaxLength(200);
+        b.Property(x => x.MinAmount).HasPrecision(18, 2);
+        b.Property(x => x.MaxAmount).HasPrecision(18, 2);
+        b.Property(x => x.AmountCurrency).HasMaxLength(3);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
 
@@ -284,7 +288,15 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
 
         // Optimistic concurrency via the Postgres xmin system column (same as transaction/card/member).
         b.Property<uint>("xmin").IsRowVersion();
-        b.ToTable(t => t.HasCheckConstraint("CK_CategorizationRule_Pattern", "char_length(btrim(\"Pattern\")) > 0"));
+        b.ToTable(t =>
+        {
+            // Pattern, when present, must not be blank (NULL passes — an amount-only rule has no pattern).
+            t.HasCheckConstraint("CK_CategorizationRule_Pattern", "\"Pattern\" IS NULL OR char_length(btrim(\"Pattern\")) > 0");
+            t.HasCheckConstraint("CK_CategorizationRule_AmountCurrency", "\"AmountCurrency\" IS NULL OR char_length(\"AmountCurrency\") = 3");
+            t.HasCheckConstraint("CK_CategorizationRule_Amounts",
+                "(\"MinAmount\" IS NULL OR \"MinAmount\" >= 0) AND (\"MaxAmount\" IS NULL OR \"MaxAmount\" >= 0) " +
+                "AND (\"MinAmount\" IS NULL OR \"MaxAmount\" IS NULL OR \"MinAmount\" <= \"MaxAmount\")");
+        });
     }
 }
 
