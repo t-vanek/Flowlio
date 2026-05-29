@@ -121,8 +121,48 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
-    // --- Manual transactions & movement batches ---
+    // --- Open Banking (Enable Banking) ---
 
+    public Task<EnableBankingCredentialStatusDto?> GetBankCredentialStatusAsync() =>
+        http.GetFromJsonAsync<EnableBankingCredentialStatusDto>("api/bank-connections/credentials");
+
+    public async Task<bool> SaveBankCredentialAsync(SaveEnableBankingCredentialRequest request) =>
+        (await http.PutAsJsonAsync("api/bank-connections/credentials", request)).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteBankCredentialAsync() =>
+        (await http.DeleteAsync("api/bank-connections/credentials")).IsSuccessStatusCode;
+
+    public async Task<IReadOnlyList<BankAspspDto>> GetAvailableBanksAsync(string country)
+    {
+        var response = await http.GetAsync($"api/bank-connections/banks?country={Uri.EscapeDataString(country)}");
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<List<BankAspspDto>>() ?? []
+            : [];
+    }
+
+    public async Task<IReadOnlyList<BankConnectionDto>> GetBankConnectionsAsync() =>
+        await http.GetFromJsonAsync<List<BankConnectionDto>>("api/bank-connections") ?? [];
+
+    public async Task<StartBankConnectionResultDto?> StartBankConnectionAsync(StartBankConnectionRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/bank-connections", request);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<StartBankConnectionResultDto>()
+            : null;
+    }
+
+    public async Task<ImportResultDto?> SyncBankConnectionAsync(Guid id)
+    {
+        var response = await http.PostAsync($"api/bank-connections/{id}/sync", null);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<ImportResultDto>()
+            : null;
+    }
+
+    public async Task<bool> DisconnectBankAsync(Guid id) =>
+        (await http.DeleteAsync($"api/bank-connections/{id}")).IsSuccessStatusCode;
+
+    // --- Manual transactions & movement batches ---
     public async Task<TransactionDto?> CreateTransactionAsync(CreateTransactionRequest request)
     {
         var response = await http.PostAsJsonAsync("api/transactions", request);

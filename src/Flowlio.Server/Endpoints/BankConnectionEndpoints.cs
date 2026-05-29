@@ -228,16 +228,16 @@ public static class BankConnectionEndpoints
         [FromQuery] string? code, [FromQuery] string? state, IMessageBus bus, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
-            return Results.Redirect("/import?bank=error");
+            return Results.Redirect("/bank-connect?bank=error");
 
         try
         {
             await bus.InvokeAsync(new CompleteBankConnectionCommand { Code = code, State = state }, ct);
-            return Results.Redirect("/import?bank=connected");
+            return Results.Redirect("/bank-connect?bank=connected");
         }
         catch
         {
-            return Results.Redirect("/import?bank=error");
+            return Results.Redirect("/bank-connect?bank=error");
         }
     }
 

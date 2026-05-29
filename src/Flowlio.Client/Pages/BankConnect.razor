@@ -1,0 +1,362 @@
+@page "/bank-connect"
+@attribute [Authorize]
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+@inject IToastService Toasts
+@inject NavigationManager Nav
+
+<PageTitle>Připojení banky – Flowlio</PageTitle>
+
+<h1 class="page-title">Připojení banky</h1>
+
+@if (!_canImport)
+{
+    <FluentMessageBar Intent="MessageIntent.Warning">Na připojení banky nemáte oprávnění.</FluentMessageBar>
+}
+else if (_loading)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <div class="panel-grid">
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Připojené banky</h2>
+            @if (_connections.Count == 0)
+            {
+                <p class="muted">Zatím nemáte žádné připojení. Přidejte ho v průvodci vpravo.</p>
+            }
+            else
+            {
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                    @foreach (var c in _connections)
+                    {
+                        <div class="conn-row">
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="4">
+                                <strong>@c.AspspName</strong>
+                                <span class="muted">Účet: @(c.AccountName ?? "—")</span>
+                                <FluentMessageBar Intent="@StatusIntent(c.Status)">@StatusLabel(c.Status)@(c.LastError is { Length: > 0 } ? $" – {c.LastError}" : "")</FluentMessageBar>
+                                <span class="muted">
+                                    @(c.LastSyncedAt is { } s ? $"Naposledy: {s.LocalDateTime:dd.MM.yyyy HH:mm}" : "Zatím nesynchronizováno")
+                                    @(c.ConsentValidUntil is { } v ? $" · souhlas do {v.LocalDateTime:dd.MM.yyyy}" : "")
+                                </span>
+                            </FluentStack>
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentButton Appearance="Appearance.Accent" OnClick="() => SyncAsync(c.Id)"
+                                              Loading="_syncingId == c.Id" Disabled="c.Status == BankConnectionStatus.Pending">
+                                    Synchronizovat
+                                </FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="() => DisconnectAsync(c.Id)">Odpojit</FluentButton>
+                            </FluentStack>
+                        </div>
+                    }
+                </FluentStack>
+            }
+        </FluentCard>
+
+        <FluentCard Class="panel">
+            <h2 class="panel-title">Přidat připojení</h2>
+            <p class="muted">
+                Krok @((int)_step) ze 2 — @(_step == Step.Credentials ? "přístupy Enable Banking" : "výběr účtu a banky").
+                <a href="https://github.com/t-vanek/Flowlio/blob/main/docs/enable-banking.md" target="_blank" rel="noopener">Návod</a>
+            </p>
+
+            @if (_step == Step.Credentials)
+            {
+                @if (_credentialsConfigured && !_editingCredentials)
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <FluentMessageBar Intent="MessageIntent.Success">
+                            Přístupy uloženy (Application ID: @_status?.ApplicationId).
+                        </FluentMessageBar>
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                            <FluentButton Appearance="Appearance.Accent" OnClick="() => _step = Step.Bank">Pokračovat</FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="StartEditingCredentials">Změnit</FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="DeleteCredentialsAsync">Smazat přístupy</FluentButton>
+                        </FluentStack>
+                    </FluentStack>
+                }
+                else
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <p class="muted">
+                            Zaregistrujte si vlastní aplikaci v Enable Banking a jako „Allowed Redirect URL" zadejte:
+                        </p>
+                        <FluentTextField Value="@(_status?.CallbackUrl ?? "")" ReadOnly="true" Label="Callback URL" Style="width:100%" />
+
+                        <FluentTextField @bind-Value="_appId" Label="Application ID" Style="width:100%" Placeholder="z Enable Banking portálu" />
+
+                        <FluentTextArea @bind-Value="_pem" Rows="7" Style="width:100%"
+                                        Label="Privátní klíč (obsah PEM souboru)"
+                                        Placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" />
+
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                            <FluentButton Appearance="Appearance.Accent" OnClick="SaveCredentialsAsync" Loading="_busy"
+                                          Disabled="@(string.IsNullOrWhiteSpace(_appId) || string.IsNullOrWhiteSpace(_pem))">
+                                Uložit přístupy
+                            </FluentButton>
+                            @if (_credentialsConfigured)
+                            {
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEditingCredentials">Zrušit</FluentButton>
+                            }
+                        </FluentStack>
+                    </FluentStack>
+                }
+            }
+            else
+            {
+                @if (_accounts.Count == 0)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning">Nejdřív si vytvořte účet na stránce „Účty".</FluentMessageBar>
+                }
+                else
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <FluentSelect TOption="string" @bind-Value="_accountId" Label="Účet ve Flowliu" Style="width:100%">
+                            @foreach (var a in _accounts)
+                            {
+                                <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                            }
+                        </FluentSelect>
+
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                            <FluentTextField @bind-Value="_country" Label="Země" Maxlength="2" Style="width:90px" />
+                            <FluentButton Appearance="Appearance.Neutral" OnClick="LoadBanksAsync" Loading="_loadingBanks">Načíst banky</FluentButton>
+                        </FluentStack>
+
+                        @if (_banks is not null)
+                        {
+                            @if (_banks.Count == 0)
+                            {
+                                <FluentMessageBar Intent="MessageIntent.Warning">Pro tuto zemi se nenašly žádné banky.</FluentMessageBar>
+                            }
+                            else
+                            {
+                                <FluentSelect TOption="string" @bind-Value="_bankName" Label="Banka" Style="width:100%">
+                                    @foreach (var b in _banks)
+                                    {
+                                        <FluentOption TOption="string" Value="@b.Name">@b.Name</FluentOption>
+                                    }
+                                </FluentSelect>
+
+                                <FluentButton Appearance="Appearance.Accent" OnClick="ConnectAsync" Loading="_busy"
+                                              Disabled="@(string.IsNullOrWhiteSpace(_bankName) || string.IsNullOrWhiteSpace(_accountId))">
+                                    Připojit banku
+                                </FluentButton>
+                            }
+                        }
+
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="() => _step = Step.Credentials">Zpět na přístupy</FluentButton>
+                    </FluentStack>
+                }
+            }
+        </FluentCard>
+    </div>
+}
+
+@code {
+    private enum Step { Credentials = 1, Bank = 2 }
+
+    [Parameter, SupplyParameterFromQuery(Name = "bank")]
+    public string? BankResult { get; set; }
+
+    private bool _canImport;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _loadingBanks;
+    private Guid? _syncingId;
+
+    private Step _step = Step.Credentials;
+    private EnableBankingCredentialStatusDto? _status;
+    private bool _credentialsConfigured;
+    private bool _editingCredentials;
+
+    private IReadOnlyList<BankConnectionDto> _connections = [];
+    private IReadOnlyList<BankAccountDto> _accounts = [];
+    private IReadOnlyList<BankAspspDto>? _banks;
+
+    private string _appId = "";
+    private string _pem = "";
+    private string _accountId = "";
+    private string _country = "CZ";
+    private string _bankName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canImport = await CurrentUser.CanAsync(Permission.ImportStatements);
+        if (!_canImport)
+        {
+            _loading = false;
+            return;
+        }
+
+        await ReloadAsync();
+
+        if (string.Equals(BankResult, "connected", StringComparison.OrdinalIgnoreCase))
+            Toasts.ShowSuccess("Banka byla připojena. Spusťte synchronizaci.");
+        else if (string.Equals(BankResult, "error", StringComparison.OrdinalIgnoreCase))
+            Toasts.ShowError("Připojení banky se nezdařilo. Zkuste to prosím znovu.");
+
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _status = await Api.GetBankCredentialStatusAsync();
+        _credentialsConfigured = _status?.Configured ?? false;
+        _connections = await Api.GetBankConnectionsAsync();
+        _accounts = await Api.GetAccountsAsync();
+        if (_accounts.Count > 0 && string.IsNullOrEmpty(_accountId))
+            _accountId = _accounts[0].Id.ToString();
+        _step = _credentialsConfigured ? Step.Bank : Step.Credentials;
+    }
+
+    private void StartEditingCredentials()
+    {
+        _appId = _status?.ApplicationId ?? "";
+        _pem = "";
+        _editingCredentials = true;
+    }
+
+    private void CancelEditingCredentials()
+    {
+        _editingCredentials = false;
+        _appId = "";
+        _pem = "";
+    }
+
+    private async Task SaveCredentialsAsync()
+    {
+        _busy = true;
+        try
+        {
+            var ok = await Api.SaveBankCredentialAsync(new SaveEnableBankingCredentialRequest
+            {
+                ApplicationId = _appId.Trim(),
+                PrivateKeyPem = _pem,
+            });
+            if (!ok)
+            {
+                Toasts.ShowError("Uložení selhalo. Zkontrolujte Application ID a platnost PEM klíče.");
+                return;
+            }
+
+            Toasts.ShowSuccess("Přístupy uloženy.");
+            _editingCredentials = false;
+            _pem = "";
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteCredentialsAsync()
+    {
+        if (await Api.DeleteBankCredentialAsync())
+        {
+            Toasts.ShowSuccess("Přístupy smazány.");
+            await ReloadAsync();
+        }
+        else
+        {
+            Toasts.ShowError("Smazání selhalo.");
+        }
+    }
+
+    private async Task LoadBanksAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_country))
+            return;
+        _loadingBanks = true;
+        _bankName = "";
+        try
+        {
+            _banks = await Api.GetAvailableBanksAsync(_country.Trim().ToUpperInvariant());
+            if (_banks.Count > 0)
+                _bankName = _banks[0].Name;
+        }
+        finally
+        {
+            _loadingBanks = false;
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_accountId) || string.IsNullOrWhiteSpace(_bankName))
+            return;
+
+        _busy = true;
+        try
+        {
+            var result = await Api.StartBankConnectionAsync(new StartBankConnectionRequest
+            {
+                BankAccountId = Guid.Parse(_accountId),
+                AspspName = _bankName,
+                Country = _country.Trim().ToUpperInvariant(),
+            });
+
+            if (result is null || string.IsNullOrEmpty(result.AuthorizationUrl))
+            {
+                Toasts.ShowError("Nepodařilo se zahájit připojení. Zkontrolujte uložené přístupy.");
+                return;
+            }
+
+            // Full-page redirect to the bank for strong customer authentication; the bank returns the
+            // user to the server callback, which completes the consent and redirects back here.
+            Nav.NavigateTo(result.AuthorizationUrl, forceLoad: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SyncAsync(Guid id)
+    {
+        _syncingId = id;
+        try
+        {
+            var result = await Api.SyncBankConnectionAsync(id);
+            if (result is null || result.Status == ImportStatus.Failed)
+                Toasts.ShowError($"Synchronizace selhala: {result?.Error ?? "neznámá chyba"}");
+            else
+                Toasts.ShowSuccess($"Staženo {result.ImportedCount} transakcí, přeskočeno {result.DuplicateCount} duplicit.");
+            _connections = await Api.GetBankConnectionsAsync();
+        }
+        finally
+        {
+            _syncingId = null;
+        }
+    }
+
+    private async Task DisconnectAsync(Guid id)
+    {
+        if (await Api.DisconnectBankAsync(id))
+        {
+            Toasts.ShowSuccess("Banka odpojena.");
+            _connections = await Api.GetBankConnectionsAsync();
+        }
+        else
+        {
+            Toasts.ShowError("Odpojení selhalo.");
+        }
+    }
+
+    private static string StatusLabel(BankConnectionStatus status) => status switch
+    {
+        BankConnectionStatus.Active => "Aktivní",
+        BankConnectionStatus.Pending => "Čeká na dokončení autorizace",
+        BankConnectionStatus.Expired => "Souhlas vypršel – připojte banku znovu",
+        _ => "Chyba",
+    };
+
+    private static MessageIntent StatusIntent(BankConnectionStatus status) => status switch
+    {
+        BankConnectionStatus.Active => MessageIntent.Success,
+        BankConnectionStatus.Pending => MessageIntent.Info,
+        _ => MessageIntent.Warning,
+    };
+}

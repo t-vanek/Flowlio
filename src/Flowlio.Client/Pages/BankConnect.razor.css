@@ -1,0 +1,14 @@
+.conn-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--neutral-stroke-divider-rest);
+}
+
+.conn-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
