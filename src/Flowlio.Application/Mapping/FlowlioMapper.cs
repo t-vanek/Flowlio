@@ -22,8 +22,11 @@ public partial class FlowlioMapper
     public partial CategoryDto ToDto(Category entity);
 
     // CategoryName is flattened from entity.Category.Name by Mapperly (Include the navigation when querying).
-    // Version is the xmin row-version, set by the endpoint via db.GetRowVersion(...).
+    // Version (xmin), the scope display names and CanManage are set by the endpoint.
     [MapperIgnoreTarget(nameof(CategorizationRuleDto.Version))]
+    [MapperIgnoreTarget(nameof(CategorizationRuleDto.BankAccountName))]
+    [MapperIgnoreTarget(nameof(CategorizationRuleDto.OwnerName))]
+    [MapperIgnoreTarget(nameof(CategorizationRuleDto.CanManage))]
     public partial CategorizationRuleDto ToDto(CategorizationRule entity);
 
     // CategoryName is flattened from entity.Category.Name by Mapperly.

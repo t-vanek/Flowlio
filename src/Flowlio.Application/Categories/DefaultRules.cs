@@ -22,6 +22,7 @@ public static class DefaultRules
                 rules.Add(new CategorizationRule
                 {
                     FamilyId = familyId,
+                    Scope = RuleScope.Family,
                     Field = RuleMatchField.Any,
                     MatchMode = mode,
                     Pattern = pattern,

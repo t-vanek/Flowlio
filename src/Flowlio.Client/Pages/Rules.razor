@@ -75,6 +75,24 @@ else
                         <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name (@KindLabel(c.Kind))</FluentOption>
                     }
                 </FluentSelect>
+                <FluentSelect TOption="string" @bind-Value="_ruleScopeValue" Label="Rozsah" Style="width:100%">
+                    <FluentOption TOption="string" Value="@(((int)RuleScope.Personal).ToString())">Osobní (mé účty)</FluentOption>
+                    @if (_isOwner)
+                    {
+                        <FluentOption TOption="string" Value="@(((int)RuleScope.Account).ToString())">Konkrétní účet</FluentOption>
+                        <FluentOption TOption="string" Value="@(((int)RuleScope.Family).ToString())">Celá rodina (globálně)</FluentOption>
+                    }
+                </FluentSelect>
+                @if (_ruleScopeValue == ((int)RuleScope.Account).ToString())
+                {
+                    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet" Style="width:100%">
+                        <FluentOption TOption="string" Value="">— vyberte účet —</FluentOption>
+                        @foreach (var a in _accounts ?? [])
+                        {
+                            <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                        }
+                    </FluentSelect>
+                }
                 <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
                     <FluentNumberField @bind-Value="_model.Priority" Label="Priorita (vyšší vyhrává)" Style="width:160px" />
                     <FluentSelect TOption="string" @bind-Value="_activeValue" Label="Aktivní" Style="width:120px">
@@ -135,7 +153,7 @@ else
                             }
                         </div>
                         <div class="muted">
-                            @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—") · priorita @r.Priority
+                            @ScopeLabel(r) · @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—") · priorita @r.Priority
                         </div>
                     </div>
                     <div>
@@ -182,19 +200,23 @@ else
     private IReadOnlyList<CategorizationRuleDto>? _rules;
     private IReadOnlyList<CategorizationRuleDto> _deletedRules = [];
     private IReadOnlyList<CategoryDto>? _categories;
+    private IReadOnlyList<BankAccountDto>? _accounts;
     private IReadOnlyList<RuleSuggestionDto> _suggestions = [];
 
     private CategorizationRuleRequest _model = new();
     private string _fieldValue = ((int)RuleMatchField.Any).ToString();
     private string _modeValue = ((int)RuleMatchMode.Substring).ToString();
+    private string _ruleScopeValue = ((int)RuleScope.Personal).ToString();
+    private string _accountValue = "";
     private string _categoryValue = "";
     private string _activeValue = "true";
     private Guid? _editingId;
 
-    private string _scopeValue = "true";
+    private string _scopeValue = "true"; // recategorize scope (uncategorized vs all)
     private bool _busy;
     private bool _recategorizing;
     private bool _canManage;
+    private bool _isOwner;
 
     /// <summary>Pre-fills the create form from "Vytvořit pravidlo" on a transaction
     /// (/rules?pattern=...&amp;categoryId=...).</summary>
@@ -205,11 +227,13 @@ else
     {
         var me = await CurrentUser.GetAsync();
         _canManage = me?.Can(Permission.ManageTransactions) ?? false;
+        _isOwner = me?.Role == MemberRole.Owner;
         if (!_canManage)
             return;
 
         _categories = await Api.GetCategoriesAsync();
         _categoryValue = _categories.FirstOrDefault()?.Id.ToString() ?? "";
+        _accounts = await Api.GetAccountsAsync();
 
         if (!string.IsNullOrWhiteSpace(Pattern))
             _model.Pattern = Pattern!.Trim();
@@ -272,11 +296,21 @@ else
             return;
         }
 
+        var scope = (RuleScope)int.Parse(_ruleScopeValue);
+        Guid? accountId = Guid.TryParse(_accountValue, out var aid) ? aid : null;
+        if (scope == RuleScope.Account && accountId is null)
+        {
+            Toasts.ShowError("Pro pravidlo na konkrétní účet vyberte účet.");
+            return;
+        }
+
         _busy = true;
         try
         {
             _model.Field = (RuleMatchField)int.Parse(_fieldValue);
             _model.MatchMode = (RuleMatchMode)int.Parse(_modeValue);
+            _model.Scope = scope;
+            _model.BankAccountId = scope == RuleScope.Account ? accountId : null;
             _model.CategoryId = categoryId;
             _model.IsActive = _activeValue == "true";
 
@@ -308,6 +342,8 @@ else
         _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority, Version = r.Version };
         _fieldValue = ((int)r.Field).ToString();
         _modeValue = ((int)r.MatchMode).ToString();
+        _ruleScopeValue = ((int)r.Scope).ToString();
+        _accountValue = r.BankAccountId?.ToString() ?? "";
         _categoryValue = r.CategoryId.ToString();
         _activeValue = r.IsActive ? "true" : "false";
     }
@@ -320,6 +356,8 @@ else
         _model = new CategorizationRuleRequest();
         _fieldValue = ((int)RuleMatchField.Any).ToString();
         _modeValue = ((int)RuleMatchMode.Substring).ToString();
+        _ruleScopeValue = ((int)RuleScope.Personal).ToString();
+        _accountValue = "";
         _categoryValue = _categories?.FirstOrDefault()?.Id.ToString() ?? "";
         _activeValue = "true";
     }
@@ -328,6 +366,8 @@ else
     {
         var updated = await Api.UpdateRuleAsync(r.Id, new CategorizationRuleRequest
         {
+            Scope = r.Scope,
+            BankAccountId = r.BankAccountId,
             Field = r.Field,
             MatchMode = r.MatchMode,
             Pattern = r.Pattern,
@@ -396,5 +436,13 @@ else
         CategoryKind.Expense => "výdaj",
         CategoryKind.Income => "příjem",
         _ => kind.ToString(),
+    };
+
+    private static string ScopeLabel(CategorizationRuleDto r) => r.Scope switch
+    {
+        RuleScope.Personal => r.OwnerName is { } owner ? $"Osobní · {owner}" : "Osobní",
+        RuleScope.Account => r.BankAccountName is { } acc ? $"Účet · {acc}" : "Účet",
+        RuleScope.Family => "Globální",
+        _ => r.Scope.ToString(),
     };
 }

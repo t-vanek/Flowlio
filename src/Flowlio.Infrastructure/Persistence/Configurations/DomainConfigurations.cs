@@ -273,7 +273,14 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
         b.Property(x => x.Pattern).HasMaxLength(200).IsRequired();
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+
+        // Personal rules belong to a member; account rules to an account. Removing either takes its rules.
+        b.HasOne(x => x.OwnerMember).WithMany().HasForeignKey(x => x.OwnerMemberId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.BankAccount).WithMany().HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
+
         b.HasIndex(x => x.FamilyId);
+        b.HasIndex(x => x.OwnerMemberId);
+        b.HasIndex(x => x.BankAccountId);
 
         // Optimistic concurrency via the Postgres xmin system column (same as transaction/card/member).
         b.Property<uint>("xmin").IsRowVersion();

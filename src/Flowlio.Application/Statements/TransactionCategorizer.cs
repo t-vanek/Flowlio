@@ -63,6 +63,35 @@ public static class TransactionCategorizer
         return null;
     }
 
+    /// <summary>
+    /// Filters and orders a family's rules for one account, applying scope: account-specific rules and the
+    /// owner's personal rules join the always-applicable family rules. The result is ordered most-specific
+    /// first (Account → Personal → Family), then by descending priority, then by creation — exactly the order
+    /// <see cref="Match"/> expects. <paramref name="ownerMemberId"/> is the account's owner (may be null).
+    /// </summary>
+    public static IReadOnlyList<CategorizationRule> ForAccount(
+        IEnumerable<CategorizationRule> rules, Guid accountId, Guid? ownerMemberId) =>
+        rules
+            .Where(r => r.Scope switch
+            {
+                RuleScope.Family => true,
+                RuleScope.Account => r.BankAccountId == accountId,
+                RuleScope.Personal => ownerMemberId is { } owner && r.OwnerMemberId == owner,
+                _ => false,
+            })
+            .OrderBy(r => ScopeRank(r.Scope))
+            .ThenByDescending(r => r.Priority)
+            .ThenBy(r => r.CreatedAt)
+            .ToList();
+
+    /// <summary>Specificity order: an account rule beats a personal rule, which beats a family-wide rule.</summary>
+    private static int ScopeRank(RuleScope scope) => scope switch
+    {
+        RuleScope.Account => 0,
+        RuleScope.Personal => 1,
+        _ => 2,
+    };
+
     /// <summary>Tests one rule against an already-folded haystack, honouring its <see cref="RuleMatchMode"/>.</summary>
     private static bool IsMatch(string foldedHaystack, CategorizationRule rule)
     {

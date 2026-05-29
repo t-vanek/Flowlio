@@ -67,11 +67,12 @@ public sealed class ImportStatementHandler
             };
         }
 
-        var rules = await db.CategorizationRules
+        var familyRules = await db.CategorizationRules
             .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
-            .OrderByDescending(r => r.Priority)
             .ToListAsync(ct);
+        // All imported rows land on this one account, so resolve the applicable, scope-ordered rules once.
+        var rules = TransactionCategorizer.ForAccount(familyRules, account.Id, account.OwnerMemberId);
 
         var existingHashes = await db.Transactions
             .Where(t => t.BankAccountId == account.Id)
