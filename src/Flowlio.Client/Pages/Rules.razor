@@ -1,5 +1,6 @@
 @page "/rules"
 @attribute [Authorize]
+@using System.Globalization
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
 @inject IDialogService Dialogs
@@ -54,7 +55,7 @@ else
             <DataAnnotationsValidator />
             <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
                 <div>
-                    <FluentTextField @bind-Value="_model.Pattern" Label="Vzor (hledaný text)" Style="width:100%" Placeholder="Albert" />
+                    <FluentTextField @bind-Value="_model.Pattern" Label="Vzor (hledaný text, volitelné)" Style="width:100%" Placeholder="Albert" />
                     <FluentValidationMessage For="@(() => _model.Pattern)" />
                 </div>
                 <FluentSelect TOption="string" @bind-Value="_fieldValue" Label="Pole" Style="width:100%">
@@ -85,7 +86,7 @@ else
                 </FluentSelect>
                 @if (_ruleScopeValue == ((int)RuleScope.Account).ToString())
                 {
-                    <FluentSelect TOption="string" @bind-Value="_accountValue" Label="Účet" Style="width:100%">
+                    <FluentSelect TOption="string" @bind-Value="_accountValue" @bind-Value:after="OnRuleAccountChanged" Label="Účet" Style="width:100%">
                         <FluentOption TOption="string" Value="">— vyberte účet —</FluentOption>
                         @foreach (var a in _accounts ?? [])
                         {
@@ -93,6 +94,15 @@ else
                         }
                     </FluentSelect>
                 }
+                <div>
+                    <label class="field-label">Podmínka na částku (volitelné)</label>
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                        <FluentTextField @bind-Value="_minAmount" Label="Od" Style="width:120px" Placeholder="0" />
+                        <FluentTextField @bind-Value="_maxAmount" Label="Do" Style="width:120px" Placeholder="∞" />
+                        <FluentTextField @bind-Value="_amountCurrency" Label="Měna" Style="width:90px" Maxlength="3" />
+                    </FluentStack>
+                    <span class="muted">Porovnává se velikost částky (kladně). Vyplňte vzor a/nebo částku.</span>
+                </div>
                 <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
                     <FluentNumberField @bind-Value="_model.Priority" Label="Priorita (vyšší vyhrává)" Style="width:160px" />
                     <FluentSelect TOption="string" @bind-Value="_activeValue" Label="Aktivní" Style="width:120px">
@@ -146,14 +156,26 @@ else
                 <div class="account-row">
                     <div>
                         <div class="account-name">
-                            „@r.Pattern"
+                            @if (!string.IsNullOrWhiteSpace(r.Pattern))
+                            {
+                                <span>„@r.Pattern"</span>
+                            }
+                            else
+                            {
+                                <span>@(AmountLabel(r) ?? "pravidlo")</span>
+                            }
                             @if (!r.IsActive)
                             {
                                 <span class="muted">· neaktivní</span>
                             }
                         </div>
                         <div class="muted">
-                            @ScopeLabel(r) · @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—") · priorita @r.Priority
+                            @ScopeLabel(r) · @FieldLabel(r.Field) · @ModeLabel(r.MatchMode)
+                            @if (!string.IsNullOrWhiteSpace(r.Pattern) && AmountLabel(r) is { } amt)
+                            {
+                                <span> · @amt</span>
+                            }
+                            → @(r.CategoryName ?? "—") · priorita @r.Priority
                         </div>
                     </div>
                     <div>
@@ -208,6 +230,9 @@ else
     private string _modeValue = ((int)RuleMatchMode.Substring).ToString();
     private string _ruleScopeValue = ((int)RuleScope.Personal).ToString();
     private string _accountValue = "";
+    private string _minAmount = "";
+    private string _maxAmount = "";
+    private string _amountCurrency = "CZK";
     private string _categoryValue = "";
     private string _activeValue = "true";
     private Guid? _editingId;
@@ -234,6 +259,7 @@ else
         _categories = await Api.GetCategoriesAsync();
         _categoryValue = _categories.FirstOrDefault()?.Id.ToString() ?? "";
         _accounts = await Api.GetAccountsAsync();
+        _amountCurrency = DefaultCurrency();
 
         if (!string.IsNullOrWhiteSpace(Pattern))
             _model.Pattern = Pattern!.Trim();
@@ -304,6 +330,34 @@ else
             return;
         }
 
+        decimal? min = null, max = null;
+        if (!string.IsNullOrWhiteSpace(_minAmount) && !TryParseAmount(_minAmount, out min))
+        {
+            Toasts.ShowError("Neplatná částka „od“.");
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(_maxAmount) && !TryParseAmount(_maxAmount, out max))
+        {
+            Toasts.ShowError("Neplatná částka „do“.");
+            return;
+        }
+        var hasAmount = min is not null || max is not null;
+        if (string.IsNullOrWhiteSpace(_model.Pattern) && !hasAmount)
+        {
+            Toasts.ShowError("Zadejte vzor nebo podmínku na částku.");
+            return;
+        }
+        if (hasAmount && string.IsNullOrWhiteSpace(_amountCurrency))
+        {
+            Toasts.ShowError("U podmínky na částku zadejte měnu.");
+            return;
+        }
+        if (min is { } mn && max is { } mx && mn > mx)
+        {
+            Toasts.ShowError("Částka „od“ nesmí být větší než „do“.");
+            return;
+        }
+
         _busy = true;
         try
         {
@@ -311,6 +365,9 @@ else
             _model.MatchMode = (RuleMatchMode)int.Parse(_modeValue);
             _model.Scope = scope;
             _model.BankAccountId = scope == RuleScope.Account ? accountId : null;
+            _model.MinAmount = hasAmount ? min : null;
+            _model.MaxAmount = hasAmount ? max : null;
+            _model.AmountCurrency = hasAmount ? _amountCurrency.Trim().ToUpperInvariant() : null;
             _model.CategoryId = categoryId;
             _model.IsActive = _activeValue == "true";
 
@@ -344,6 +401,9 @@ else
         _modeValue = ((int)r.MatchMode).ToString();
         _ruleScopeValue = ((int)r.Scope).ToString();
         _accountValue = r.BankAccountId?.ToString() ?? "";
+        _minAmount = r.MinAmount?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+        _maxAmount = r.MaxAmount?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+        _amountCurrency = r.AmountCurrency ?? DefaultCurrency();
         _categoryValue = r.CategoryId.ToString();
         _activeValue = r.IsActive ? "true" : "false";
     }
@@ -358,6 +418,9 @@ else
         _modeValue = ((int)RuleMatchMode.Substring).ToString();
         _ruleScopeValue = ((int)RuleScope.Personal).ToString();
         _accountValue = "";
+        _minAmount = "";
+        _maxAmount = "";
+        _amountCurrency = DefaultCurrency();
         _categoryValue = _categories?.FirstOrDefault()?.Id.ToString() ?? "";
         _activeValue = "true";
     }
@@ -368,6 +431,9 @@ else
         {
             Scope = r.Scope,
             BankAccountId = r.BankAccountId,
+            MinAmount = r.MinAmount,
+            MaxAmount = r.MaxAmount,
+            AmountCurrency = r.AmountCurrency,
             Field = r.Field,
             MatchMode = r.MatchMode,
             Pattern = r.Pattern,
@@ -445,4 +511,43 @@ else
         RuleScope.Family => "Globální",
         _ => r.Scope.ToString(),
     };
+
+    /// <summary>Human label for a rule's amount condition, or null when it has none.</summary>
+    private static string? AmountLabel(CategorizationRuleDto r)
+    {
+        if (r.MinAmount is null && r.MaxAmount is null)
+            return null;
+        var cur = r.AmountCurrency ?? "";
+        return (r.MinAmount, r.MaxAmount) switch
+        {
+            ({ } mn, { } mx) when mn == mx => $"= {mn:0.##} {cur}",
+            ({ } mn, { } mx) => $"{mn:0.##}–{mx:0.##} {cur}",
+            ({ } mn, null) => $"≥ {mn:0.##} {cur}",
+            (null, { } mx) => $"≤ {mx:0.##} {cur}",
+            _ => null,
+        };
+    }
+
+    private string DefaultCurrency()
+    {
+        if (_ruleScopeValue == ((int)RuleScope.Account).ToString()
+            && Guid.TryParse(_accountValue, out var id)
+            && _accounts?.FirstOrDefault(a => a.Id == id) is { } acc)
+            return acc.Currency;
+        return _accounts?.FirstOrDefault()?.Currency ?? "CZK";
+    }
+
+    private void OnRuleAccountChanged() => _amountCurrency = DefaultCurrency();
+
+    private static bool TryParseAmount(string s, out decimal? value)
+    {
+        value = null;
+        if (decimal.TryParse(s.Trim().Replace(" ", "").Replace(',', '.'),
+                NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+        {
+            value = parsed;
+            return true;
+        }
+        return false;
+    }
 }

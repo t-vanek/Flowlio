@@ -59,7 +59,7 @@ public static class RuleEndpoints
                 && t.CounterpartyName != null
                 && t.CounterpartyName != ""
                 && ownedAccountIds.Contains(t.BankAccountId))
-            .Select(t => new { Name = t.CounterpartyName!, t.Direction, t.BankAccountId, CategoryId = t.CategoryId!.Value })
+            .Select(t => new { Name = t.CounterpartyName!, t.Direction, t.BankAccountId, t.Amount, t.Currency, CategoryId = t.CategoryId!.Value })
             .ToListAsync(ct);
         if (manual.Count == 0)
             return Results.Ok(new List<RuleSuggestionDto>());
@@ -92,11 +92,12 @@ public static class RuleEndpoints
                     .OrderByDescending(s => s.Count())
                     .First().Key;
                 var sample = g.First();
-                return (Pattern: pattern, g.Key.CategoryId, Count: g.Count(), sample.Direction, sample.BankAccountId);
+                return (Pattern: pattern, g.Key.CategoryId, Count: g.Count(),
+                    sample.Direction, sample.BankAccountId, sample.Amount, sample.Currency);
             })
             // Skip merchants the rules applicable to that account already file into this same category.
             .Where(s => TransactionCategorizer.Match(
-                s.Pattern, null, null, null, s.Direction,
+                s.Pattern, null, null, null, s.Amount, s.Currency, s.Direction,
                 TransactionCategorizer.ForAccount(familyRules, s.BankAccountId, me.Id)) != s.CategoryId)
             .OrderByDescending(s => s.Count)
             .ThenBy(s => s.Pattern)
@@ -202,8 +203,8 @@ public static class RuleEndpoints
             return error;
         if (!await CategoryBelongsToFamily(db, me.FamilyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
-        if (InvalidRegex(request))
-            return Results.BadRequest("Neplatný regulární výraz.");
+        if (ValidateConditions(request) is { } condError)
+            return condError;
 
         var rule = new CategorizationRule
         {
@@ -211,17 +212,15 @@ public static class RuleEndpoints
             Scope = request.Scope,
             OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null,
             BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null,
-            Field = request.Field,
-            MatchMode = request.MatchMode,
-            Pattern = request.Pattern.Trim(),
             CategoryId = request.CategoryId,
             Priority = request.Priority,
             IsActive = request.IsActive,
         };
+        ApplyConditions(rule, request);
         db.CategorizationRules.Add(rule);
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.create", "CategorizationRule", rule.Id.ToString(), rule.Pattern, me.FamilyId,
-            $"Vytvořeno pravidlo „{rule.Pattern}“", ct);
+        await audit.RecordAsync("rule.create", "CategorizationRule", rule.Id.ToString(), DescribeRule(rule), me.FamilyId,
+            $"Vytvořeno pravidlo „{DescribeRule(rule)}“", ct);
 
         // Backfill uncategorized transactions so the new rule applies to history too.
         await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
@@ -248,24 +247,22 @@ public static class RuleEndpoints
             return error;
         if (!await CategoryBelongsToFamily(db, me.FamilyId, request.CategoryId, ct))
             return Results.BadRequest("Neplatná kategorie.");
-        if (InvalidRegex(request))
-            return Results.BadRequest("Neplatný regulární výraz.");
+        if (ValidateConditions(request) is { } condError)
+            return condError;
 
         rule.Scope = request.Scope;
         rule.OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null;
         rule.BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null;
-        rule.Field = request.Field;
-        rule.MatchMode = request.MatchMode;
-        rule.Pattern = request.Pattern.Trim();
         rule.CategoryId = request.CategoryId;
         rule.Priority = request.Priority;
         rule.IsActive = request.IsActive;
+        ApplyConditions(rule, request);
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         // Optimistic concurrency: a stale Version makes SaveChanges throw, turned into HTTP 409 (Program.cs).
         db.SetOriginalRowVersion(rule, request.Version);
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), rule.Pattern, me.FamilyId,
-            $"Upraveno pravidlo „{rule.Pattern}“", ct);
+        await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), DescribeRule(rule), me.FamilyId,
+            $"Upraveno pravidlo „{DescribeRule(rule)}“", ct);
 
         await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
 
@@ -290,8 +287,8 @@ public static class RuleEndpoints
         // transactions keep their category (we don't track which rule assigned what).
         rule.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), rule.Pattern, me.FamilyId,
-            $"Smazáno pravidlo „{rule.Pattern}“", ct);
+        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
+            $"Smazáno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
     }
 
@@ -313,8 +310,8 @@ public static class RuleEndpoints
         rule.DeletedAt = null;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), rule.Pattern, me.FamilyId,
-            $"Obnoveno pravidlo „{rule.Pattern}“", ct);
+        await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
+            $"Obnoveno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
     }
 
@@ -409,8 +406,8 @@ public static class RuleEndpoints
         foreach (var t in transactions)
         {
             var match = TransactionCategorizer.Match(
-                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount, t.Direction,
-                RulesFor(t.BankAccountId));
+                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
+                t.Amount, t.Currency, t.Direction, RulesFor(t.BankAccountId));
             if (match is { } categoryId && categoryId != t.CategoryId)
             {
                 t.CategoryId = categoryId;
@@ -443,8 +440,55 @@ public static class RuleEndpoints
         IAppDbContext db, Guid familyId, Guid categoryId, CancellationToken ct) =>
         await db.Categories.AnyAsync(c => c.Id == categoryId && c.FamilyId == familyId, ct);
 
-    /// <summary>True when the rule uses regex mode but the pattern doesn't compile, so we reject it early
-    /// instead of silently never matching at import time.</summary>
-    private static bool InvalidRegex(CategorizationRuleRequest request) =>
-        request.MatchMode == RuleMatchMode.Regex && !TransactionCategorizer.IsValidRegex(request.Pattern.Trim());
+    /// <summary>Validates a rule's conditions: it must have a text pattern and/or an amount range; an amount
+    /// range needs a 3-letter currency, non-negative bounds and min ≤ max; a regex pattern must compile.</summary>
+    private static IResult? ValidateConditions(CategorizationRuleRequest request)
+    {
+        var hasText = !string.IsNullOrWhiteSpace(request.Pattern);
+        var hasAmount = request.MinAmount is not null || request.MaxAmount is not null;
+
+        if (!hasText && !hasAmount)
+            return Results.BadRequest("Pravidlo musí mít vzor nebo podmínku na částku.");
+        if (hasAmount)
+        {
+            if (string.IsNullOrWhiteSpace(request.AmountCurrency) || request.AmountCurrency.Trim().Length != 3)
+                return Results.BadRequest("U podmínky na částku zadejte měnu (3 znaky).");
+            if (request.MinAmount is < 0 || request.MaxAmount is < 0)
+                return Results.BadRequest("Částka nesmí být záporná.");
+            if (request.MinAmount is { } min && request.MaxAmount is { } max && min > max)
+                return Results.BadRequest("Částka „od“ nesmí být větší než „do“.");
+        }
+        if (hasText && request.MatchMode == RuleMatchMode.Regex &&
+            !TransactionCategorizer.IsValidRegex(request.Pattern!.Trim()))
+            return Results.BadRequest("Neplatný regulární výraz.");
+        return null;
+    }
+
+    /// <summary>Copies the normalized text and amount conditions from the request onto the rule.</summary>
+    private static void ApplyConditions(CategorizationRule rule, CategorizationRuleRequest request)
+    {
+        var hasAmount = request.MinAmount is not null || request.MaxAmount is not null;
+        rule.Field = request.Field;
+        rule.MatchMode = request.MatchMode;
+        rule.Pattern = string.IsNullOrWhiteSpace(request.Pattern) ? null : request.Pattern.Trim();
+        rule.MinAmount = hasAmount ? request.MinAmount : null;
+        rule.MaxAmount = hasAmount ? request.MaxAmount : null;
+        rule.AmountCurrency = hasAmount ? request.AmountCurrency!.Trim().ToUpperInvariant() : null;
+    }
+
+    /// <summary>Short human label for audit messages — the pattern, or the amount range for amount-only rules.</summary>
+    private static string DescribeRule(CategorizationRule rule)
+    {
+        if (!string.IsNullOrWhiteSpace(rule.Pattern))
+            return rule.Pattern!;
+        var cur = rule.AmountCurrency ?? "";
+        return (rule.MinAmount, rule.MaxAmount) switch
+        {
+            ({ } mn, { } mx) when mn == mx => $"= {mn:0.##} {cur}",
+            ({ } mn, { } mx) => $"{mn:0.##}–{mx:0.##} {cur}",
+            ({ } mn, null) => $"≥ {mn:0.##} {cur}",
+            (null, { } mx) => $"≤ {mx:0.##} {cur}",
+            _ => "pravidlo",
+        };
+    }
 }

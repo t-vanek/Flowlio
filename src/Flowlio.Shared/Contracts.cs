@@ -170,7 +170,15 @@ public sealed record CategorizationRuleDto
     public Guid Id { get; init; }
     public RuleMatchField Field { get; init; }
     public RuleMatchMode MatchMode { get; init; }
-    public string Pattern { get; init; } = "";
+
+    /// <summary>Text pattern; null/empty when the rule matches on amount alone.</summary>
+    public string? Pattern { get; init; }
+
+    /// <summary>Optional amount condition (inclusive bounds, in <see cref="AmountCurrency"/>, absolute value).</summary>
+    public decimal? MinAmount { get; init; }
+    public decimal? MaxAmount { get; init; }
+    public string? AmountCurrency { get; init; }
+
     public Guid CategoryId { get; init; }
     public string? CategoryName { get; init; }
     public int Priority { get; init; }
@@ -210,9 +218,14 @@ public sealed record CategorizationRuleRequest
 
     public RuleMatchMode MatchMode { get; set; } = RuleMatchMode.Substring;
 
-    [Required(ErrorMessage = "Vzor je povinný.")]
-    [StringLength(200, MinimumLength = 1, ErrorMessage = "Vzor může mít nejvýše 200 znaků.")]
-    public string Pattern { get; set; } = "";
+    /// <summary>Text pattern (optional). A rule must have a pattern and/or an amount range.</summary>
+    [StringLength(200, ErrorMessage = "Vzor může mít nejvýše 200 znaků.")]
+    public string? Pattern { get; set; }
+
+    /// <summary>Optional amount condition (inclusive, absolute value); needs <see cref="AmountCurrency"/>.</summary>
+    public decimal? MinAmount { get; set; }
+    public decimal? MaxAmount { get; set; }
+    public string? AmountCurrency { get; set; }
 
     public Guid CategoryId { get; set; }
 

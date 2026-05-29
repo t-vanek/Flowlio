@@ -26,11 +26,13 @@ public class TransactionCategorizerTests
             Category = kind is null ? null : new Category { Name = "test", Kind = kind.Value },
         };
 
-    // Most tests don't care about direction; default to outgoing.
+    // Most tests don't care about amount/direction; default to a CZK outgoing payment.
     private static Guid? Match(
         string? counterpartyName, string? description, string? variableSymbol, string? counterpartyAccount,
-        IReadOnlyList<CategorizationRule> rules, TransactionDirection direction = TransactionDirection.Outgoing) =>
-        TransactionCategorizer.Match(counterpartyName, description, variableSymbol, counterpartyAccount, direction, rules);
+        IReadOnlyList<CategorizationRule> rules, TransactionDirection direction = TransactionDirection.Outgoing,
+        decimal amount = -100m, string currency = "CZK") =>
+        TransactionCategorizer.Match(
+            counterpartyName, description, variableSymbol, counterpartyAccount, amount, currency, direction, rules);
 
     [Fact]
     public void Any_matches_pattern_in_description_when_counterparty_is_empty()
@@ -271,5 +273,72 @@ public class TransactionCategorizerTests
         var ordered = TransactionCategorizer.ForAccount(rules, Guid.NewGuid(), ownerMemberId: null);
 
         Assert.Equal(family, Match("ALBERT", null, null, null, ordered));
+    }
+
+    // ---- Amount conditions --------------------------------------------------
+
+    private static CategorizationRule AmountRule(
+        Guid categoryId, decimal? min, decimal? max, string currency = "CZK", string? pattern = null) =>
+        new()
+        {
+            Field = RuleMatchField.Any,
+            MatchMode = RuleMatchMode.Substring,
+            Pattern = pattern,
+            MinAmount = min,
+            MaxAmount = max,
+            AmountCurrency = currency,
+            CategoryId = categoryId,
+            IsActive = true,
+        };
+
+    [Fact]
+    public void Amount_only_rule_matches_within_range_on_absolute_value()
+    {
+        var cat = Guid.NewGuid();
+        var rules = new[] { AmountRule(cat, min: 1000m, max: 5000m) };
+
+        // Outgoing -2500 → magnitude 2500, within [1000, 5000].
+        Assert.Equal(cat, Match(null, "cokoliv", null, null, rules, amount: -2500m));
+    }
+
+    [Fact]
+    public void Amount_rule_does_not_match_outside_range()
+    {
+        var rules = new[] { AmountRule(Guid.NewGuid(), min: 1000m, max: 5000m) };
+
+        Assert.Null(Match(null, "cokoliv", null, null, rules, amount: -200m));
+        Assert.Null(Match(null, "cokoliv", null, null, rules, amount: -9000m));
+    }
+
+    [Fact]
+    public void Amount_rule_with_min_only_is_a_lower_bound()
+    {
+        var cat = Guid.NewGuid();
+        var rules = new[] { AmountRule(cat, min: 20000m, max: null) };
+
+        Assert.Equal(cat, Match(null, null, null, null, rules, direction: TransactionDirection.Incoming, amount: 31000m));
+        Assert.Null(Match(null, null, null, null, rules, direction: TransactionDirection.Incoming, amount: 15000m));
+    }
+
+    [Fact]
+    public void Amount_rule_does_not_match_a_different_currency()
+    {
+        var rules = new[] { AmountRule(Guid.NewGuid(), min: 100m, max: 1000m, currency: "CZK") };
+
+        Assert.Null(Match(null, "x", null, null, rules, amount: -500m, currency: "EUR"));
+    }
+
+    [Fact]
+    public void Text_and_amount_must_both_hold()
+    {
+        var cat = Guid.NewGuid();
+        var rules = new[] { AmountRule(cat, min: 10000m, max: null, pattern: "CSOB") };
+
+        // Text matches and amount qualifies.
+        Assert.Equal(cat, Match("CSOB", null, null, null, rules, amount: -15000m));
+        // Text matches but amount too small → no match.
+        Assert.Null(Match("CSOB", null, null, null, rules, amount: -300m));
+        // Amount qualifies but text doesn't → no match.
+        Assert.Null(Match("Albert", null, null, null, rules, amount: -15000m));
     }
 }
