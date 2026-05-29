@@ -646,7 +646,10 @@ public static class ApiEndpoints
             Origin = BatchOrigin.Manual,
             Label = string.IsNullOrWhiteSpace(request.Label) ? null : request.Label.Trim(),
             Bank = account.Bank,
+            // Manual batches have no source file; Csv is just a historical placeholder for the (required) format column.
+#pragma warning disable CS0618
             Format = ImportFormat.Csv,
+#pragma warning restore CS0618
             Status = ImportStatus.Completed,
             ImportedByUserId = currentUser.UserId ?? Guid.Empty,
             ImportedCount = request.Movements.Count,

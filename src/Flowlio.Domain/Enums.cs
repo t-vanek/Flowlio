@@ -89,9 +89,16 @@ public enum InvitationStatus
 /// <summary>File format a statement was imported from.</summary>
 public enum ImportFormat
 {
+    /// <summary>Deprecated: CSV import proved unreliable across banks and is hidden from the UI.
+    /// Still parsed server-side for backward compatibility; prefer <see cref="Pdf"/>.</summary>
+    [Obsolete("CSV import is unstable and hidden from the UI; import PDF statements instead. Kept for backward compatibility only.")]
     Csv = 0,
     Pdf = 1,
     PdfOcr = 2,
+
+    /// <summary>Deprecated: XLSX import proved unreliable across banks and is hidden from the UI.
+    /// Still parsed server-side for backward compatibility; prefer <see cref="Pdf"/>.</summary>
+    [Obsolete("XLSX import is unstable and hidden from the UI; import PDF statements instead. Kept for backward compatibility only.")]
     Xlsx = 3,
 }
 

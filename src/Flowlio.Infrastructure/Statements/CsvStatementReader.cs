@@ -16,7 +16,9 @@ internal sealed class CsvStatementReader : IStatementReader
 {
     static CsvStatementReader() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
+#pragma warning disable CS0618 // CSV is deprecated but the reader stays for backward compatibility.
     public ImportFormat Format => ImportFormat.Csv;
+#pragma warning restore CS0618
 
     public RawStatement Read(Stream content, string fileName, ReaderOptions options)
     {

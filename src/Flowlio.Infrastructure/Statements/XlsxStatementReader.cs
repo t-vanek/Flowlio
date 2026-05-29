@@ -13,7 +13,9 @@ namespace Flowlio.Infrastructure.Statements;
 /// </summary>
 internal sealed class XlsxStatementReader : IStatementReader
 {
+#pragma warning disable CS0618 // XLSX is deprecated but the reader stays for backward compatibility.
     public ImportFormat Format => ImportFormat.Xlsx;
+#pragma warning restore CS0618
 
     public RawStatement Read(Stream content, string fileName, ReaderOptions options)
     {
