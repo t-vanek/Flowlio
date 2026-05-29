@@ -114,7 +114,7 @@
                     <label class="field-label">Částka (záporná = výdaj)</label>
                     <MoneyField @bind-Value="_amount" />
                 </div>
-                <FluentTextField @bind-Value="_currency" Label="Měna" Style="width:90px" />
+                <FluentTextField Value="@_currency" Label="Měna" ReadOnly="true" Style="width:90px" Title="Měna je dána účtem" />
             </FluentStack>
 
             <FluentTextField @bind-Value="_counterparty" Label="Protistrana" Style="width:100%" />
@@ -277,7 +277,6 @@
             BookingDate = _booking,
             ValueDate = _value,
             Amount = _amount,
-            Currency = string.IsNullOrWhiteSpace(_currency) ? "CZK" : _currency,
             CounterpartyName = _counterparty,
             CounterpartyAccount = _counterpartyAccount,
             VariableSymbol = _vs,
@@ -326,7 +325,6 @@
             BookingDate = r.Booking,
             ValueDate = r.Value,
             Amount = r.Amount,
-            Currency = _currency,
             CounterpartyName = r.Counterparty,
             CounterpartyAccount = r.CounterpartyAccount,
             VariableSymbol = r.Vs,

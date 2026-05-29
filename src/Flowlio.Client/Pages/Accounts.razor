@@ -43,6 +43,11 @@ else
                     <label class="field-label">Počáteční zůstatek</label>
                     <MoneyField @bind-Value="_accountModel.OpeningBalance" />
                 </div>
+                <div>
+                    <FluentTextField @bind-Value="_accountModel.Currency" Label="Měna" Style="width:120px" Maxlength="3"
+                                     Title="Měnu účtu už později nezměníte" />
+                    <FluentValidationMessage For="@(() => _accountModel.Currency)" />
+                </div>
 
                 <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">
                     <FluentOption TOption="string" Value="">Můj / společný účet</FluentOption>
@@ -92,7 +97,7 @@ else
                         </div>
                     </div>
                     <div style="text-align:right;">
-                        <div class="account-balance">@Formatting.Money(a.CurrentBalance)</div>
+                        <div class="account-balance">@Formatting.Money(a.CurrentBalance, a.Currency)</div>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleAsync(a.Id))">
                             @(_expanded == a.Id ? "Skrýt" : "Spravovat")
                         </FluentButton>
@@ -184,7 +189,7 @@ else
                                                 }
                                                 @if (c.MonthlyLimit is { } lim)
                                                 {
-                                                    <text> · limit @Formatting.Money(lim)</text>
+                                                    <text> · limit @Formatting.Money(lim, a.Currency)</text>
                                                 }
                                             </div>
                                         </div>
@@ -279,6 +284,7 @@ else
     private IReadOnlyList<FamilyMemberDto>? _members;
 
     private CreateBankAccountRequest _accountModel = new();
+    private string _baseCurrency = "CZK";
     private string _bankValue = "4";
     private string _ownerValue = "";
     private bool _busy;
@@ -317,6 +323,9 @@ else
         _canManageCards = me?.Can(Permission.ManageCards) ?? false;
 
         _members = await Api.GetMembersAsync();
+        // New accounts default to the family's base currency (account currency is fixed after creation).
+        _baseCurrency = (await Api.GetFamilyAsync())?.BaseCurrency ?? "CZK";
+        _accountModel.Currency = _baseCurrency;
         await LoadAsync();
     }
 
@@ -369,7 +378,7 @@ else
                 return;
             }
             Toasts.ShowSuccess("Účet byl vytvořen.");
-            _accountModel = new();
+            _accountModel = new() { Currency = _baseCurrency };
             _bankValue = "4";
             _ownerValue = "";
             await LoadAsync();

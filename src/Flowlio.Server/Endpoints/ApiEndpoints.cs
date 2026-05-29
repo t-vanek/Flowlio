@@ -387,13 +387,20 @@ public static class ApiEndpoints
 
         var recurring = await db.RecurringPayments
             .Where(r => r.FamilyId == familyId && r.IsActive && r.NextDueDate != null && r.NextDueDate <= horizon)
-            .Select(r => new UpcomingPaymentDto { Name = r.Name, Amount = r.ExpectedAmount, DueDate = r.NextDueDate })
+            .Select(r => new UpcomingPaymentDto { Name = r.Name, Amount = r.ExpectedAmount, Currency = r.Currency, DueDate = r.NextDueDate })
             .ToListAsync(ct);
 
         var subs = await db.Subscriptions
             .Where(s => s.FamilyId == familyId && s.IsActive && s.NextRenewalDate != null && s.NextRenewalDate <= horizon)
-            .Select(s => new UpcomingPaymentDto { Name = s.Name, Amount = s.Amount, DueDate = s.NextRenewalDate })
+            .Select(s => new UpcomingPaymentDto { Name = s.Name, Amount = s.Amount, Currency = s.Currency, DueDate = s.NextRenewalDate })
             .ToListAsync(ct);
+
+        // The headline totals are expressed in the family's base currency. (Multi-currency conversion via
+        // FX rates is handled separately; today the sums assume a single currency.)
+        var baseCurrency = await db.Families
+            .Where(f => f.Id == familyId)
+            .Select(f => f.BaseCurrency)
+            .FirstAsync(ct);
 
         return new DashboardSummaryDto
         {
@@ -401,6 +408,7 @@ public static class ApiEndpoints
             IncomeThisMonth = income,
             ExpenseThisMonth = -expense,
             NetThisMonth = income + expense,
+            Currency = baseCurrency,
             TopExpenseCategories = topCategories,
             Upcoming = recurring.Concat(subs).OrderBy(u => u.DueDate).Take(5).ToList(),
         };
@@ -462,6 +470,7 @@ public static class ApiEndpoints
             DedupHash = DedupHasher.Unique(),
         };
         Apply(transaction, request.Fields);
+        transaction.Currency = account.Currency;
         db.Transactions.Add(transaction);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("transaction.create", "Transaction", transaction.Id.ToString(),
@@ -667,6 +676,7 @@ public static class ApiEndpoints
                 DedupHash = DedupHasher.Unique(),
             };
             Apply(transaction, movement);
+            transaction.Currency = account.Currency;
             db.Transactions.Add(transaction);
         }
 
@@ -764,11 +774,6 @@ public static class ApiEndpoints
             return "Zadejte datum pohybu.";
         if (fields.Amount == 0)
             return "Částka nesmí být nulová.";
-        // A blank currency defaults to CZK in Apply; anything else must be a 3-letter code so it
-        // satisfies the CK_Transaction_Currency check (returns 400 here instead of a DB 500).
-        var currency = fields.Currency?.Trim();
-        if (!string.IsNullOrEmpty(currency) && currency.Length != 3)
-            return "Měna musí mít kód o 3 znacích.";
         return null;
     }
 
@@ -787,7 +792,7 @@ public static class ApiEndpoints
         transaction.BookingDate = fields.BookingDate;
         transaction.ValueDate = fields.ValueDate;
         transaction.Amount = fields.Amount;
-        transaction.Currency = string.IsNullOrWhiteSpace(fields.Currency) ? "CZK" : fields.Currency.Trim().ToUpperInvariant();
+        // Currency is not taken from the request: it always mirrors the account (set by the caller).
         transaction.Direction = fields.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
         transaction.CounterpartyName = NullIfBlank(fields.CounterpartyName);
         transaction.CounterpartyAccount = NullIfBlank(fields.CounterpartyAccount);

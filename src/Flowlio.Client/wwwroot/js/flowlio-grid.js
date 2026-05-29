@@ -6,9 +6,10 @@ window.flowlioGrid = (function () {
     const tables = {};   // id -> Tabulator instance
     const state = {};    // id -> { tokens, dotNet }
 
-    const money = (v) =>
-        new Intl.NumberFormat("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            .format(v || 0) + " Kč";
+    const money = (v, currency) => {
+        const n = new Intl.NumberFormat("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
+        return !currency || currency === "CZK" ? n + " Kč" : n + " " + currency;
+    };
 
     const monthNames = ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"];
 
@@ -74,7 +75,10 @@ window.flowlioGrid = (function () {
 
     function amountFormatter(cell) {
         const v = cell.getValue();
-        return '<span class="num ' + (v < 0 ? "expense" : "income") + '">' + (v > 0 ? "+" : "") + money(v) + "</span>";
+        // Footer sum cells have no row; fall back to CZK formatting there.
+        const row = typeof cell.getRow === "function" ? cell.getRow() : null;
+        const currency = row && typeof row.getData === "function" ? (row.getData() || {}).currency : null;
+        return '<span class="num ' + (v < 0 ? "expense" : "income") + '">' + (v > 0 ? "+" : "") + money(v, currency) + "</span>";
     }
 
     function categoryFormatter(cell) {

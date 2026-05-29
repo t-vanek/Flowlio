@@ -104,7 +104,8 @@ public sealed class ImportStatementHandler
                 BookingDate = parsed.BookingDate,
                 ValueDate = parsed.ValueDate,
                 Amount = parsed.Amount,
-                Currency = parsed.Currency,
+                // A transaction always uses its account's currency, not whatever the statement guessed.
+                Currency = account.Currency,
                 Direction = direction,
                 CounterpartyName = parsed.CounterpartyName,
                 CounterpartyAccount = parsed.CounterpartyAccount,

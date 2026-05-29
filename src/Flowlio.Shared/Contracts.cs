@@ -115,7 +115,7 @@ public sealed record TransactionFields
     public DateOnly BookingDate { get; init; }
     public DateOnly? ValueDate { get; init; }
     public decimal Amount { get; init; }
-    public string Currency { get; init; } = "CZK";
+    // Currency is not editable: a transaction always uses its account's currency (set server-side).
     public string? CounterpartyName { get; init; }
     public string? CounterpartyAccount { get; init; }
     public string? VariableSymbol { get; init; }
@@ -355,6 +355,7 @@ public sealed record UpcomingPaymentDto
 {
     public string Name { get; init; } = "";
     public decimal Amount { get; init; }
+    public string Currency { get; init; } = "CZK";
     public DateOnly? DueDate { get; init; }
 }
 
@@ -364,6 +365,10 @@ public sealed record DashboardSummaryDto
     public decimal IncomeThisMonth { get; init; }
     public decimal ExpenseThisMonth { get; init; }
     public decimal NetThisMonth { get; init; }
+
+    /// <summary>Currency the headline totals are expressed in (the family's base currency).</summary>
+    public string Currency { get; init; } = "CZK";
+
     public IReadOnlyList<CategorySpendDto> TopExpenseCategories { get; init; } = [];
     public IReadOnlyList<UpcomingPaymentDto> Upcoming { get; init; } = [];
 }

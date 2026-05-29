@@ -14,7 +14,7 @@
         <dt>Účet</dt>
         <dd>@AccountNames.GetValueOrDefault(Transaction.BankAccountId, "—")</dd>
         <dt>Částka</dt>
-        <dd><span class="num @(Transaction.Amount < 0 ? "expense" : "income")">@Formatting.Money(Transaction.Amount) @Transaction.Currency</span></dd>
+        <dd><span class="num @(Transaction.Amount < 0 ? "expense" : "income")">@Formatting.Money(Transaction.Amount, Transaction.Currency)</span></dd>
         <dt>Protistrana</dt>
         <dd>@(string.IsNullOrWhiteSpace(Transaction.CounterpartyName) ? "—" : Transaction.CounterpartyName)</dd>
         @if (!string.IsNullOrWhiteSpace(Transaction.CounterpartyAccount))
