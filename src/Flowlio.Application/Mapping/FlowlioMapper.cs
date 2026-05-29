@@ -27,6 +27,7 @@ public partial class FlowlioMapper
     [MapperIgnoreTarget(nameof(CategorizationRuleDto.BankAccountName))]
     [MapperIgnoreTarget(nameof(CategorizationRuleDto.OwnerName))]
     [MapperIgnoreTarget(nameof(CategorizationRuleDto.CanManage))]
+    [MapperIgnoreTarget(nameof(CategorizationRuleDto.UsageCount))]
     public partial CategorizationRuleDto ToDto(CategorizationRule entity);
 
     // CategoryName is flattened from entity.Category.Name by Mapperly.

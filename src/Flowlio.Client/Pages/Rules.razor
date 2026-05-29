@@ -1,10 +1,13 @@
 @page "/rules"
 @attribute [Authorize]
 @using System.Globalization
+@using System.Text
+@using System.Text.Json
 @inject FlowlioApi Api
 @inject CurrentUserState CurrentUser
 @inject IDialogService Dialogs
 @inject IToastService Toasts
+@inject IJSRuntime JS
 
 <PageTitle>Pravidla kategorizace – Flowlio</PageTitle>
 
@@ -154,6 +157,11 @@ else
                 <FluentButton Appearance="Appearance.Accent" OnClick="RecategorizeAsync" Loading="_recategorizing">
                     Přepočítat kategorie
                 </FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="ExportAsync" Title="Stáhnout pravidla jako JSON">Export</FluentButton>
+                <label class="file-field" style="display:inline-flex;align-items:center;gap:6px" title="Importovat pravidla z JSON">
+                    <span class="muted">Import:</span>
+                    <InputFile OnChange="ImportAsync" accept=".json" />
+                </label>
             </FluentStack>
         </div>
 
@@ -192,9 +200,19 @@ else
                                 <span> · @amt</span>
                             }
                             → @(r.CategoryName ?? "—") · priorita @r.Priority
+                            @if (r.UsageCount > 0)
+                            {
+                                <span> · použito @r.UsageCount×</span>
+                            }
+                            else
+                            {
+                                <span> · <span style="color:var(--warning, #b45309)">zatím nic nezařadilo</span></span>
+                            }
                         </div>
                     </div>
                     <div>
+                        <FluentButton Appearance="Appearance.Stealth" Title="Nahoru" OnClick="@(() => MoveAsync(r, -1))">▲</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" Title="Dolů" OnClick="@(() => MoveAsync(r, 1))">▼</FluentButton>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => EditRule(r))">Upravit</FluentButton>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => ToggleActiveAsync(r))">
                             @(r.IsActive ? "Deaktivovat" : "Aktivovat")
@@ -293,6 +311,61 @@ else
         _rules = await Api.GetRulesAsync();
         _deletedRules = await Api.GetDeletedRulesAsync();
         _suggestions = await Api.GetRuleSuggestionsAsync();
+    }
+
+    private async Task MoveAsync(CategorizationRuleDto r, int delta)
+    {
+        if (_rules is null)
+            return;
+        var list = _rules.ToList();
+        var i = list.FindIndex(x => x.Id == r.Id);
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= list.Count)
+            return;
+        (list[i], list[j]) = (list[j], list[i]);
+        _rules = list;
+        await Api.ReorderRulesAsync(list.Select(x => x.Id).ToList());
+        await LoadRulesAsync();
+    }
+
+    private async Task ExportAsync()
+    {
+        var rules = await Api.ExportRulesAsync();
+        if (rules.Count == 0)
+        {
+            Toasts.ShowError("Žádná pravidla k exportu.");
+            return;
+        }
+        var json = JsonSerializer.Serialize(rules, new JsonSerializerOptions { WriteIndented = true });
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+        await JS.InvokeVoidAsync("flowlioDownload.fromBytes", "flowlio-pravidla.json", base64, "application/json");
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            await using var stream = e.File.OpenReadStream(2 * 1024 * 1024);
+            var items = await JsonSerializer.DeserializeAsync<List<RuleExportDto>>(
+                stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (items is null || items.Count == 0)
+            {
+                Toasts.ShowError("Soubor neobsahuje žádná pravidla.");
+                return;
+            }
+            var result = await Api.ImportRulesAsync(items);
+            if (result is null)
+            {
+                Toasts.ShowError("Import se nezdařil.");
+                return;
+            }
+            Toasts.ShowSuccess($"Importováno {result.Imported} pravidel, přeskočeno {result.Skipped}.");
+            await LoadRulesAsync();
+        }
+        catch
+        {
+            Toasts.ShowError("Soubor se nepodařilo načíst (neplatný JSON).");
+        }
     }
 
     private async Task RestoreAsync(CategorizationRuleDto r)

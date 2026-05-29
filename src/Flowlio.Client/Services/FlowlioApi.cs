@@ -195,6 +195,20 @@ public sealed class FlowlioApi(HttpClient http)
             : null;
     }
 
+    /// <summary>Persists a new priority order (highest first) for the given rules.</summary>
+    public async Task<bool> ReorderRulesAsync(IReadOnlyList<Guid> orderedIds) =>
+        (await http.PostAsJsonAsync("api/rules/reorder", new ReorderRulesRequest { OrderedIds = orderedIds })).IsSuccessStatusCode;
+
+    /// <summary>Exports the visible rules as portable definitions (category/account by name).</summary>
+    public async Task<IReadOnlyList<RuleExportDto>> ExportRulesAsync() =>
+        await http.GetFromJsonAsync<List<RuleExportDto>>("api/rules/export") ?? [];
+
+    public async Task<RuleImportResultDto?> ImportRulesAsync(IReadOnlyList<RuleExportDto> items)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/import", items);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<RuleImportResultDto>() : null;
+    }
+
     public async Task<bool> DeleteRuleAsync(Guid id) =>
         (await http.DeleteAsync($"api/rules/{id}")).IsSuccessStatusCode;
 
