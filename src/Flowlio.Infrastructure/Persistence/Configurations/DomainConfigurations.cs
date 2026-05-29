@@ -302,6 +302,37 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
     }
 }
 
+public class BudgetConfiguration : IEntityTypeConfiguration<Budget>
+{
+    public void Configure(EntityTypeBuilder<Budget> b)
+    {
+        b.Property(x => x.Amount).HasPrecision(18, 2);
+        b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        // One budget per category per family.
+        b.HasIndex(x => new { x.FamilyId, x.CategoryId }).IsUnique();
+        b.ToTable(t => t.HasCheckConstraint("CK_Budget_Amount", "\"Amount\" > 0"));
+    }
+}
+
+public class GoalConfiguration : IEntityTypeConfiguration<Goal>
+{
+    public void Configure(EntityTypeBuilder<Goal> b)
+    {
+        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.TargetAmount).HasPrecision(18, 2);
+        b.Property(x => x.BaselineAmount).HasPrecision(18, 2);
+        b.HasOne(x => x.BankAccount).WithMany().HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+        b.HasIndex(x => x.FamilyId);
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Goal_Name", "char_length(btrim(\"Name\")) > 0");
+            t.HasCheckConstraint("CK_Goal_TargetAmount", "\"TargetAmount\" > 0");
+        });
+    }
+}
+
 public class ExchangeRateConfiguration : IEntityTypeConfiguration<ExchangeRate>
 {
     public void Configure(EntityTypeBuilder<ExchangeRate> b)

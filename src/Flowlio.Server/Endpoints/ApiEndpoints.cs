@@ -46,6 +46,7 @@ public static class ApiEndpoints
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         api.MapRuleEndpoints();
+        api.MapBudgetEndpoints();
         api.MapFamilyEndpoints();
         api.MapRolesEndpoints();
         api.MapFamilyManagementEndpoints();

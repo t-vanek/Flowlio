@@ -1,0 +1,256 @@
+@page "/budgets"
+@attribute [Authorize]
+@using System.Globalization
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+@inject IToastService Toasts
+
+<PageTitle>Rozpočty a cíle – Flowlio</PageTitle>
+
+<h1 class="page-title">Rozpočty a cíle</h1>
+
+@if (!_canView)
+{
+    <FluentCard Class="panel">
+        <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění zobrazit finance.</FluentMessageBar>
+    </FluentCard>
+}
+else
+{
+<div class="panel-grid">
+    @* ---- Budgets ---- *@
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Rozpočty</h2>
+        <p class="muted">Měsíční (nebo týdenní/roční) strop útrat na vybraných výdajových kategoriích. Čerpání se počítá
+            z transakcí včetně podkategorií a přepočítává do základní měny.</p>
+
+        @if (_canManage)
+        {
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentSelect TOption="string" @bind-Value="_budgetCategory" Label="Kategorie" Style="width:180px">
+                    <FluentOption TOption="string" Value="">— kategorie —</FluentOption>
+                    @foreach (var c in BudgetableCategories)
+                    {
+                        <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                    }
+                </FluentSelect>
+                <div style="width:140px"><label class="field-label">Limit</label><MoneyField @bind-Value="_budgetAmount" /></div>
+                <FluentSelect TOption="string" @bind-Value="_budgetPeriod" Label="Období" Style="width:120px">
+                    <FluentOption TOption="string" Value="1">Měsíc</FluentOption>
+                    <FluentOption TOption="string" Value="0">Týden</FluentOption>
+                    <FluentOption TOption="string" Value="2">Rok</FluentOption>
+                </FluentSelect>
+                <FluentButton Appearance="Appearance.Accent" OnClick="AddBudgetAsync" Loading="_busy">Přidat</FluentButton>
+            </FluentStack>
+        }
+
+        @if (_budgets is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_budgets.Count == 0)
+        {
+            <p class="muted">Zatím žádné rozpočty.</p>
+        }
+        else
+        {
+            @foreach (var b in _budgets)
+            {
+                var pct = b.Amount == 0 ? 0 : (double)(b.Spent / b.Amount);
+                <div class="account-row">
+                    <div style="flex:1">
+                        <div class="account-name">
+                            <span class="cat-dot" style="background:@(b.Color ?? "#64748b")"></span> @b.CategoryName
+                            <span class="muted">· @PeriodLabel(b.Period)</span>
+                        </div>
+                        <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
+                            <div style="height:100%;width:@(Math.Min(pct,1)*100)%;background:@BarColor(pct)"></div>
+                        </div>
+                        <div class="muted">
+                            @Formatting.Money(b.Spent, b.Currency) / @Formatting.Money(b.Amount, b.Currency)
+                            (@((pct*100).ToString("0", Cz)) %)
+                            @if (pct > 1) { <span style="color:#dc2626"> · přečerpáno</span> }
+                        </div>
+                    </div>
+                    @if (_canManage)
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteBudgetAsync(b))">Smazat</FluentButton>
+                    }
+                </div>
+            }
+        }
+    </FluentCard>
+
+    @* ---- Goals ---- *@
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Cíle</h2>
+        <p class="muted">Spořicí cíl navázaný na účet. Postup = nárůst zůstatku účtu od založení cíle.</p>
+
+        @if (_canManage)
+        {
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                    <FluentTextField @bind-Value="_goalName" Label="Název" Style="width:180px" Placeholder="Dovolená" />
+                    <FluentSelect TOption="string" @bind-Value="_goalAccount" Label="Účet" Style="width:160px">
+                        <FluentOption TOption="string" Value="">— účet —</FluentOption>
+                        @foreach (var a in _accounts ?? [])
+                        {
+                            <FluentOption TOption="string" Value="@a.Id.ToString()">@a.Name</FluentOption>
+                        }
+                    </FluentSelect>
+                </FluentStack>
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                    <div style="width:140px"><label class="field-label">Cílová částka</label><MoneyField @bind-Value="_goalTarget" /></div>
+                    <div><label class="field-label">Termín (volitelné)</label><input type="date" class="date-input" @bind="_goalDate" /></div>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="AddGoalAsync" Loading="_busy">Přidat</FluentButton>
+                </FluentStack>
+            </FluentStack>
+        }
+
+        @if (_goals is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_goals.Count == 0)
+        {
+            <p class="muted">Zatím žádné cíle.</p>
+        }
+        else
+        {
+            @foreach (var g in _goals)
+            {
+                var pct = g.TargetAmount == 0 ? 0 : (double)(g.Saved / g.TargetAmount);
+                <div class="account-row">
+                    <div style="flex:1">
+                        <div class="account-name">@g.Name <span class="muted">· @g.AccountName</span></div>
+                        <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
+                            <div style="height:100%;width:@(Math.Clamp(pct,0,1)*100)%;background:#16a34a"></div>
+                        </div>
+                        <div class="muted">
+                            @Formatting.Money(Math.Max(g.Saved, 0), g.Currency) / @Formatting.Money(g.TargetAmount, g.Currency)
+                            (@((Math.Clamp(pct,0,1)*100).ToString("0", Cz)) %)
+                            @if (g.RequiredMonthly is { } rm && g.TargetDate is { } d)
+                            {
+                                <span> · ~@Formatting.Money(rm, g.Currency)/měsíc do @Formatting.Date(d)</span>
+                            }
+                        </div>
+                    </div>
+                    @if (_canManage)
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteGoalAsync(g))">Smazat</FluentButton>
+                    }
+                </div>
+            }
+        }
+    </FluentCard>
+</div>
+}
+
+@code {
+    private static readonly CultureInfo Cz = CultureInfo.GetCultureInfo("cs-CZ");
+
+    private IReadOnlyList<BudgetDto>? _budgets;
+    private IReadOnlyList<GoalDto>? _goals;
+    private IReadOnlyList<CategoryDto>? _categories;
+    private IReadOnlyList<BankAccountDto>? _accounts;
+    private bool _canView;
+    private bool _canManage;
+    private bool _busy;
+
+    private string _budgetCategory = "";
+    private decimal _budgetAmount;
+    private string _budgetPeriod = "1";
+
+    private string _goalName = "";
+    private string _goalAccount = "";
+    private decimal _goalTarget;
+    private DateOnly? _goalDate;
+
+    private IEnumerable<CategoryDto> BudgetableCategories =>
+        (_categories ?? []).Where(c => c.Kind == CategoryKind.Expense
+            && !(_budgets ?? []).Any(b => b.CategoryId == c.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var me = await CurrentUser.GetAsync();
+        _canView = me?.Can(Permission.ViewFinances) ?? false;
+        _canManage = me?.Can(Permission.ManageTransactions) ?? false;
+        if (!_canView)
+            return;
+
+        _categories = await Api.GetCategoriesAsync();
+        _accounts = await Api.GetAccountsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _budgets = await Api.GetBudgetsAsync();
+        _goals = await Api.GetGoalsAsync();
+    }
+
+    private async Task AddBudgetAsync()
+    {
+        if (!Guid.TryParse(_budgetCategory, out var categoryId)) { Toasts.ShowError("Vyberte kategorii."); return; }
+        if (_budgetAmount <= 0) { Toasts.ShowError("Zadejte kladný limit."); return; }
+        _busy = true;
+        try
+        {
+            var ok = await Api.CreateBudgetAsync(new BudgetRequest
+            {
+                CategoryId = categoryId,
+                Amount = _budgetAmount,
+                Period = (BudgetPeriod)int.Parse(_budgetPeriod),
+            });
+            if (!ok) { Toasts.ShowError("Rozpočet se nepodařilo vytvořit."); return; }
+            Toasts.ShowSuccess("Rozpočet přidán.");
+            _budgetCategory = ""; _budgetAmount = 0;
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteBudgetAsync(BudgetDto b)
+    {
+        if (await Api.DeleteBudgetAsync(b.Id)) { Toasts.ShowSuccess("Rozpočet smazán."); await LoadAsync(); }
+        else Toasts.ShowError("Smazání se nezdařilo.");
+    }
+
+    private async Task AddGoalAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_goalName)) { Toasts.ShowError("Zadejte název."); return; }
+        if (!Guid.TryParse(_goalAccount, out var accountId)) { Toasts.ShowError("Vyberte účet."); return; }
+        if (_goalTarget <= 0) { Toasts.ShowError("Zadejte kladnou cílovou částku."); return; }
+        _busy = true;
+        try
+        {
+            var ok = await Api.CreateGoalAsync(new GoalRequest
+            {
+                Name = _goalName,
+                BankAccountId = accountId,
+                TargetAmount = _goalTarget,
+                TargetDate = _goalDate,
+            });
+            if (!ok) { Toasts.ShowError("Cíl se nepodařilo vytvořit."); return; }
+            Toasts.ShowSuccess("Cíl přidán.");
+            _goalName = ""; _goalAccount = ""; _goalTarget = 0; _goalDate = null;
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteGoalAsync(GoalDto g)
+    {
+        if (await Api.DeleteGoalAsync(g.Id)) { Toasts.ShowSuccess("Cíl smazán."); await LoadAsync(); }
+        else Toasts.ShowError("Smazání se nezdařilo.");
+    }
+
+    private static string PeriodLabel(BudgetPeriod p) => p switch
+    {
+        BudgetPeriod.Weekly => "týdně",
+        BudgetPeriod.Yearly => "ročně",
+        _ => "měsíčně",
+    };
+
+    private static string BarColor(double pct) => pct >= 1 ? "#dc2626" : pct >= 0.8 ? "#f59e0b" : "#16a34a";
+}

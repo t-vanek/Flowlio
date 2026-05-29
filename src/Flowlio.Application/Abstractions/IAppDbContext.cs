@@ -26,6 +26,8 @@ public interface IAppDbContext
     DbSet<CategorizationRule> CategorizationRules { get; }
     DbSet<RuleSuggestionDismissal> RuleSuggestionDismissals { get; }
     DbSet<ExchangeRate> ExchangeRates { get; }
+    DbSet<Budget> Budgets { get; }
+    DbSet<Goal> Goals { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
