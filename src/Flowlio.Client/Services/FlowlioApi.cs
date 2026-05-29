@@ -119,6 +119,10 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<int> BulkDeleteTransactionsAsync(IReadOnlyList<Guid> ids) =>
         BulkAsync("api/transactions/bulk-delete", new BulkTransactionRequest { Ids = ids });
 
+    /// <summary>Uncategorized transactions grouped by counterparty, for the triage inbox.</summary>
+    public async Task<IReadOnlyList<UncategorizedGroupDto>> GetUncategorizedAsync() =>
+        await http.GetFromJsonAsync<List<UncategorizedGroupDto>>("api/transactions/uncategorized") ?? [];
+
     public Task<int> BulkCategorizeAsync(IReadOnlyList<Guid> ids, Guid? categoryId) =>
         BulkAsync("api/transactions/bulk-categorize", new BulkCategorizeRequest { Ids = ids, CategoryId = categoryId });
 

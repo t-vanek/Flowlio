@@ -152,6 +152,20 @@ public sealed record BulkTransactionRequest
     public IReadOnlyList<Guid> Ids { get; init; } = [];
 }
 
+/// <summary>A cluster of uncategorized transactions sharing a counterparty, for the triage ("to categorize")
+/// inbox: assign them all at once and optionally turn the merchant into a rule.</summary>
+public sealed record UncategorizedGroupDto
+{
+    public string Counterparty { get; init; } = "";
+    public int Count { get; init; }
+
+    /// <summary>Sum of the group when all rows share a currency; null for a mixed-currency group.</summary>
+    public decimal? TotalAmount { get; init; }
+    public string? Currency { get; init; }
+
+    public IReadOnlyList<Guid> TransactionIds { get; init; } = [];
+}
+
 /// <summary>Bulk re-categorisation of a set of transactions (null category clears it).</summary>
 public sealed record BulkCategorizeRequest
 {
