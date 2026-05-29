@@ -24,6 +24,7 @@ public interface IAppDbContext
     DbSet<Subscription> Subscriptions { get; }
     DbSet<ImportBatch> ImportBatches { get; }
     DbSet<CategorizationRule> CategorizationRules { get; }
+    DbSet<RuleSuggestionDismissal> RuleSuggestionDismissals { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

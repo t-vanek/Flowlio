@@ -208,6 +208,13 @@ public sealed record RuleSuggestionDto
     public int MatchCount { get; init; }
 }
 
+/// <summary>Permanently dismiss a learned suggestion for a counterparty + category so it isn't offered again.</summary>
+public sealed record RuleSuggestionDismissRequest
+{
+    public string Pattern { get; init; } = "";
+    public Guid CategoryId { get; init; }
+}
+
 /// <summary>Re-runs the family's rules over existing transactions. By default only fills transactions
 /// that have no category yet, so manual categorizations are preserved.</summary>
 public sealed record RecategorizeRequest

@@ -160,6 +160,14 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<RuleSuggestionDto>> GetRuleSuggestionsAsync() =>
         await http.GetFromJsonAsync<List<RuleSuggestionDto>>("api/rules/suggestions") ?? [];
 
+    /// <summary>Permanently dismisses a learned suggestion so it isn't offered again.</summary>
+    public async Task<bool> DismissRuleSuggestionAsync(string pattern, Guid categoryId)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/suggestions/dismiss",
+            new RuleSuggestionDismissRequest { Pattern = pattern, CategoryId = categoryId });
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
     {
         var response = await http.PostAsJsonAsync("api/rules", request);

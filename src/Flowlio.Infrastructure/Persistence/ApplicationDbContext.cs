@@ -30,6 +30,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
     public DbSet<CategorizationRule> CategorizationRules => Set<CategorizationRule>();
+    public DbSet<RuleSuggestionDismissal> RuleSuggestionDismissals => Set<RuleSuggestionDismissal>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

@@ -20,6 +20,7 @@ public static class RuleEndpoints
     {
         api.MapGet("/rules", GetRules);
         api.MapGet("/rules/suggestions", GetSuggestions);
+        api.MapPost("/rules/suggestions/dismiss", DismissSuggestion);
         api.MapPost("/rules", CreateRule);
         api.MapPut("/rules/{id:guid}", UpdateRule);
         api.MapDelete("/rules/{id:guid}", DeleteRule);
@@ -51,6 +52,13 @@ public static class RuleEndpoints
         if (manual.Count == 0)
             return Results.Ok(new List<RuleSuggestionDto>());
 
+        var dismissed = (await db.RuleSuggestionDismissals
+                .Where(d => d.FamilyId == familyId)
+                .Select(d => new { d.CounterpartyKey, d.CategoryId })
+                .ToListAsync(ct))
+            .Select(d => (d.CounterpartyKey, d.CategoryId))
+            .ToHashSet();
+
         var rules = await db.CategorizationRules
             .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
@@ -64,8 +72,9 @@ public static class RuleEndpoints
 
         var suggestions = manual
             // Consolidate case variants of the same merchant filed into the same category.
-            .GroupBy(x => (Key: x.Name.Trim().ToLowerInvariant(), x.CategoryId))
+            .GroupBy(x => (Key: NormalizeKey(x.Name), x.CategoryId))
             .Where(g => g.Key.Key.Length > 0 && g.Count() >= SuggestionThreshold)
+            .Where(g => !dismissed.Contains((g.Key.Key, g.Key.CategoryId)))
             .Select(g =>
             {
                 // Show the merchant's most common original spelling as the rule pattern.
@@ -91,6 +100,36 @@ public static class RuleEndpoints
 
         return Results.Ok(suggestions);
     }
+
+    /// <summary>Permanently hides a suggestion for a counterparty + category (idempotent).</summary>
+    private static async Task<IResult> DismissSuggestion(
+        RuleSuggestionDismissRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var key = NormalizeKey(request.Pattern);
+        if (key.Length == 0)
+            return Results.BadRequest("Prázdný vzor.");
+
+        var alreadyDismissed = await db.RuleSuggestionDismissals.AnyAsync(
+            d => d.FamilyId == familyId && d.CounterpartyKey == key && d.CategoryId == request.CategoryId, ct);
+        if (!alreadyDismissed)
+        {
+            db.RuleSuggestionDismissals.Add(new RuleSuggestionDismissal
+            {
+                FamilyId = familyId,
+                CounterpartyKey = key,
+                CategoryId = request.CategoryId,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+        return Results.NoContent();
+    }
+
+    /// <summary>Normalized counterparty key used for both grouping suggestions and matching dismissals.</summary>
+    private static string NormalizeKey(string name) => name.Trim().ToLowerInvariant();
 
     private static async Task<IResult> GetRules(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
