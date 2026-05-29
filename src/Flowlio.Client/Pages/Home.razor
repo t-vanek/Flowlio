@@ -108,11 +108,38 @@ else
                 }
             }
         </FluentCard>
+
+        @if (_budgets is { Count: > 0 } || _goals is { Count: > 0 })
+        {
+            <FluentCard Class="panel">
+                <h2 class="panel-title">Rozpočty a cíle</h2>
+                @foreach (var b in (_budgets ?? []).Take(3))
+                {
+                    var pct = b.Amount == 0 ? 0 : (double)(b.Spent / b.Amount);
+                    <div class="bar-row">
+                        <span class="bar-name">@b.CategoryName</span>
+                        <span class="bar-amount @(pct >= 1 ? "expense" : "")">@Formatting.Money(b.Spent, b.Currency) / @Formatting.Money(b.Amount, b.Currency)</span>
+                    </div>
+                }
+                @if (_goals is { Count: > 0 })
+                {
+                    var g = _goals[0];
+                    var gp = g.TargetAmount == 0 ? 0 : (double)(g.Saved / g.TargetAmount);
+                    <div class="bar-row">
+                        <span class="bar-name">🎯 @g.Name</span>
+                        <span class="bar-amount">@((Math.Clamp(gp, 0, 1) * 100).ToString("0")) %</span>
+                    </div>
+                }
+                <a href="budgets" class="muted">Spravovat rozpočty a cíle →</a>
+            </FluentCard>
+        }
     </div>
 }
 
 @code {
     private DashboardSummaryDto? _summary;
+    private IReadOnlyList<BudgetDto>? _budgets;
+    private IReadOnlyList<GoalDto>? _goals;
     private bool _canView;
     private ApexChartOptions<CategorySpendDto> _donutOptions = new();
     private ApexChartOptions<FlowPoint> _barOptions = new();
