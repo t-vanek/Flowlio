@@ -178,3 +178,11 @@ public enum RuleScope
     /// <summary>Applies to every account in the family. Managed by the family owner.</summary>
     Family = 2,
 }
+
+/// <summary>How often a budget's spending limit resets.</summary>
+public enum BudgetPeriod
+{
+    Weekly = 0,
+    Monthly = 1,
+    Yearly = 2,
+}

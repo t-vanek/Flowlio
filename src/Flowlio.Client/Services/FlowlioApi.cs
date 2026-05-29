@@ -59,6 +59,32 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() =>
         await http.GetFromJsonAsync<List<CategoryDto>>("api/categories") ?? [];
 
+    // --- Budgets & goals ---
+
+    public async Task<IReadOnlyList<BudgetDto>> GetBudgetsAsync() =>
+        await http.GetFromJsonAsync<List<BudgetDto>>("api/budgets") ?? [];
+
+    public async Task<bool> CreateBudgetAsync(BudgetRequest request) =>
+        (await http.PostAsJsonAsync("api/budgets", request)).IsSuccessStatusCode;
+
+    public async Task<bool> UpdateBudgetAsync(Guid id, BudgetRequest request) =>
+        (await http.PutAsJsonAsync($"api/budgets/{id}", request)).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteBudgetAsync(Guid id) =>
+        (await http.DeleteAsync($"api/budgets/{id}")).IsSuccessStatusCode;
+
+    public async Task<IReadOnlyList<GoalDto>> GetGoalsAsync() =>
+        await http.GetFromJsonAsync<List<GoalDto>>("api/goals") ?? [];
+
+    public async Task<bool> CreateGoalAsync(GoalRequest request) =>
+        (await http.PostAsJsonAsync("api/goals", request)).IsSuccessStatusCode;
+
+    public async Task<bool> UpdateGoalAsync(Guid id, GoalRequest request) =>
+        (await http.PutAsJsonAsync($"api/goals/{id}", request)).IsSuccessStatusCode;
+
+    public async Task<bool> DeleteGoalAsync(Guid id) =>
+        (await http.DeleteAsync($"api/goals/{id}")).IsSuccessStatusCode;
+
     public async Task<TransactionPageDto?> GetTransactionsAsync(
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
         TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)

@@ -454,6 +454,67 @@ public sealed record CurrencyAmountDto
     public decimal Amount { get; init; }
 }
 
+// ---- Budgets & goals --------------------------------------------------------
+
+/// <summary>A spending limit for an expense category with its actual spend in the current period.</summary>
+public sealed record BudgetDto
+{
+    public Guid Id { get; init; }
+    public Guid CategoryId { get; init; }
+    public string CategoryName { get; init; } = "";
+    public string? Color { get; init; }
+    public BudgetPeriod Period { get; init; }
+
+    /// <summary>Limit and actual spend for the current period, in the family's base currency.</summary>
+    public decimal Amount { get; init; }
+    public decimal Spent { get; init; }
+    public string Currency { get; init; } = "CZK";
+
+    public DateOnly PeriodStart { get; init; }
+    public DateOnly PeriodEnd { get; init; }
+}
+
+public sealed record BudgetRequest
+{
+    public Guid CategoryId { get; set; }
+    public decimal Amount { get; set; }
+    public BudgetPeriod Period { get; set; } = BudgetPeriod.Monthly;
+}
+
+/// <summary>A savings goal tied to an account, with computed progress and the contribution needed to hit it.</summary>
+public sealed record GoalDto
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public Guid BankAccountId { get; init; }
+    public string AccountName { get; init; } = "";
+    public string Currency { get; init; } = "CZK";
+
+    public decimal TargetAmount { get; init; }
+    public decimal BaselineAmount { get; init; }
+
+    /// <summary>How much has been saved toward the goal so far (current balance − baseline).</summary>
+    public decimal Saved { get; init; }
+    public DateOnly? TargetDate { get; init; }
+
+    /// <summary>Contribution per month needed to reach the target by <see cref="TargetDate"/>, when set.</summary>
+    public decimal? RequiredMonthly { get; init; }
+}
+
+public sealed record GoalRequest
+{
+    [Required(ErrorMessage = "Název je povinný.")]
+    [StringLength(200, MinimumLength = 1)]
+    public string Name { get; set; } = "";
+
+    public Guid BankAccountId { get; set; }
+    public decimal TargetAmount { get; set; }
+    public DateOnly? TargetDate { get; set; }
+
+    /// <summary>Optional starting balance; defaults to the account's current balance at creation.</summary>
+    public decimal? BaselineAmount { get; set; }
+}
+
 /// <summary>The signed-in member together with the effective permissions their role grants.</summary>
 public sealed record CurrentUserDto
 {
