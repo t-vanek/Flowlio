@@ -77,4 +77,34 @@ public class TransactionCategorizerTests
 
         Assert.Null(TransactionCategorizer.Match("ALBERT", "Platba kartou", null, null, rules));
     }
+
+    [Fact]
+    public void Matches_when_statement_text_lacks_diacritics()
+    {
+        var cat = Guid.NewGuid();
+        // Czech banks often strip diacritics and uppercase the merchant; the rule keeps its accents.
+        var rules = new[] { Rule(RuleMatchField.Any, "Lékárna", cat) };
+
+        Assert.Equal(cat, TransactionCategorizer.Match(null, "PLATBA KARTOU LEKARNA U ANDELA", null, null, rules));
+    }
+
+    [Fact]
+    public void Matches_when_pattern_lacks_diacritics_but_text_has_them()
+    {
+        var cat = Guid.NewGuid();
+        var rules = new[] { Rule(RuleMatchField.CounterpartyName, "Vyplata", cat) };
+
+        Assert.Equal(cat, TransactionCategorizer.Match("Výplata mzdy", null, null, null, rules));
+    }
+
+    [Theory]
+    [InlineData("Lékárna", "lekarna")]
+    [InlineData("PŘÍJEM", "prijem")]
+    [InlineData("Žabka", "zabka")]
+    [InlineData(null, "")]
+    [InlineData("   ", "")]
+    public void Fold_strips_diacritics(string? input, string expected)
+    {
+        Assert.Equal(expected, TransactionCategorizer.Fold(input).ToLowerInvariant());
+    }
 }

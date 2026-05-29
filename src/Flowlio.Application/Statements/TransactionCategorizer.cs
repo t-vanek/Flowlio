@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Flowlio.Domain;
 
 namespace Flowlio.Application.Statements;
@@ -17,28 +19,52 @@ public static class TransactionCategorizer
         string? counterpartyAccount,
         IReadOnlyList<CategorizationRule> rules)
     {
+        // Czech statements arrive with or without diacritics and in mixed case ("LEKARNA" vs "Lékárna"),
+        // so match on a diacritics-folded form. Computed once per field, reused across every rule.
+        var name = Fold(counterpartyName);
+        var desc = Fold(description);
+        var vs = Fold(variableSymbol);
+        var account = Fold(counterpartyAccount);
+        var any = string.Join(
+            '\n',
+            new[] { name, desc, vs, account }.Where(s => !string.IsNullOrEmpty(s)));
+
         foreach (var rule in rules)
         {
             var haystack = rule.Field switch
             {
-                RuleMatchField.CounterpartyName => counterpartyName,
-                RuleMatchField.Description => description,
-                RuleMatchField.VariableSymbol => variableSymbol,
-                RuleMatchField.CounterpartyAccount => counterpartyAccount,
-                RuleMatchField.Any => string.Join(
-                    '\n',
-                    new[] { counterpartyName, description, variableSymbol, counterpartyAccount }
-                        .Where(s => !string.IsNullOrWhiteSpace(s))),
+                RuleMatchField.CounterpartyName => name,
+                RuleMatchField.Description => desc,
+                RuleMatchField.VariableSymbol => vs,
+                RuleMatchField.CounterpartyAccount => account,
+                RuleMatchField.Any => any,
                 _ => null,
             };
 
             if (!string.IsNullOrEmpty(haystack) &&
-                haystack.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase))
+                haystack.Contains(Fold(rule.Pattern), StringComparison.OrdinalIgnoreCase))
             {
                 return rule.CategoryId;
             }
         }
 
         return null;
+    }
+
+    /// <summary>Strips diacritics so "Lékárna" matches "LEKARNA"; case is still handled by the caller's
+    /// <see cref="StringComparison.OrdinalIgnoreCase"/> compare. Returns "" for null/blank input.</summary>
+    internal static string Fold(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var decomposed = value.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                sb.Append(ch);
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC);
     }
 }

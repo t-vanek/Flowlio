@@ -30,14 +30,30 @@ public static class DefaultRules
                 });
         }
 
-        Add("Potraviny", "Albert", "Lidl", "Kaufland", "Billa", "Tesco", "Penny", "Globus", "Makro", "Rohlik");
-        Add("Doprava", "Shell", "OMV", "Benzina", "MOL", "EuroOil", "RegioJet", "Leo Express", "Uber", "Bolt");
-        Add("Restaurace", "McDonald", "KFC", "Burger King", "Starbucks");
-        Add("Předplatné", "Netflix", "Spotify", "HBO", "Disney", "YouTube Premium", "Apple.com/Bill");
-        Add("Zábava", "Steam", "PlayStation", "Xbox", "Cinema City");
-        Add("Zdraví", "Dr.Max", "Benu", "Pilulka", "Lékárna");
-        Add("Oblečení", "Zara", "Reserved", "Notino", "Zalando");
-        Add("Mzda", "Mzda", "Výplata");
+        Add("Potraviny", "Albert", "Lidl", "Kaufland", "Billa", "Tesco", "Penny", "Globus", "Makro",
+            "Rohlik", "Košík", "Žabka", "Norma");
+        Add("Doprava", "Shell", "OMV", "Benzina", "EuroOil", "RegioJet", "Leo Express", "Uber", "Bolt",
+            "FlixBus", "Dopravní podnik", "ČD ", "České dráhy", "Litačka", "Lítačka", "PID");
+        Add("Restaurace", "McDonald", "KFC", "Burger King", "Starbucks", "Costa Coffee", "Wolt",
+            "Foodora", "Damejidlo", "Dámejídlo", "Restaurace", "Bistro", "Kavárna");
+        Add("Předplatné", "Netflix", "Spotify", "HBO", "Disney", "YouTube Premium", "Apple.com/Bill",
+            "Google Storage", "Microsoft 365", "iCloud", "Amazon Prime");
+        Add("Zábava", "Steam", "PlayStation", "Xbox", "Cinema City", "Cinestar", "Aero", "Bandzone",
+            "Ticketportal", "GoOut", "Knihy Dobrovský", "Luxor");
+        Add("Zdraví", "Dr.Max", "Benu", "Pilulka", "Lékárna", "dm drogerie", "Rossmann", "Teta",
+            "Notino", "MojeLékárna", "Zdravotní pojišťovna", "VZP");
+        Add("Oblečení", "Zara", "Reserved", "Zalando", "H&M", "C&A", "Sinsay", "About You",
+            "Deichmann", "CCC", "Decathlon", "Sportisimo");
+        Add("Bydlení", "ČEZ", "E.ON", "innogy", "Pražská energetika", "PRE ", "Pražská plynárenská",
+            "Veolia", "Vodárny", "O2", "Vodafone", "T-Mobile", "Starnet", "Nájem", "Nájemné",
+            "SVJ", "Společenství vlastníků", "Hypotéka", "IKEA", "OBI", "Hornbach", "Bauhaus");
+        Add("Děti", "Mateřská škola", "Mateřská školka", "Školka", "Školné", "Družina", "Jídelna",
+            "Bambule", "Pompo", "Sparkys");
+        Add("Ostatní výdaje", "Alza", "Mall.cz", "Datart", "Notino.cz", "Poplatek", "Bankovní poplatek",
+            "Výběr z bankomatu", "Výběr hotovosti", "Pojištění", "Pojišťovna", "Allianz", "Kooperativa",
+            "Generali", "ČSOB Pojišťovna");
+        Add("Mzda", "Mzda", "Výplata", "Plat", "Odměna");
+        Add("Ostatní příjmy", "Úrok", "Připsání úroku", "Vratka", "Přídavek", "Dividenda");
 
         return rules;
     }
