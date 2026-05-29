@@ -154,6 +154,8 @@ else
             return;
 
         _summary = await Api.GetDashboardAsync();
+        _budgets = await Api.GetBudgetsAsync();
+        _goals = await Api.GetGoalsAsync();
 
         var effective = await JS.InvokeAsync<string>("flowlioTheme.effective");
         var mode = effective == "dark" ? Mode.Dark : Mode.Light;
