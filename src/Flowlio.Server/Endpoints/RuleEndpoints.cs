@@ -264,13 +264,14 @@ public static class RuleEndpoints
         await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Upraveno pravidlo „{DescribeRule(rule)}“", ct);
 
-        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
+        // Re-evaluate uncategorized rows and the rows this rule had assigned, so the edit takes effect on history.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct, reevaluateRuleId: rule.Id);
 
         return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, me, isOwner, ct));
     }
 
     private static async Task<IResult> DeleteRule(
-        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -283,17 +284,19 @@ public static class RuleEndpoints
         if (!CanManageRule(rule, me, me.Role == MemberRole.Owner))
             return Forbidden();
 
-        // Soft delete: the rule stops categorizing but is recoverable via restore. Already-categorized
-        // transactions keep their category (we don't track which rule assigned what).
+        // Soft delete: recoverable via restore. The rule stops categorizing immediately.
         rule.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        // Re-evaluate the rows this rule had assigned: another rule may now claim them, otherwise they
+        // return to uncategorized. Manual choices are untouched.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: false, ct, reevaluateRuleId: rule.Id);
         await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Smazáno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> RestoreRule(
-        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -310,6 +313,8 @@ public static class RuleEndpoints
         rule.DeletedAt = null;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        // The restored rule applies to uncategorized history again.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
         await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Obnoveno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
@@ -366,22 +371,24 @@ public static class RuleEndpoints
         return Results.Ok(new BulkResultDto { Count = count });
     }
 
-    /// <summary>Runs the family's active rules over its transactions, assigning a category where one matches.
-    /// Never clears an existing category; with <paramref name="onlyUncategorized"/> it also skips rows that
-    /// already have one. Returns the number of transactions changed.</summary>
+    /// <summary>Runs the family's active rules over its transactions, assigning a category (and recording the
+    /// rule that did it) where one matches. Manual choices are never touched. With <paramref name="onlyUncategorized"/>
+    /// it only fills empty rows. When <paramref name="reevaluateRuleId"/> is set (after a rule edit/delete) it also
+    /// re-checks rows that rule had assigned, and clears any that no longer match any rule. Returns rows changed.</summary>
     private static async Task<int> RecategorizeAsync(
-        IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct)
+        IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct,
+        Guid? reevaluateRuleId = null)
     {
         var familyRules = await db.CategorizationRules
             .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
             .ToListAsync(ct);
-        if (familyRules.Count == 0)
-            return 0;
 
         // Never touch human choices: rules only fill in or replace rule-assigned/empty categories.
         var query = db.Transactions.Where(t => t.FamilyId == familyId && t.CategorySource != CategorySource.Manual);
-        if (onlyUncategorized)
+        if (reevaluateRuleId is { } rid)
+            query = query.Where(t => t.CategoryId == null || t.AppliedRuleId == rid);
+        else if (onlyUncategorized)
             query = query.Where(t => t.CategoryId == null);
         var transactions = await query.ToListAsync(ct);
         if (transactions.Count == 0)
@@ -405,13 +412,27 @@ public static class RuleEndpoints
         var changed = 0;
         foreach (var t in transactions)
         {
-            var match = TransactionCategorizer.Match(
+            var matched = TransactionCategorizer.MatchRule(
                 t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
                 t.Amount, t.Currency, t.Direction, RulesFor(t.BankAccountId));
-            if (match is { } categoryId && categoryId != t.CategoryId)
+
+            if (matched is { } rule)
             {
-                t.CategoryId = categoryId;
-                t.CategorySource = CategorySource.Rule;
+                if (t.CategoryId != rule.CategoryId || t.AppliedRuleId != rule.Id || t.CategorySource != CategorySource.Rule)
+                {
+                    t.CategoryId = rule.CategoryId;
+                    t.CategorySource = CategorySource.Rule;
+                    t.AppliedRuleId = rule.Id;
+                    t.UpdatedAt = now;
+                    changed++;
+                }
+            }
+            else if (reevaluateRuleId is not null && t.CategorySource == CategorySource.Rule)
+            {
+                // Re-evaluating after an edit/delete and nothing matches a previously rule-assigned row: clear it.
+                t.CategoryId = null;
+                t.CategorySource = CategorySource.None;
+                t.AppliedRuleId = null;
                 t.UpdatedAt = now;
                 changed++;
             }

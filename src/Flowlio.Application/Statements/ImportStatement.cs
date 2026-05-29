@@ -93,9 +93,9 @@ public sealed class ImportStatementHandler
             }
 
             var direction = parsed.Amount < 0 ? TransactionDirection.Outgoing : TransactionDirection.Incoming;
-            var matchedCategory = TransactionCategorizer.Match(
+            var matchedRule = TransactionCategorizer.MatchRule(
                 parsed.CounterpartyName, parsed.Description, parsed.VariableSymbol, parsed.CounterpartyAccount,
-                parsed.Amount, parsed.Currency, direction, rules);
+                parsed.Amount, account.Currency, direction, rules);
 
             db.Transactions.Add(new Transaction
             {
@@ -113,8 +113,9 @@ public sealed class ImportStatementHandler
                 ConstantSymbol = parsed.ConstantSymbol,
                 SpecificSymbol = parsed.SpecificSymbol,
                 Description = parsed.Description,
-                CategoryId = matchedCategory,
-                CategorySource = matchedCategory is null ? CategorySource.None : CategorySource.Rule,
+                CategoryId = matchedRule?.CategoryId,
+                CategorySource = matchedRule is null ? CategorySource.None : CategorySource.Rule,
+                AppliedRuleId = matchedRule?.Id,
                 ImportBatchId = batch.Id,
                 DedupHash = hash,
             });

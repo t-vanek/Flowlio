@@ -194,6 +194,8 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
 
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         b.HasOne(x => x.ImportBatch).WithMany(x => x.Transactions).HasForeignKey(x => x.ImportBatchId).OnDelete(DeleteBehavior.SetNull);
+        // The rule that assigned the category; clearing it on rule delete is fine — re-evaluation runs explicitly.
+        b.HasOne(x => x.AppliedRule).WithMany().HasForeignKey(x => x.AppliedRuleId).OnDelete(DeleteBehavior.SetNull);
 
         // Prevents re-importing the same booked entry into the same account. Scoped to live rows so a
         // soft-deleted transaction does not block re-importing (or re-creating) the same movement.

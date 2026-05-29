@@ -33,6 +33,11 @@
                 <span class="muted">(bez kategorie)</span>
             }
         </dd>
+        @if (Transaction.AppliedRuleId is not null)
+        {
+            <dt>Zařazeno pravidlem</dt>
+            <dd>@(string.IsNullOrWhiteSpace(Transaction.AppliedRulePattern) ? "podle částky" : $"„{Transaction.AppliedRulePattern}“")</dd>
+        }
         @if (!string.IsNullOrWhiteSpace(Transaction.VariableSymbol))
         {
             <dt>VS</dt>

@@ -97,6 +97,10 @@ public sealed record TransactionDto
     public string? CategoryName { get; init; }
     public Guid? ImportBatchId { get; init; }
 
+    /// <summary>The rule that auto-assigned the category (and its pattern, for the "why"), when applicable.</summary>
+    public Guid? AppliedRuleId { get; init; }
+    public string? AppliedRulePattern { get; init; }
+
     /// <summary>Optimistic-concurrency token (Postgres xmin); echo it back on update.</summary>
     public uint Version { get; init; }
 }

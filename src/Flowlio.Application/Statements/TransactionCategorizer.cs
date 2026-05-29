@@ -17,11 +17,23 @@ public static class TransactionCategorizer
     private static readonly ConcurrentDictionary<string, Regex?> RegexCache = new();
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
-    /// <summary>Returns the category of the first matching rule, or null when none match.
-    /// <paramref name="rules"/> must already be ordered by descending priority (the caller's responsibility),
-    /// and should have their <see cref="CategorizationRule.Category"/> loaded so the income/expense direction
-    /// filter can apply.</summary>
+    /// <summary>Returns the category of the first matching rule, or null when none match. Thin wrapper over
+    /// <see cref="MatchRule"/> for callers that only need the category.</summary>
     public static Guid? Match(
+        string? counterpartyName,
+        string? description,
+        string? variableSymbol,
+        string? counterpartyAccount,
+        decimal amount,
+        string currency,
+        TransactionDirection direction,
+        IReadOnlyList<CategorizationRule> rules) =>
+        MatchRule(counterpartyName, description, variableSymbol, counterpartyAccount, amount, currency, direction, rules)?.CategoryId;
+
+    /// <summary>Returns the first matching rule (so the caller can record which rule assigned the category),
+    /// or null when none match. <paramref name="rules"/> must already be ordered by descending priority, and
+    /// should have their <see cref="CategorizationRule.Category"/> loaded so the income/expense filter applies.</summary>
+    public static CategorizationRule? MatchRule(
         string? counterpartyName,
         string? description,
         string? variableSymbol,
@@ -52,7 +64,7 @@ public static class TransactionCategorizer
             if (!TextMatches(rule, name, desc, vs, account, any) || !AmountMatches(rule, amount, currency))
                 continue;
 
-            return rule.CategoryId;
+            return rule;
         }
 
         return null;
