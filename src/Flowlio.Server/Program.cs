@@ -48,6 +48,9 @@ builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<InvitationService>();
 builder.Services.AddScoped<AccountNotifier>();
 
+// Background "automatic import": periodically pulls new transactions for active Open Banking connections.
+builder.Services.AddHostedService<Flowlio.Server.Banking.BankSyncService>();
+
 // Redis-backed distributed cache (read-through views) and shared Data Protection key ring so
 // auth/antiforgery cookies stay valid across restarts and multiple instances.
 builder.Services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);

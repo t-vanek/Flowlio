@@ -34,6 +34,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<Goal> Goals => Set<Goal>();
+    public DbSet<BankConnection> BankConnections => Set<BankConnection>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -53,6 +54,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<BankCard>().HasQueryFilter(c => c.DeletedAt == null);
         builder.Entity<Transaction>().HasQueryFilter(t => t.DeletedAt == null);
         builder.Entity<CategorizationRule>().HasQueryFilter(r => r.DeletedAt == null);
+        builder.Entity<BankConnection>().HasQueryFilter(c => c.DeletedAt == null);
     }
 
     private const string RowVersion = "xmin";

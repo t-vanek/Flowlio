@@ -45,6 +45,7 @@ public static class ApiEndpoints
         api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
+        api.MapBankConnectionEndpoints();
         api.MapRuleEndpoints();
         api.MapBudgetEndpoints();
         api.MapFamilyEndpoints();

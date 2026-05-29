@@ -112,6 +112,9 @@ public enum ImportFormat
     /// Still parsed server-side for backward compatibility; prefer <see cref="Pdf"/>.</summary>
     [Obsolete("XLSX import is unstable and hidden from the UI; import PDF statements instead. Kept for backward compatibility only.")]
     Xlsx = 3,
+
+    /// <summary>Transactions pulled from a bank's PSD2/Open Banking API (via Enable Banking), not a file.</summary>
+    BankApi = 4,
 }
 
 /// <summary>Lifecycle of a statement import.</summary>
@@ -131,6 +134,21 @@ public enum BatchOrigin
     FileImport = 0,
     /// <summary>Entered by hand by a family member (no source file).</summary>
     Manual = 1,
+    /// <summary>Pulled automatically from the bank's Open Banking API (Enable Banking).</summary>
+    BankSync = 2,
+}
+
+/// <summary>Lifecycle of a bank (Open Banking) connection authorised through Enable Banking.</summary>
+public enum BankConnectionStatus
+{
+    /// <summary>Authorisation started; waiting for the user to finish strong customer authentication.</summary>
+    Pending = 0,
+    /// <summary>Consent granted and active; transactions can be synced until it expires.</summary>
+    Active = 1,
+    /// <summary>The PSD2 consent expired (typically after ~90 days); the user must re-authorise.</summary>
+    Expired = 2,
+    /// <summary>The last operation failed (see <c>LastError</c>); may be retried or re-authorised.</summary>
+    Error = 3,
 }
 
 /// <summary>Which transaction field a categorization rule inspects.</summary>

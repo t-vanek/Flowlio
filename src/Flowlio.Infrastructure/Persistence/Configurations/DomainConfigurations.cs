@@ -349,6 +349,31 @@ public class ExchangeRateConfiguration : IEntityTypeConfiguration<ExchangeRate>
     }
 }
 
+public class BankConnectionConfiguration : IEntityTypeConfiguration<BankConnection>
+{
+    public void Configure(EntityTypeBuilder<BankConnection> b)
+    {
+        b.Property(x => x.AspspName).HasMaxLength(200).IsRequired();
+        b.Property(x => x.AspspCountry).HasMaxLength(2).IsRequired();
+        b.Property(x => x.AuthorizationId).HasMaxLength(200);
+        b.Property(x => x.State).HasMaxLength(128);
+        b.Property(x => x.SessionId).HasMaxLength(200);
+        b.Property(x => x.AccountUid).HasMaxLength(256);
+        b.Property(x => x.LastError).HasMaxLength(2000);
+
+        b.HasOne(x => x.BankAccount).WithMany().HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
+
+        b.HasIndex(x => x.FamilyId);
+        b.HasIndex(x => x.BankAccountId);
+        // The redirect callback looks a pending connection up by its state token; scoped to live rows.
+        b.HasIndex(x => x.State).HasFilter("\"State\" IS NOT NULL AND \"DeletedAt\" IS NULL");
+
+        b.Property<uint>("xmin").IsRowVersion();
+        b.ToTable(t => t.HasCheckConstraint("CK_BankConnection_Country", "char_length(\"AspspCountry\") = 2"));
+    }
+}
+
 public class RuleSuggestionDismissalConfiguration : IEntityTypeConfiguration<RuleSuggestionDismissal>
 {
     public void Configure(EntityTypeBuilder<RuleSuggestionDismissal> b)
