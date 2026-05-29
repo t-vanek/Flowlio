@@ -168,6 +168,13 @@ public sealed class FlowlioApi(HttpClient http)
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>Dry-run impact of a rule before saving (match count + sample transactions).</summary>
+    public async Task<RulePreviewDto?> PreviewRuleAsync(CategorizationRuleRequest request)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/preview", request);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<RulePreviewDto>() : null;
+    }
+
     public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
     {
         var response = await http.PostAsJsonAsync("api/rules", request);

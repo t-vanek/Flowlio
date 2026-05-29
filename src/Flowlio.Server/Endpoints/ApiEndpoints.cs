@@ -263,6 +263,7 @@ public static class ApiEndpoints
 
         var query = db.Transactions
             .Include(t => t.Category)
+            .Include(t => t.AppliedRule)
             .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null);
 
         if (accountId is { } acc)
@@ -618,6 +619,7 @@ public static class ApiEndpoints
         {
             t.CategoryId = request.CategoryId;
             t.CategorySource = request.CategoryId is null ? CategorySource.None : CategorySource.Manual;
+            t.AppliedRuleId = null;
             t.UpdatedAt = now;
         }
         await db.SaveChangesAsync(ct);
@@ -837,8 +839,10 @@ public static class ApiEndpoints
         transaction.Description = NullIfBlank(fields.Description);
         transaction.Note = NullIfBlank(fields.Note);
         transaction.CategoryId = fields.CategoryId;
-        // Hand-entered/edited movements: a chosen category is a human decision rules must not override.
+        // Hand-entered/edited movements: a chosen category is a human decision rules must not override,
+        // and it is no longer attributable to any rule.
         transaction.CategorySource = fields.CategoryId is null ? CategorySource.None : CategorySource.Manual;
+        transaction.AppliedRuleId = null;
     }
 
     private static string? NullIfBlank(string? value) =>

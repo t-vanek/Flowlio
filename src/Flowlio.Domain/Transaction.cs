@@ -43,6 +43,11 @@ public class Transaction : AuditableEntity, ISoftDeletable
     /// recategorization and feeds the rule-suggestion ("learning") engine.</summary>
     public CategorySource CategorySource { get; set; } = CategorySource.None;
 
+    /// <summary>The rule that last auto-assigned the category, so the UI can explain "why" and so editing or
+    /// deleting that rule can re-evaluate exactly the transactions it affected. Null for manual/uncategorized.</summary>
+    public Guid? AppliedRuleId { get; set; }
+    public CategorizationRule? AppliedRule { get; set; }
+
     public Guid? ImportBatchId { get; set; }
     public ImportBatch? ImportBatch { get; set; }
 

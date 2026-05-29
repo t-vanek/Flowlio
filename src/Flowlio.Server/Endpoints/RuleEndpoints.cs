@@ -22,6 +22,7 @@ public static class RuleEndpoints
         api.MapGet("/rules/deleted", GetDeletedRules);
         api.MapGet("/rules/suggestions", GetSuggestions);
         api.MapPost("/rules/suggestions/dismiss", DismissSuggestion);
+        api.MapPost("/rules/preview", PreviewRule);
         api.MapPost("/rules", CreateRule);
         api.MapPut("/rules/{id:guid}", UpdateRule);
         api.MapDelete("/rules/{id:guid}", DeleteRule);
@@ -190,6 +191,93 @@ public static class RuleEndpoints
         return isOwner ? q : q.Where(r => r.Scope == RuleScope.Personal && r.OwnerMemberId == me.Id);
     }
 
+    /// <summary>Dry-run: how many transactions the (unsaved) rule would match in its scope, how many already
+    /// have a different non-manual category it would change, and a few examples. Lets the user see the impact
+    /// of a regex / amount / global rule before committing.</summary>
+    private static async Task<IResult> PreviewRule(
+        CategorizationRuleRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
+
+        if (await ValidateScope(me, isOwner, request, db, ct) is { } scopeError)
+            return scopeError;
+        if (ValidateConditions(request) is { } condError)
+            return condError;
+
+        var category = await db.Categories
+            .FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.FamilyId == me.FamilyId, ct);
+        if (category is null)
+            return Results.BadRequest("Neplatná kategorie.");
+
+        // Build the rule as it would be saved (with its category, for the income/expense filter).
+        var candidate = new CategorizationRule
+        {
+            FamilyId = me.FamilyId,
+            Scope = request.Scope,
+            OwnerMemberId = request.Scope == RuleScope.Personal ? me.Id : null,
+            BankAccountId = request.Scope == RuleScope.Account ? request.BankAccountId : null,
+            CategoryId = request.CategoryId,
+            Category = category,
+            IsActive = true,
+        };
+        ApplyConditions(candidate, request);
+        var rules = new[] { candidate };
+
+        // Restrict to the transactions the rule's scope can reach.
+        var query = db.Transactions.Where(t => t.FamilyId == me.FamilyId && t.BankAccount!.DeletedAt == null);
+        if (request.Scope == RuleScope.Account)
+        {
+            query = query.Where(t => t.BankAccountId == request.BankAccountId);
+        }
+        else if (request.Scope == RuleScope.Personal)
+        {
+            var owned = await db.BankAccounts
+                .Where(a => a.FamilyId == me.FamilyId && a.OwnerMemberId == me.Id)
+                .Select(a => a.Id)
+                .ToListAsync(ct);
+            query = query.Where(t => owned.Contains(t.BankAccountId));
+        }
+
+        var transactions = await query
+            .Select(t => new
+            {
+                t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
+                t.Amount, t.Currency, t.Direction, t.BookingDate,
+                t.CategoryId, t.CategorySource, CategoryName = t.Category!.Name,
+            })
+            .ToListAsync(ct);
+
+        var matches = 0;
+        var wouldRecategorize = 0;
+        var samples = new List<RulePreviewSampleDto>();
+        foreach (var t in transactions)
+        {
+            if (TransactionCategorizer.MatchRule(
+                    t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
+                    t.Amount, t.Currency, t.Direction, rules) is null)
+                continue;
+
+            matches++;
+            // Manual categories are protected; only a different rule/empty category would actually change.
+            if (t.CategorySource != CategorySource.Manual && t.CategoryId != null && t.CategoryId != request.CategoryId)
+                wouldRecategorize++;
+            if (samples.Count < 5)
+                samples.Add(new RulePreviewSampleDto
+                {
+                    BookingDate = t.BookingDate,
+                    Counterparty = t.CounterpartyName,
+                    Amount = t.Amount,
+                    Currency = t.Currency,
+                    CurrentCategoryName = t.CategoryId == null ? null : t.CategoryName,
+                });
+        }
+
+        return Results.Ok(new RulePreviewDto { Matches = matches, WouldRecategorize = wouldRecategorize, Samples = samples });
+    }
+
     private static async Task<IResult> CreateRule(
         CategorizationRuleRequest request, IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper,
         IDistributedCache cache, IAuditLog audit, CancellationToken ct)
@@ -264,13 +352,14 @@ public static class RuleEndpoints
         await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Upraveno pravidlo „{DescribeRule(rule)}“", ct);
 
-        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
+        // Re-evaluate uncategorized rows and the rows this rule had assigned, so the edit takes effect on history.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct, reevaluateRuleId: rule.Id);
 
         return Results.Ok(await LoadDtoAsync(db, mapper, rule.Id, me, isOwner, ct));
     }
 
     private static async Task<IResult> DeleteRule(
-        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -283,17 +372,19 @@ public static class RuleEndpoints
         if (!CanManageRule(rule, me, me.Role == MemberRole.Owner))
             return Forbidden();
 
-        // Soft delete: the rule stops categorizing but is recoverable via restore. Already-categorized
-        // transactions keep their category (we don't track which rule assigned what).
+        // Soft delete: recoverable via restore. The rule stops categorizing immediately.
         rule.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        // Re-evaluate the rows this rule had assigned: another rule may now claim them, otherwise they
+        // return to uncategorized. Manual choices are untouched.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: false, ct, reevaluateRuleId: rule.Id);
         await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Smazáno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
     }
 
     private static async Task<IResult> RestoreRule(
-        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+        Guid id, IAppDbContext db, ICurrentFamily family, IDistributedCache cache, IAuditLog audit, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
@@ -310,6 +401,8 @@ public static class RuleEndpoints
         rule.DeletedAt = null;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+        // The restored rule applies to uncategorized history again.
+        await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
         await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), DescribeRule(rule), me.FamilyId,
             $"Obnoveno pravidlo „{DescribeRule(rule)}“", ct);
         return Results.NoContent();
@@ -366,22 +459,24 @@ public static class RuleEndpoints
         return Results.Ok(new BulkResultDto { Count = count });
     }
 
-    /// <summary>Runs the family's active rules over its transactions, assigning a category where one matches.
-    /// Never clears an existing category; with <paramref name="onlyUncategorized"/> it also skips rows that
-    /// already have one. Returns the number of transactions changed.</summary>
+    /// <summary>Runs the family's active rules over its transactions, assigning a category (and recording the
+    /// rule that did it) where one matches. Manual choices are never touched. With <paramref name="onlyUncategorized"/>
+    /// it only fills empty rows. When <paramref name="reevaluateRuleId"/> is set (after a rule edit/delete) it also
+    /// re-checks rows that rule had assigned, and clears any that no longer match any rule. Returns rows changed.</summary>
     private static async Task<int> RecategorizeAsync(
-        IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct)
+        IAppDbContext db, IDistributedCache cache, Guid familyId, bool onlyUncategorized, CancellationToken ct,
+        Guid? reevaluateRuleId = null)
     {
         var familyRules = await db.CategorizationRules
             .Include(r => r.Category)
             .Where(r => r.FamilyId == familyId && r.IsActive)
             .ToListAsync(ct);
-        if (familyRules.Count == 0)
-            return 0;
 
         // Never touch human choices: rules only fill in or replace rule-assigned/empty categories.
         var query = db.Transactions.Where(t => t.FamilyId == familyId && t.CategorySource != CategorySource.Manual);
-        if (onlyUncategorized)
+        if (reevaluateRuleId is { } rid)
+            query = query.Where(t => t.CategoryId == null || t.AppliedRuleId == rid);
+        else if (onlyUncategorized)
             query = query.Where(t => t.CategoryId == null);
         var transactions = await query.ToListAsync(ct);
         if (transactions.Count == 0)
@@ -405,13 +500,27 @@ public static class RuleEndpoints
         var changed = 0;
         foreach (var t in transactions)
         {
-            var match = TransactionCategorizer.Match(
+            var matched = TransactionCategorizer.MatchRule(
                 t.CounterpartyName, t.Description, t.VariableSymbol, t.CounterpartyAccount,
                 t.Amount, t.Currency, t.Direction, RulesFor(t.BankAccountId));
-            if (match is { } categoryId && categoryId != t.CategoryId)
+
+            if (matched is { } rule)
             {
-                t.CategoryId = categoryId;
-                t.CategorySource = CategorySource.Rule;
+                if (t.CategoryId != rule.CategoryId || t.AppliedRuleId != rule.Id || t.CategorySource != CategorySource.Rule)
+                {
+                    t.CategoryId = rule.CategoryId;
+                    t.CategorySource = CategorySource.Rule;
+                    t.AppliedRuleId = rule.Id;
+                    t.UpdatedAt = now;
+                    changed++;
+                }
+            }
+            else if (reevaluateRuleId is not null && t.CategorySource == CategorySource.Rule)
+            {
+                // Re-evaluating after an edit/delete and nothing matches a previously rule-assigned row: clear it.
+                t.CategoryId = null;
+                t.CategorySource = CategorySource.None;
+                t.AppliedRuleId = null;
                 t.UpdatedAt = now;
                 changed++;
             }

@@ -199,6 +199,19 @@ public class TransactionCategorizerTests
         Assert.Null(Match("ALBERT", null, null, null, rules, TransactionDirection.Incoming));
     }
 
+    [Fact]
+    public void MatchRule_returns_the_winning_rule_so_callers_can_record_attribution()
+    {
+        var groceries = Guid.NewGuid();
+        var winner = Rule(RuleMatchField.Any, "Albert", groceries, priority: 10);
+        var rules = new[] { winner, Rule(RuleMatchField.Any, "Albert", Guid.NewGuid(), priority: 1) };
+
+        var matched = TransactionCategorizer.MatchRule(
+            "ALBERT", null, null, null, -100m, "CZK", TransactionDirection.Outgoing, rules);
+
+        Assert.Same(winner, matched);
+    }
+
     // ---- Scope (personal / account / family) --------------------------------
 
     [Fact]

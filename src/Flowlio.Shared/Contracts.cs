@@ -97,6 +97,10 @@ public sealed record TransactionDto
     public string? CategoryName { get; init; }
     public Guid? ImportBatchId { get; init; }
 
+    /// <summary>The rule that auto-assigned the category (and its pattern, for the "why"), when applicable.</summary>
+    public Guid? AppliedRuleId { get; init; }
+    public string? AppliedRulePattern { get; init; }
+
     /// <summary>Optimistic-concurrency token (Postgres xmin); echo it back on update.</summary>
     public uint Version { get; init; }
 }
@@ -248,6 +252,24 @@ public sealed record RuleSuggestionDto
 
     /// <summary>How many manually-categorized transactions back this suggestion.</summary>
     public int MatchCount { get; init; }
+}
+
+/// <summary>Dry-run impact of a rule before saving: how many transactions it would match and how many already
+/// have a different (non-manual) category it would change, with a few examples.</summary>
+public sealed record RulePreviewDto
+{
+    public int Matches { get; init; }
+    public int WouldRecategorize { get; init; }
+    public IReadOnlyList<RulePreviewSampleDto> Samples { get; init; } = [];
+}
+
+public sealed record RulePreviewSampleDto
+{
+    public DateOnly BookingDate { get; init; }
+    public string? Counterparty { get; init; }
+    public decimal Amount { get; init; }
+    public string Currency { get; init; } = "CZK";
+    public string? CurrentCategoryName { get; init; }
 }
 
 /// <summary>Permanently dismiss a learned suggestion for a counterparty + category so it isn't offered again.</summary>
