@@ -6,7 +6,7 @@ namespace Flowlio.Domain;
 /// User-defined rule that auto-assigns a category to imported transactions whose
 /// <see cref="Field"/> contains <see cref="Pattern"/>. Higher <see cref="Priority"/> wins.
 /// </summary>
-public class CategorizationRule : AuditableEntity
+public class CategorizationRule : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
 
@@ -25,4 +25,7 @@ public class CategorizationRule : AuditableEntity
     public int Priority { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>When set, the rule is soft-deleted (hidden, no longer categorizes) and can be restored.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

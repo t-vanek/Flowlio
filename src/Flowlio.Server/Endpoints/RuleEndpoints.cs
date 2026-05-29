@@ -19,11 +19,13 @@ public static class RuleEndpoints
     public static void MapRuleEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapGet("/rules", GetRules);
+        api.MapGet("/rules/deleted", GetDeletedRules);
         api.MapGet("/rules/suggestions", GetSuggestions);
         api.MapPost("/rules/suggestions/dismiss", DismissSuggestion);
         api.MapPost("/rules", CreateRule);
         api.MapPut("/rules/{id:guid}", UpdateRule);
         api.MapDelete("/rules/{id:guid}", DeleteRule);
+        api.MapPost("/rules/{id:guid}/restore", RestoreRule);
         api.MapPost("/rules/recategorize", Recategorize);
     }
 
@@ -145,7 +147,25 @@ public static class RuleEndpoints
             .ThenBy(r => r.CreatedAt)
             .ToListAsync(ct);
 
-        return Results.Ok(rules.Select(mapper.ToDto).ToList());
+        return Results.Ok(rules.Select(r => mapper.ToDto(r) with { Version = db.GetRowVersion(r) }).ToList());
+    }
+
+    /// <summary>Soft-deleted rules, newest first, for the "deleted rules" panel and restore.</summary>
+    private static async Task<IResult> GetDeletedRules(
+        IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var rules = await db.CategorizationRules
+            .IgnoreQueryFilters()
+            .Include(r => r.Category)
+            .Where(r => r.FamilyId == familyId && r.DeletedAt != null)
+            .OrderByDescending(r => r.DeletedAt)
+            .ToListAsync(ct);
+
+        return Results.Ok(rules.Select(r => mapper.ToDto(r) with { Version = db.GetRowVersion(r) }).ToList());
     }
 
     private static async Task<IResult> CreateRule(
@@ -205,6 +225,8 @@ public static class RuleEndpoints
         rule.Priority = request.Priority;
         rule.IsActive = request.IsActive;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
+        // Optimistic concurrency: a stale Version makes SaveChanges throw, turned into HTTP 409 (Program.cs).
+        db.SetOriginalRowVersion(rule, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("rule.update", "CategorizationRule", rule.Id.ToString(), rule.Pattern, familyId,
             $"Upraveno pravidlo „{rule.Pattern}“", ct);
@@ -226,12 +248,33 @@ public static class RuleEndpoints
         if (rule is null)
             return Results.NotFound();
 
-        var pattern = rule.Pattern;
-        db.CategorizationRules.Remove(rule);
+        // Soft delete: the rule stops categorizing but is recoverable via restore. Already-categorized
+        // transactions keep their category (we don't track which rule assigned what).
+        rule.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        // Deleting a rule does not un-categorize past transactions (we don't track which rule assigned what).
-        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), pattern, familyId,
-            $"Smazáno pravidlo „{pattern}“", ct);
+        await audit.RecordAsync("rule.delete", "CategorizationRule", id.ToString(), rule.Pattern, familyId,
+            $"Smazáno pravidlo „{rule.Pattern}“", ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> RestoreRule(
+        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var rule = await db.CategorizationRules
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == id && r.FamilyId == familyId && r.DeletedAt != null, ct);
+        if (rule is null)
+            return Results.NotFound();
+
+        rule.DeletedAt = null;
+        rule.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("rule.restore", "CategorizationRule", id.ToString(), rule.Pattern, familyId,
+            $"Obnoveno pravidlo „{rule.Pattern}“", ct);
         return Results.NoContent();
     }
 
@@ -299,7 +342,7 @@ public static class RuleEndpoints
         var rule = await db.CategorizationRules
             .Include(r => r.Category)
             .FirstAsync(r => r.Id == ruleId, ct);
-        return mapper.ToDto(rule);
+        return mapper.ToDto(rule) with { Version = db.GetRowVersion(rule) };
     }
 
     private static async Task<bool> CategoryBelongsToFamily(

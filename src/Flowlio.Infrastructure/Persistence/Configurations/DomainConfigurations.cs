@@ -274,6 +274,10 @@ public class CategorizationRuleConfiguration : IEntityTypeConfiguration<Categori
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
+
+        // Optimistic concurrency via the Postgres xmin system column (same as transaction/card/member).
+        b.Property<uint>("xmin").IsRowVersion();
+        b.ToTable(t => t.HasCheckConstraint("CK_CategorizationRule_Pattern", "char_length(btrim(\"Pattern\")) > 0"));
     }
 }
 

@@ -187,6 +187,13 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<bool> DeleteRuleAsync(Guid id) =>
         (await http.DeleteAsync($"api/rules/{id}")).IsSuccessStatusCode;
 
+    /// <summary>Soft-deleted rules, for the "deleted rules" panel.</summary>
+    public async Task<IReadOnlyList<CategorizationRuleDto>> GetDeletedRulesAsync() =>
+        await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules/deleted") ?? [];
+
+    public async Task<bool> RestoreRuleAsync(Guid id) =>
+        (await http.PostAsync($"api/rules/{id}/restore", null)).IsSuccessStatusCode;
+
     /// <summary>Re-runs the family's rules over existing transactions; returns how many were categorized.</summary>
     public async Task<int> RecategorizeAsync(bool onlyUncategorized)
     {

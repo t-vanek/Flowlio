@@ -150,10 +150,37 @@ else
         }
     </FluentCard>
 </div>
+
+@if (_deletedRules.Count > 0)
+{
+    <FluentCard Class="panel">
+        <h2 class="panel-title">Smazaná pravidla</h2>
+        <p class="muted">Smazaná pravidla už nezařazují, ale můžete je obnovit.</p>
+        @foreach (var r in _deletedRules)
+        {
+            <div class="account-row">
+                <div>
+                    <div class="account-name">„@r.Pattern"</div>
+                    <div class="muted">
+                        @FieldLabel(r.Field) · @ModeLabel(r.MatchMode) → @(r.CategoryName ?? "—")
+                        @if (r.DeletedAt is { } d)
+                        {
+                            <span> · smazáno @Formatting.Date(d)</span>
+                        }
+                    </div>
+                </div>
+                <div>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreAsync(r))">Obnovit</FluentButton>
+                </div>
+            </div>
+        }
+    </FluentCard>
+}
 }
 
 @code {
     private IReadOnlyList<CategorizationRuleDto>? _rules;
+    private IReadOnlyList<CategorizationRuleDto> _deletedRules = [];
     private IReadOnlyList<CategoryDto>? _categories;
     private IReadOnlyList<RuleSuggestionDto> _suggestions = [];
 
@@ -196,7 +223,17 @@ else
     private async Task LoadRulesAsync()
     {
         _rules = await Api.GetRulesAsync();
+        _deletedRules = await Api.GetDeletedRulesAsync();
         _suggestions = await Api.GetRuleSuggestionsAsync();
+    }
+
+    private async Task RestoreAsync(CategorizationRuleDto r)
+    {
+        if (await Api.RestoreRuleAsync(r.Id))
+            Toasts.ShowSuccess($"Pravidlo „{r.Pattern}“ bylo obnoveno.");
+        else
+            Toasts.ShowError("Pravidlo se nepodařilo obnovit.");
+        await LoadRulesAsync();
     }
 
     private async Task AcceptSuggestionAsync(RuleSuggestionDto s)
@@ -249,7 +286,9 @@ else
 
             if (saved is null)
             {
-                Toasts.ShowError("Pravidlo se nepodařilo uložit.");
+                Toasts.ShowError(_editingId is null
+                    ? "Pravidlo se nepodařilo uložit."
+                    : "Pravidlo se nepodařilo uložit (mezitím ho možná změnil někdo jiný — zavřete a otevřete znovu).");
                 return;
             }
 
@@ -266,7 +305,7 @@ else
     private void EditRule(CategorizationRuleDto r)
     {
         _editingId = r.Id;
-        _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority };
+        _model = new CategorizationRuleRequest { Pattern = r.Pattern, Priority = r.Priority, Version = r.Version };
         _fieldValue = ((int)r.Field).ToString();
         _modeValue = ((int)r.MatchMode).ToString();
         _categoryValue = r.CategoryId.ToString();
@@ -295,16 +334,17 @@ else
             CategoryId = r.CategoryId,
             Priority = r.Priority,
             IsActive = !r.IsActive,
+            Version = r.Version,
         });
         if (updated is null)
-            Toasts.ShowError("Změnu se nepodařilo uložit.");
+            Toasts.ShowError("Změnu se nepodařilo uložit (pravidlo mezitím možná změnil někdo jiný).");
         await LoadRulesAsync();
     }
 
     private async Task DeleteAsync(CategorizationRuleDto r)
     {
         var dialog = await Dialogs.ShowConfirmationAsync(
-            $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny.",
+            $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny a pravidlo lze později obnovit.",
             "Smazat", "Zrušit", "Smazání pravidla");
         if ((await dialog.Result).Cancelled)
             return;

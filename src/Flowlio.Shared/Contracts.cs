@@ -175,6 +175,12 @@ public sealed record CategorizationRuleDto
     public string? CategoryName { get; init; }
     public int Priority { get; init; }
     public bool IsActive { get; init; }
+
+    /// <summary>Row-version concurrency token (Postgres xmin); echoed back on update.</summary>
+    public uint Version { get; init; }
+
+    /// <summary>When the rule was soft-deleted; null for live rules. Set on the "deleted rules" listing.</summary>
+    public DateTimeOffset? DeletedAt { get; init; }
 }
 
 /// <summary>Create or update a categorization rule (shared shape; rules carry no concurrency token).</summary>
@@ -193,6 +199,9 @@ public sealed record CategorizationRuleRequest
     public int Priority { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Row-version token from the loaded rule; a stale value makes the update fail with HTTP 409.</summary>
+    public uint Version { get; set; }
 }
 
 /// <summary>A rule Flowlio suggests after seeing the same counterparty categorized by hand more than once,
