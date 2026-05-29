@@ -28,6 +28,9 @@ public static class RuleEndpoints
         api.MapDelete("/rules/{id:guid}", DeleteRule);
         api.MapPost("/rules/{id:guid}/restore", RestoreRule);
         api.MapPost("/rules/recategorize", Recategorize);
+        api.MapPost("/rules/reorder", ReorderRules);
+        api.MapGet("/rules/export", ExportRules);
+        api.MapPost("/rules/import", ImportRules);
     }
 
     /// <summary>Number of times the same counterparty must be manually categorized into the same category
@@ -158,7 +161,14 @@ public static class RuleEndpoints
             .ThenBy(r => r.CreatedAt)
             .ToListAsync(ct);
 
-        return Results.Ok(rules.Select(r => ToScopedDto(db, mapper, r, me, isOwner)).ToList());
+        var ruleIds = rules.Select(r => r.Id).ToList();
+        var usage = await db.Transactions
+            .Where(t => t.FamilyId == me.FamilyId && t.AppliedRuleId != null && ruleIds.Contains(t.AppliedRuleId!.Value))
+            .GroupBy(t => t.AppliedRuleId!.Value)
+            .Select(g => new { RuleId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.RuleId, x => x.Count, ct);
+
+        return Results.Ok(rules.Select(r => ToScopedDto(db, mapper, r, me, isOwner, usage.GetValueOrDefault(r.Id))).ToList());
     }
 
     /// <summary>Soft-deleted rules, newest first, for the "deleted rules" panel and restore.</summary>
@@ -408,6 +418,132 @@ public static class RuleEndpoints
         return Results.NoContent();
     }
 
+    /// <summary>Persists a new priority order (highest first) for the manageable rules in the list.</summary>
+    private static async Task<IResult> ReorderRules(
+        ReorderRulesRequest request, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
+
+        var ids = request.OrderedIds;
+        var rules = await db.CategorizationRules
+            .Where(r => r.FamilyId == me.FamilyId && ids.Contains(r.Id))
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var rule = rules.FirstOrDefault(r => r.Id == ids[i]);
+            if (rule is null || !CanManageRule(rule, me, isOwner))
+                continue;
+            rule.Priority = ids.Count - i; // first in the list gets the highest priority
+            rule.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    /// <summary>Exports the member's visible rules as portable definitions (category/account by name).</summary>
+    private static async Task<IResult> ExportRules(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
+
+        var rules = await VisibleRules(db, me, isOwner)
+            .OrderByDescending(r => r.Priority)
+            .ThenBy(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        var export = rules.Select(r => new RuleExportDto
+        {
+            Scope = r.Scope,
+            BankAccountName = r.BankAccount?.Name,
+            Field = r.Field,
+            MatchMode = r.MatchMode,
+            Pattern = r.Pattern,
+            MinAmount = r.MinAmount,
+            MaxAmount = r.MaxAmount,
+            AmountCurrency = r.AmountCurrency,
+            CategoryName = r.Category?.Name ?? "",
+            Priority = r.Priority,
+            IsActive = r.IsActive,
+        }).ToList();
+
+        return Results.Ok(export);
+    }
+
+    /// <summary>Imports rule definitions, resolving category/account by name. Skips rows whose category/account
+    /// is missing, whose scope the member may not create, or that are otherwise invalid.</summary>
+    private static async Task<IResult> ImportRules(
+        IReadOnlyList<RuleExportDto> items, IAppDbContext db, ICurrentFamily family,
+        IDistributedCache cache, IAuditLog audit, CancellationToken ct)
+    {
+        var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+        var isOwner = me.Role == MemberRole.Owner;
+
+        var categories = await db.Categories.Where(c => c.FamilyId == me.FamilyId).ToListAsync(ct);
+        var accounts = await db.BankAccounts.Where(a => a.FamilyId == me.FamilyId).ToListAsync(ct);
+
+        var imported = 0;
+        var skipped = 0;
+        foreach (var item in items ?? [])
+        {
+            var category = categories.FirstOrDefault(c => c.Name == item.CategoryName);
+            var hasText = !string.IsNullOrWhiteSpace(item.Pattern);
+            var hasAmount = item.MinAmount is not null || item.MaxAmount is not null;
+
+            var allowedScope = item.Scope == RuleScope.Personal || isOwner;
+            var validAmount = !hasAmount || (!string.IsNullOrWhiteSpace(item.AmountCurrency) && item.AmountCurrency.Trim().Length == 3);
+            var validRegex = !hasText || item.MatchMode != RuleMatchMode.Regex || TransactionCategorizer.IsValidRegex(item.Pattern!.Trim());
+
+            Guid? bankAccountId = null;
+            if (item.Scope == RuleScope.Account)
+                bankAccountId = accounts.FirstOrDefault(a => a.Name == item.BankAccountName)?.Id;
+
+            if (category is null || !allowedScope || (!hasText && !hasAmount) || !validAmount || !validRegex
+                || (item.Scope == RuleScope.Account && bankAccountId is null))
+            {
+                skipped++;
+                continue;
+            }
+
+            db.CategorizationRules.Add(new CategorizationRule
+            {
+                FamilyId = me.FamilyId,
+                Scope = item.Scope,
+                OwnerMemberId = item.Scope == RuleScope.Personal ? me.Id : null,
+                BankAccountId = bankAccountId,
+                Field = item.Field,
+                MatchMode = item.MatchMode,
+                Pattern = hasText ? item.Pattern!.Trim() : null,
+                MinAmount = hasAmount ? item.MinAmount : null,
+                MaxAmount = hasAmount ? item.MaxAmount : null,
+                AmountCurrency = hasAmount ? item.AmountCurrency!.Trim().ToUpperInvariant() : null,
+                CategoryId = category.Id,
+                Priority = item.Priority,
+                IsActive = item.IsActive,
+            });
+            imported++;
+        }
+
+        if (imported > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            await audit.RecordAsync("rule.import", "CategorizationRule", null, $"{imported} pravidel", me.FamilyId,
+                $"Import pravidel ({imported} importováno, {skipped} přeskočeno)", ct);
+            await RecategorizeAsync(db, cache, me.FamilyId, onlyUncategorized: true, ct);
+        }
+
+        return Results.Ok(new RuleImportResultDto { Imported = imported, Skipped = skipped });
+    }
+
     /// <summary>The owner manages every rule; anyone else manages only their own personal rules.</summary>
     private static bool CanManageRule(CategorizationRule rule, FamilyMember me, bool isOwner) =>
         isOwner || (rule.Scope == RuleScope.Personal && rule.OwnerMemberId == me.Id);
@@ -436,13 +572,14 @@ public static class RuleEndpoints
     }
 
     private static CategorizationRuleDto ToScopedDto(
-        IAppDbContext db, FlowlioMapper mapper, CategorizationRule r, FamilyMember me, bool isOwner) =>
+        IAppDbContext db, FlowlioMapper mapper, CategorizationRule r, FamilyMember me, bool isOwner, int usageCount = 0) =>
         mapper.ToDto(r) with
         {
             Version = db.GetRowVersion(r),
             BankAccountName = r.BankAccount?.Name,
             OwnerName = r.OwnerMember?.DisplayName,
             CanManage = CanManageRule(r, me, isOwner),
+            UsageCount = usageCount,
         };
 
     private static async Task<IResult> Recategorize(
@@ -542,7 +679,8 @@ public static class RuleEndpoints
             .Include(r => r.BankAccount)
             .Include(r => r.OwnerMember)
             .FirstAsync(r => r.Id == ruleId, ct);
-        return ToScopedDto(db, mapper, rule, me, isOwner);
+        var usage = await db.Transactions.CountAsync(t => t.AppliedRuleId == ruleId, ct);
+        return ToScopedDto(db, mapper, rule, me, isOwner, usage);
     }
 
     private static async Task<bool> CategoryBelongsToFamily(

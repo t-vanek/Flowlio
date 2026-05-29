@@ -152,6 +152,20 @@ public sealed record BulkTransactionRequest
     public IReadOnlyList<Guid> Ids { get; init; } = [];
 }
 
+/// <summary>A cluster of uncategorized transactions sharing a counterparty, for the triage ("to categorize")
+/// inbox: assign them all at once and optionally turn the merchant into a rule.</summary>
+public sealed record UncategorizedGroupDto
+{
+    public string Counterparty { get; init; } = "";
+    public int Count { get; init; }
+
+    /// <summary>Sum of the group when all rows share a currency; null for a mixed-currency group.</summary>
+    public decimal? TotalAmount { get; init; }
+    public string? Currency { get; init; }
+
+    public IReadOnlyList<Guid> TransactionIds { get; init; } = [];
+}
+
 /// <summary>Bulk re-categorisation of a set of transactions (null category clears it).</summary>
 public sealed record BulkCategorizeRequest
 {
@@ -201,6 +215,10 @@ public sealed record CategorizationRuleDto
 
     /// <summary>True when the current member may edit/delete this rule (owner of it, or family owner).</summary>
     public bool CanManage { get; init; }
+
+    /// <summary>How many transactions currently have their category attributed to this rule. Zero is a hint
+    /// the rule may be dead (never matches or shadowed by another).</summary>
+    public int UsageCount { get; init; }
 
     /// <summary>Row-version concurrency token (Postgres xmin); echoed back on update.</summary>
     public uint Version { get; init; }
@@ -252,6 +270,36 @@ public sealed record RuleSuggestionDto
 
     /// <summary>How many manually-categorized transactions back this suggestion.</summary>
     public int MatchCount { get; init; }
+}
+
+/// <summary>New priority order for rules (highest priority first). Used by the up/down reorder UI.</summary>
+public sealed record ReorderRulesRequest
+{
+    public IReadOnlyList<Guid> OrderedIds { get; init; } = [];
+}
+
+/// <summary>A portable rule definition for export/import: references the category and account by name (not id)
+/// so a rule set can be backed up or shared between families.</summary>
+public sealed record RuleExportDto
+{
+    public RuleScope Scope { get; init; }
+    public string? BankAccountName { get; init; }
+    public RuleMatchField Field { get; init; }
+    public RuleMatchMode MatchMode { get; init; }
+    public string? Pattern { get; init; }
+    public decimal? MinAmount { get; init; }
+    public decimal? MaxAmount { get; init; }
+    public string? AmountCurrency { get; init; }
+    public string CategoryName { get; init; } = "";
+    public int Priority { get; init; }
+    public bool IsActive { get; init; }
+}
+
+/// <summary>Result of importing a rule set.</summary>
+public sealed record RuleImportResultDto
+{
+    public int Imported { get; init; }
+    public int Skipped { get; init; }
 }
 
 /// <summary>Dry-run impact of a rule before saving: how many transactions it would match and how many already

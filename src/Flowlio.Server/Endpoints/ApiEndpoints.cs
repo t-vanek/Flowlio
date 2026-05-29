@@ -32,6 +32,7 @@ public static class ApiEndpoints
         api.MapPost("/accounts/{accountId:guid}/restore", RestoreAccount);
         api.MapGet("/categories", GetCategories);
         api.MapGet("/transactions", GetTransactions);
+        api.MapGet("/transactions/uncategorized", GetUncategorizedGroups);
         api.MapPost("/transactions", CreateTransaction);
         api.MapPut("/transactions/{id:guid}", UpdateTransaction);
         api.MapDelete("/transactions/{id:guid}", DeleteTransaction);
@@ -312,6 +313,46 @@ public static class ApiEndpoints
             Page = page,
             PageSize = pageSize,
         });
+    }
+
+    /// <summary>Uncategorized live transactions grouped by counterparty (largest groups first), for the triage
+    /// inbox — assign a whole merchant at once and optionally turn it into a rule.</summary>
+    private static async Task<IResult> GetUncategorizedGroups(IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var rows = await db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null && t.CategoryId == null)
+            .Select(t => new { t.Id, t.CounterpartyName, t.Description, t.Amount, t.Currency })
+            .ToListAsync(ct);
+
+        var groups = rows
+            .GroupBy(r => GroupKey(r.CounterpartyName, r.Description))
+            .Select(g =>
+            {
+                var currencies = g.Select(x => x.Currency).Distinct().ToList();
+                var uniform = currencies.Count == 1;
+                return new UncategorizedGroupDto
+                {
+                    Counterparty = g.Key,
+                    Count = g.Count(),
+                    TotalAmount = uniform ? g.Sum(x => x.Amount) : null,
+                    Currency = uniform ? currencies[0] : null,
+                    TransactionIds = g.Select(x => x.Id).ToList(),
+                };
+            })
+            .OrderByDescending(x => x.Count)
+            .ThenBy(x => x.Counterparty)
+            .ToList();
+
+        return Results.Ok(groups);
+
+        static string GroupKey(string? counterparty, string? description) =>
+            !string.IsNullOrWhiteSpace(counterparty) ? counterparty.Trim()
+            : !string.IsNullOrWhiteSpace(description) ? description.Trim()
+            : "(bez názvu)";
     }
 
     // Turns free user input into a safe prefix tsquery, e.g. "kávár pizz" -> "kávár:* & pizz:*"

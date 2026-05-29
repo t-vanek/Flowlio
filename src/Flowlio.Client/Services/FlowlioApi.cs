@@ -119,6 +119,10 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<int> BulkDeleteTransactionsAsync(IReadOnlyList<Guid> ids) =>
         BulkAsync("api/transactions/bulk-delete", new BulkTransactionRequest { Ids = ids });
 
+    /// <summary>Uncategorized transactions grouped by counterparty, for the triage inbox.</summary>
+    public async Task<IReadOnlyList<UncategorizedGroupDto>> GetUncategorizedAsync() =>
+        await http.GetFromJsonAsync<List<UncategorizedGroupDto>>("api/transactions/uncategorized") ?? [];
+
     public Task<int> BulkCategorizeAsync(IReadOnlyList<Guid> ids, Guid? categoryId) =>
         BulkAsync("api/transactions/bulk-categorize", new BulkCategorizeRequest { Ids = ids, CategoryId = categoryId });
 
@@ -189,6 +193,20 @@ public sealed class FlowlioApi(HttpClient http)
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<CategorizationRuleDto>()
             : null;
+    }
+
+    /// <summary>Persists a new priority order (highest first) for the given rules.</summary>
+    public async Task<bool> ReorderRulesAsync(IReadOnlyList<Guid> orderedIds) =>
+        (await http.PostAsJsonAsync("api/rules/reorder", new ReorderRulesRequest { OrderedIds = orderedIds })).IsSuccessStatusCode;
+
+    /// <summary>Exports the visible rules as portable definitions (category/account by name).</summary>
+    public async Task<IReadOnlyList<RuleExportDto>> ExportRulesAsync() =>
+        await http.GetFromJsonAsync<List<RuleExportDto>>("api/rules/export") ?? [];
+
+    public async Task<RuleImportResultDto?> ImportRulesAsync(IReadOnlyList<RuleExportDto> items)
+    {
+        var response = await http.PostAsJsonAsync("api/rules/import", items);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<RuleImportResultDto>() : null;
     }
 
     public async Task<bool> DeleteRuleAsync(Guid id) =>
