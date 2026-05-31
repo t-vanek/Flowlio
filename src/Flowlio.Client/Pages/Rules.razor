@@ -149,7 +149,7 @@ else
     <FluentCard Class="panel">
         <div class="account-row">
             <h2 class="panel-title">Pravidla</h2>
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
                 <FluentSelect TOption="string" @bind-Value="_scopeValue" Label="Rozsah přepočtu">
                     <FluentOption TOption="string" Value="true">Jen nezařazené</FluentOption>
                     <FluentOption TOption="string" Value="false">Všechny pohyby</FluentOption>

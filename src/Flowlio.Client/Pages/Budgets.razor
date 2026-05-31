@@ -26,7 +26,7 @@ else
 
         @if (_canManage)
         {
-            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
                 <FluentSelect TOption="string" @bind-Value="_budgetCategory" Label="Kategorie" Style="width:180px">
                     <FluentOption TOption="string" Value="">— kategorie —</FluentOption>
                     @foreach (var c in BudgetableCategories)
@@ -89,7 +89,7 @@ else
         @if (_canManage)
         {
             <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
                     <FluentTextField @bind-Value="_goalName" Label="Název" Style="width:180px" Placeholder="Dovolená" />
                     <FluentSelect TOption="string" @bind-Value="_goalAccount" Label="Účet" Style="width:160px">
                         <FluentOption TOption="string" Value="">— účet —</FluentOption>
@@ -99,7 +99,7 @@ else
                         }
                     </FluentSelect>
                 </FluentStack>
-                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
                     <div style="width:140px"><label class="field-label">Cílová částka</label><MoneyField @bind-Value="_goalTarget" /></div>
                     <div><label class="field-label">Termín (volitelné)</label><input type="date" class="date-input" @bind="_goalDate" /></div>
                     <FluentButton Appearance="Appearance.Accent" OnClick="AddGoalAsync" Loading="_busy">Přidat</FluentButton>
