@@ -408,14 +408,9 @@ public static class ApiEndpoints
         var nextMonth = monthStart.AddMonths(1);
         var horizon = today.AddDays(30);
 
-        var baseCurrency = await db.Families
-            .Where(f => f.Id == familyId)
-            .Select(f => f.BaseCurrency)
-            .FirstAsync(ct);
-
         // Convert every amount to the family base currency at the rate of its date (ČNB, via CZK). Amounts
         // with no available rate are accumulated separately and surfaced rather than assumed 1:1.
-        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
         var residual = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         decimal ToBase(decimal amount, string currency, DateOnly date)
         {
@@ -510,11 +505,7 @@ public static class ApiEndpoints
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var (from, to) = ResolveCategoryPeriod(period, today);
 
-        var baseCurrency = await db.Families
-            .Where(f => f.Id == familyId)
-            .Select(f => f.BaseCurrency)
-            .FirstAsync(ct);
-        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
 
         var query = db.Transactions
             .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null

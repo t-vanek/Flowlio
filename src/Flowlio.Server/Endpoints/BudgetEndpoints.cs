@@ -34,8 +34,7 @@ public static class BudgetEndpoints
         if (!await family.CanAsync(Permission.ViewFinances, ct))
             return Forbidden();
 
-        var baseCurrency = await BaseCurrency(db, familyId, ct);
-        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
         var childrenByParent = await ChildrenMap(db, familyId, ct);
 
         var budgets = await db.Budgets
@@ -246,9 +245,6 @@ public static class BudgetEndpoints
     }
 
     // ---- Helpers ------------------------------------------------------------
-
-    private static async Task<string> BaseCurrency(IAppDbContext db, Guid familyId, CancellationToken ct) =>
-        await db.Families.Where(f => f.Id == familyId).Select(f => f.BaseCurrency).FirstAsync(ct);
 
     /// <summary>Maps each category to its direct children, so a budget rolls up its sub-categories' spend.</summary>
     private static async Task<ILookup<Guid, Guid>> ChildrenMap(IAppDbContext db, Guid familyId, CancellationToken ct)
