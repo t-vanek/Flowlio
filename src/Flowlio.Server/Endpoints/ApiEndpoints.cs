@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Flowlio.Application.Abstractions;
 using Flowlio.Application.Currency;
@@ -33,6 +35,8 @@ public static class ApiEndpoints
         api.MapPost("/accounts/{accountId:guid}/restore", RestoreAccount);
         api.MapGet("/categories", GetCategories);
         api.MapGet("/transactions", GetTransactions);
+        api.MapGet("/transactions/summary", GetTransactionsSummary);
+        api.MapGet("/transactions/export", ExportTransactions);
         api.MapGet("/transactions/uncategorized", GetUncategorizedGroups);
         api.MapPost("/transactions", CreateTransaction);
         api.MapPut("/transactions/{id:guid}", UpdateTransaction);
@@ -261,7 +265,8 @@ public static class ApiEndpoints
     private static async Task<IResult> GetTransactions(
         IAppDbContext db, ICurrentFamily family, FlowlioMapper mapper, CancellationToken ct,
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
-        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false,
+        string? search = null, string? sort = null, bool desc = true, int page = 1, int pageSize = 50)
     {
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ViewFinances, ct))
@@ -269,47 +274,14 @@ public static class ApiEndpoints
 
         (page, pageSize) = Paging.Normalize(page, pageSize);
 
-        var query = db.Transactions
+        var query = FilterTransactions(db, familyId, accountId, categoryId, dateFrom, dateTo,
+                                       direction, batchId, unbatched, search)
             .Include(t => t.Category)
-            .Include(t => t.AppliedRule)
-            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null);
-
-        if (accountId is { } acc)
-            query = query.Where(t => t.BankAccountId == acc);
-
-        if (categoryId is { } cat)
-            query = query.Where(t => t.CategoryId == cat);
-
-        if (dateFrom is { } from)
-            query = query.Where(t => t.BookingDate >= from);
-
-        if (dateTo is { } to)
-            query = query.Where(t => t.BookingDate <= to);
-
-        // Income vs. expense is read from the amount sign, matching the dashboard's classification.
-        if (direction is { } dir)
-            query = dir == TransactionDirection.Incoming
-                ? query.Where(t => t.Amount > 0)
-                : query.Where(t => t.Amount < 0);
-
-        // Full-text search (PostgreSQL): match the diacritics-folded SearchVector with a prefix
-        // tsquery and, when searching, order by relevance (ts_rank) before recency.
-        var tsQuery = BuildTsQuery(search);
-        if (tsQuery is not null)
-            query = query.Where(t =>
-                EF.Property<NpgsqlTsVector>(t, "SearchVector")
-                  .Matches(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))));
+            .Include(t => t.AppliedRule);
 
         var total = await query.CountAsync(ct);
 
-        var ordered = tsQuery is not null
-            ? query.OrderByDescending(t =>
-                    EF.Property<NpgsqlTsVector>(t, "SearchVector")
-                      .Rank(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))))
-                  .ThenByDescending(t => t.BookingDate)
-            : query.OrderByDescending(t => t.BookingDate).ThenByDescending(t => t.CreatedAt);
-
-        var items = await ordered
+        var items = await OrderTransactions(query, search, sort, desc)
             .Skip((page - 1) * pageSize).Take(pageSize)
             .ToListAsync(ct);
 
@@ -320,6 +292,149 @@ public static class ApiEndpoints
             Page = page,
             PageSize = pageSize,
         });
+    }
+
+    /// <summary>Income/expense/net/count over the filtered set (same filters as the list), so the summary
+    /// bar is correct without the client loading every row. Sums raw amounts, matching the old footer.</summary>
+    private static async Task<IResult> GetTransactionsSummary(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct,
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false, string? search = null)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var agg = await FilterTransactions(db, familyId, accountId, categoryId, dateFrom, dateTo,
+                                           direction, batchId, unbatched, search)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Income = g.Sum(t => t.Amount > 0 ? t.Amount : 0m),
+                Expense = g.Sum(t => t.Amount < 0 ? t.Amount : 0m),
+                Count = g.Count(),
+            })
+            .FirstOrDefaultAsync(ct);
+
+        var income = agg?.Income ?? 0m;
+        var expense = agg?.Expense ?? 0m;
+        return Results.Ok(new TransactionSummaryDto
+        {
+            Income = income,
+            Expense = expense,
+            Net = income + expense,
+            Count = agg?.Count ?? 0,
+        });
+    }
+
+    /// <summary>Streams the whole filtered set as a UTF-8 (BOM) CSV for Excel, bypassing paging.</summary>
+    private static async Task<IResult> ExportTransactions(
+        IAppDbContext db, ICurrentFamily family, CancellationToken ct,
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false, string? search = null)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var ordered = OrderTransactions(
+            FilterTransactions(db, familyId, accountId, categoryId, dateFrom, dateTo, direction, batchId, unbatched, search)
+                .Include(t => t.Category)
+                .Include(t => t.BankAccount),
+            search, sort: null, desc: true);
+
+        return Results.Stream(async stream =>
+        {
+            await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            await writer.WriteLineAsync("Datum;Účet;Protistrana;Kategorie;Popis;VS;Částka;Měna");
+            await foreach (var t in ordered.AsAsyncEnumerable().WithCancellation(ct))
+            {
+                await writer.WriteLineAsync(string.Join(';', new[]
+                {
+                    t.BookingDate.ToString("yyyy-MM-dd"),
+                    Csv(t.BankAccount?.Name),
+                    Csv(t.CounterpartyName),
+                    Csv(t.Category?.Name),
+                    Csv(t.Description),
+                    Csv(t.VariableSymbol),
+                    t.Amount.ToString("0.00", CzCulture),
+                    t.Currency,
+                }));
+            }
+        }, "text/csv", "transakce.csv");
+    }
+
+    private static readonly CultureInfo CzCulture = CultureInfo.GetCultureInfo("cs-CZ");
+
+    // CSV-escapes a field for the ';'-separated export: quote it and double internal quotes when it
+    // contains a separator, quote or newline.
+    private static string Csv(string? value)
+    {
+        var s = value ?? "";
+        return s.IndexOfAny([';', '"', '\n', '\r']) < 0 ? s : "\"" + s.Replace("\"", "\"\"") + "\"";
+    }
+
+    // Shared filtered query (family scope + structured filters + FTS) for the list, summary and export,
+    // so all three stay in lockstep. Soft-deleted rows are excluded by the global query filter.
+    private static IQueryable<Transaction> FilterTransactions(
+        IAppDbContext db, Guid familyId,
+        Guid? accountId, Guid? categoryId, DateOnly? dateFrom, DateOnly? dateTo,
+        TransactionDirection? direction, Guid? batchId, bool unbatched, string? search)
+    {
+        var query = db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null);
+
+        if (accountId is { } acc)
+            query = query.Where(t => t.BankAccountId == acc);
+        if (categoryId is { } cat)
+            query = query.Where(t => t.CategoryId == cat);
+        if (dateFrom is { } from)
+            query = query.Where(t => t.BookingDate >= from);
+        if (dateTo is { } to)
+            query = query.Where(t => t.BookingDate <= to);
+        // Income vs. expense is read from the amount sign, matching the dashboard's classification.
+        if (direction is { } dir)
+            query = dir == TransactionDirection.Incoming
+                ? query.Where(t => t.Amount > 0)
+                : query.Where(t => t.Amount < 0);
+        if (batchId is { } bid)
+            query = query.Where(t => t.ImportBatchId == bid);
+        else if (unbatched)
+            query = query.Where(t => t.ImportBatchId == null);
+
+        // Full-text search (PostgreSQL): match the diacritics-folded SearchVector with a prefix tsquery.
+        var tsQuery = BuildTsQuery(search);
+        if (tsQuery is not null)
+            query = query.Where(t =>
+                EF.Property<NpgsqlTsVector>(t, "SearchVector")
+                  .Matches(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))));
+
+        return query;
+    }
+
+    // Ordering for the list/export: an explicit column sort wins; otherwise FTS relevance when searching,
+    // else newest first.
+    private static IQueryable<Transaction> OrderTransactions(IQueryable<Transaction> query, string? search, string? sort, bool desc)
+    {
+        if (!string.IsNullOrEmpty(sort))
+            return sort switch
+            {
+                "amount" => desc ? query.OrderByDescending(t => t.Amount) : query.OrderBy(t => t.Amount),
+                "counterparty" => desc ? query.OrderByDescending(t => t.CounterpartyName) : query.OrderBy(t => t.CounterpartyName),
+                "accountName" => desc ? query.OrderByDescending(t => t.BankAccount!.Name) : query.OrderBy(t => t.BankAccount!.Name),
+                "categoryId" or "categoryName" => desc ? query.OrderByDescending(t => t.Category!.Name) : query.OrderBy(t => t.Category!.Name),
+                "vs" => desc ? query.OrderByDescending(t => t.VariableSymbol) : query.OrderBy(t => t.VariableSymbol),
+                "description" => desc ? query.OrderByDescending(t => t.Description) : query.OrderBy(t => t.Description),
+                _ => desc ? query.OrderByDescending(t => t.BookingDate) : query.OrderBy(t => t.BookingDate),
+            };
+
+        var tsQuery = BuildTsQuery(search);
+        return tsQuery is not null
+            ? query.OrderByDescending(t =>
+                    EF.Property<NpgsqlTsVector>(t, "SearchVector")
+                      .Rank(EF.Functions.ToTsQuery("simple", FtsFunctions.Unaccent(tsQuery))))
+                  .ThenByDescending(t => t.BookingDate)
+            : query.OrderByDescending(t => t.BookingDate).ThenByDescending(t => t.CreatedAt);
     }
 
     /// <summary>Uncategorized live transactions grouped by counterparty (largest groups first), for the triage

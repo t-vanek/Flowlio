@@ -1,10 +1,12 @@
-// Tabulator-backed transactions grid. The Blazor page loads the full matching set
-// (server-side FTS for the text search) and hands it here; Tabulator then owns
-// client-side pagination, sorting, grouping, the footer sum, CSV export and the
-// structured filters. Row actions and the filtered summary call back into .NET.
+// Tabulator-backed transactions grid. Two modes:
+//  - renderRemote: server-side lazy loading (infinite scroll). The server does the filtering, sorting and
+//    paging; rows arrive in chunks as you scroll. The page drives the summary bar from a /summary endpoint.
+//  - renderLocal: all rows handed in client-side, used only when grouping a bounded (filtered) set, so the
+//    groups and their subtotals work exactly as before.
+// Row actions and inline category edit call back into .NET.
 window.flowlioGrid = (function () {
     const tables = {};   // id -> Tabulator instance
-    const state = {};    // id -> { tokens, dotNet }
+    const state = {};    // id -> { tokens, dotNet, cats }
 
     const money = (v, currency) => {
         const n = new Intl.NumberFormat("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0);
@@ -75,7 +77,6 @@ window.flowlioGrid = (function () {
 
     function amountFormatter(cell) {
         const v = cell.getValue();
-        // Footer sum cells have no row; fall back to CZK formatting there.
         const row = typeof cell.getRow === "function" ? cell.getRow() : null;
         const currency = row && typeof row.getData === "function" ? (row.getData() || {}).currency : null;
         return '<span class="num ' + (v < 0 ? "expense" : "income") + '">' + (v > 0 ? "+" : "") + money(v, currency) + "</span>";
@@ -122,128 +123,137 @@ window.flowlioGrid = (function () {
             ' · <span class="num ' + (sum < 0 ? "expense" : "income") + '">' + (sum > 0 ? "+" : "") + money(sum) + "</span>";
     }
 
-    // Income / expense / net / count over the currently filtered rows, pushed to Blazor.
-    function pushSummary(id) {
-        const s = state[id], t = tables[id];
-        if (!s || !t || !s.dotNet) return;
-        // Sum in integer cents to avoid binary-float drift, then convert back.
-        let incomeC = 0, expenseC = 0;
-        const rows = t.getData("active");
-        for (const r of rows) { const c = Math.round((r.amount || 0) * 100); if (c >= 0) incomeC += c; else expenseC += c; }
-        s.dotNet.invokeMethodAsync("UpdateSummary", rows.length, incomeC / 100, expenseC / 100, (incomeC + expenseC) / 100);
+    function catsOf(opts) {
+        const cats = {};
+        (opts.categories || []).forEach((c) => { cats[c.id] = { name: c.name, color: c.color }; });
+        return cats;
+    }
+
+    function buildColumns(opts, dotNetRef) {
+        const editorValues = { "": "(bez kategorie)" };
+        (opts.categories || []).forEach((c) => { editorValues[c.id] = c.name; });
+
+        const columns = [
+            { title: "Datum", field: "bookingDate", sorter: "string", formatter: dateFormatter, width: 110 },
+            { title: "Účet", field: "accountName", sorter: "string", minWidth: 110,
+              formatter: (cell) => '<span class="muted">' + escapeHtml(cell.getValue() || "") + "</span>" },
+            { title: "Protistrana", field: "counterparty", sorter: "string", formatter: counterpartyFormatter, minWidth: 140 },
+            {
+                title: "Kategorie", field: "categoryId", minWidth: 150, formatter: categoryFormatter,
+                sorter: (a, b, aRow, bRow) => (aRow.getData().categoryName || "").localeCompare(bRow.getData().categoryName || "", "cs"),
+                editable: !!opts.canManage,
+                editor: opts.canManage ? "list" : false,
+                editorParams: { values: editorValues, autocomplete: true, listOnEmpty: true, clearable: true },
+                cellEdited: (cell) => dotNetRef.invokeMethodAsync("GridSetCategory", cell.getData().id, cell.getValue() || ""),
+            },
+            { title: "Popis", field: "description", sorter: "string", formatter: descriptionFormatter, minWidth: 140 },
+            { title: "VS", field: "vs", sorter: "string", width: 90 },
+            { title: "Částka", field: "amount", sorter: "number", hozAlign: "right", width: 150, formatter: amountFormatter },
+        ];
+        if (opts.canManage) {
+            columns.unshift({
+                formatter: "rowSelection", titleFormatter: "rowSelection", headerSort: false,
+                width: 44, hozAlign: "center", resizable: false,
+                cellClick: (e, cell) => { e.stopPropagation(); cell.getRow().toggleSelect(); },
+            });
+            columns.push({
+                title: "", field: "id", headerSort: false, hozAlign: "right", width: 190, resizable: false,
+                canManage: true, formatter: actionsFormatter,
+                cellClick: (e, cell) => {
+                    const act = e.target && e.target.dataset ? e.target.dataset.act : null;
+                    if (!act) return;
+                    dotNetRef.invokeMethodAsync(act === "edit" ? "GridEdit" : "GridDelete", cell.getData().id);
+                },
+            });
+        }
+        return columns;
+    }
+
+    function commonConfig(opts, dotNetRef) {
+        return {
+            layout: "fitColumns",
+            height: opts.height || "60vh",
+            placeholder: "Žádné transakce neodpovídají filtru.",
+            locale: "cs",
+            langs: {
+                cs: {
+                    pagination: {
+                        first: "«", first_title: "První stránka",
+                        last: "»", last_title: "Poslední stránka",
+                        prev: "‹ Předchozí", prev_title: "Předchozí stránka",
+                        next: "Další ›", next_title: "Další stránka",
+                        page_size: "Na stránku",
+                        counter: { showing: "Zobrazeno", of: "z", rows: "pohybů" },
+                    },
+                },
+            },
+            selectableRows: !!opts.canManage,
+            columnDefaults: { headerSortTristate: true },
+            columns: buildColumns(opts, dotNetRef),
+            rowFormatter: (row) => { row.getElement().style.cursor = "pointer"; },
+        };
+    }
+
+    function wireEvents(id, table, opts, dotNetRef) {
+        table.on("rowClick", (e, row) => {
+            if (e.target.closest('button, input, select, a, .grid-act, [tabulator-field="categoryId"]')) return;
+            dotNetRef.invokeMethodAsync("GridRowClick", row.getData().id);
+        });
+        if (opts.canManage)
+            table.on("rowSelectionChanged", (data) =>
+                dotNetRef.invokeMethodAsync("GridSelectionChanged", data.map((d) => d.id)));
+        tables[id] = table;
+    }
+
+    function reset(id, opts, dotNetRef) {
+        const el = document.getElementById(id);
+        if (!el || typeof Tabulator === "undefined") return null;
+        if (tables[id]) { tables[id].destroy(); delete tables[id]; }
+        state[id] = { tokens: foldTokens(opts.search), dotNet: dotNetRef, cats: catsOf(opts) };
+        return el;
     }
 
     return {
-        render(id, data, opts, dotNetRef) {
-            const el = document.getElementById(id);
-            if (!el || typeof Tabulator === "undefined") return;
-            if (tables[id]) { tables[id].destroy(); delete tables[id]; }
-
-            const cats = {};
-            const editorValues = { "": "(bez kategorie)" };
-            (opts.categories || []).forEach((c) => { cats[c.id] = { name: c.name, color: c.color }; editorValues[c.id] = c.name; });
-            state[id] = { tokens: foldTokens(opts.search), dotNet: dotNetRef, cats: cats };
-
-            const columns = [
-                { title: "Datum", field: "bookingDate", sorter: "string", formatter: dateFormatter, width: 110 },
-                { title: "Účet", field: "accountName", sorter: "string", minWidth: 110,
-                  formatter: (cell) => '<span class="muted">' + escapeHtml(cell.getValue() || "") + "</span>" },
-                { title: "Protistrana", field: "counterparty", sorter: "string", formatter: counterpartyFormatter, minWidth: 140 },
-                {
-                    title: "Kategorie", field: "categoryId", minWidth: 150, formatter: categoryFormatter,
-                    sorter: (a, b, aRow, bRow) => (aRow.getData().categoryName || "").localeCompare(bRow.getData().categoryName || "", "cs"),
-                    editable: !!opts.canManage,
-                    editor: opts.canManage ? "list" : false,
-                    editorParams: { values: editorValues, autocomplete: true, listOnEmpty: true, clearable: true },
-                    cellEdited: (cell) => dotNetRef.invokeMethodAsync("GridSetCategory", cell.getData().id, cell.getValue() || ""),
+        // Lazy / infinite-scroll mode: the server filters, sorts and pages; rows load in chunks on scroll.
+        renderRemote(id, opts, dotNetRef) {
+            const el = reset(id, opts, dotNetRef);
+            if (!el) return;
+            const table = new Tabulator(el, Object.assign(commonConfig(opts, dotNetRef), {
+                sortMode: "remote",
+                progressiveLoad: "scroll",
+                paginationSize: opts.pageSize || 100,
+                ajaxURL: "tx",
+                ajaxRequestFunc: (url, config, params) => {
+                    const s = (params.sort && params.sort[0]) || null;
+                    return dotNetRef.invokeMethodAsync("GridFetchPage",
+                        params.page || 1, params.size || (opts.pageSize || 100),
+                        s ? s.field : null, s ? (s.dir === "desc") : true);
                 },
-                { title: "Popis", field: "description", sorter: "string", formatter: descriptionFormatter, minWidth: 140 },
-                { title: "VS", field: "vs", sorter: "string", width: 90 },
-                {
-                    title: "Částka", field: "amount", sorter: "number", hozAlign: "right", width: 150,
-                    formatter: amountFormatter, bottomCalc: "sum", bottomCalcFormatter: amountFormatter,
-                },
-            ];
-            if (opts.canManage) {
-                columns.unshift({
-                    formatter: "rowSelection", titleFormatter: "rowSelection", headerSort: false,
-                    width: 44, hozAlign: "center", resizable: false,
-                    cellClick: (e, cell) => { e.stopPropagation(); cell.getRow().toggleSelect(); },
-                });
-                columns.push({
-                    title: "", field: "id", headerSort: false, hozAlign: "right", width: 190, resizable: false,
-                    canManage: true, formatter: actionsFormatter,
-                    cellClick: (e, cell) => {
-                        const act = e.target && e.target.dataset ? e.target.dataset.act : null;
-                        if (!act) return;
-                        dotNetRef.invokeMethodAsync(act === "edit" ? "GridEdit" : "GridDelete", cell.getData().id);
-                    },
-                });
-            }
-
-            const table = new Tabulator(el, {
+            }));
+            wireEvents(id, table, opts, dotNetRef);
+        },
+        // Eager mode: all rows handed in client-side, with grouping + per-group subtotals. Used only for a
+        // bounded filtered set (the page checks the count first).
+        renderLocal(id, data, opts, dotNetRef) {
+            const el = reset(id, opts, dotNetRef);
+            if (!el) return;
+            const table = new Tabulator(el, Object.assign(commonConfig(opts, dotNetRef), {
                 data: data,
-                layout: "fitColumns",
-                height: opts.height || "60vh",
-                placeholder: "Žádné transakce neodpovídají filtru.",
                 pagination: true,
-                paginationSize: opts.pageSize || 50,
+                paginationSize: opts.pageSize || 100,
                 paginationSizeSelector: [25, 50, 100, 200],
                 paginationCounter: "rows",
-                locale: "cs",
-                langs: {
-                    cs: {
-                        pagination: {
-                            first: "«", first_title: "První stránka",
-                            last: "»", last_title: "Poslední stránka",
-                            prev: "‹ Předchozí", prev_title: "Předchozí stránka",
-                            next: "Další ›", next_title: "Další stránka",
-                            page_size: "Na stránku",
-                            counter: { showing: "Zobrazeno", of: "z", rows: "pohybů" },
-                        },
-                    },
-                },
                 groupBy: groupByFn(opts.groupBy),
                 groupHeader: groupHeader,
-                selectableRows: !!opts.canManage,
-                columnDefaults: { headerSortTristate: true },
-                columns: columns,
-                rowFormatter: (row) => { row.getElement().style.cursor = "pointer"; },
-            });
-            // Click a row (away from buttons/inputs/selection) to open its detail.
-            table.on("rowClick", (e, row) => {
-                if (e.target.closest('button, input, select, a, .grid-act, [tabulator-field="categoryId"]')) return;
-                dotNetRef.invokeMethodAsync("GridRowClick", row.getData().id);
-            });
-            if (opts.canManage)
-                table.on("rowSelectionChanged", (data) =>
-                    dotNetRef.invokeMethodAsync("GridSelectionChanged", data.map((d) => d.id)));
-            tables[id] = table;
-            table.on("tableBuilt", () => pushSummary(id));
-            table.on("dataFiltered", () => pushSummary(id));
+            }));
+            wireEvents(id, table, opts, dotNetRef);
         },
-        // Structured filters client-side (instant). Text search is server-side (PostgreSQL FTS).
-        setFilters(id, f) {
-            const t = tables[id];
-            if (!t) return;
-            t.clearFilter(true);
-            if (f.accountId) t.addFilter("accountId", "=", f.accountId);
-            if (f.categoryId) t.addFilter("categoryId", "=", f.categoryId);
-            if (f.batchId === "none") t.addFilter("batchId", "=", "");
-            else if (f.batchId) t.addFilter("batchId", "=", f.batchId);
-            if (f.dateFrom) t.addFilter("bookingDate", ">=", f.dateFrom);
-            if (f.dateTo) t.addFilter("bookingDate", "<=", f.dateTo);
-            if (f.type === "in") t.addFilter("amount", ">", 0);
-            else if (f.type === "out") t.addFilter("amount", "<", 0);
+        // Re-fetch a remote grid from the first page (after a filter change, edit or delete).
+        reload(id) {
+            if (tables[id]) tables[id].setData();
         },
         clearSelection(id) {
             if (tables[id]) tables[id].deselectRow();
-        },
-        setGroup(id, kind) {
-            if (tables[id]) tables[id].setGroupBy(groupByFn(kind));
-        },
-        exportCsv(id) {
-            if (tables[id]) tables[id].download("csv", "transakce.csv", { bom: true });
         },
         destroy(id) {
             if (tables[id]) { tables[id].destroy(); delete tables[id]; }
@@ -251,3 +261,16 @@ window.flowlioGrid = (function () {
         },
     };
 })();
+
+// Triggers a browser download of in-memory bytes (the server-streamed CSV export).
+window.flowlioDownload = function (filename, bytes, mime) {
+    const blob = new Blob([bytes], { type: mime || "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};

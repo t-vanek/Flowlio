@@ -107,22 +107,57 @@ public sealed class FlowlioApi(HttpClient http)
 
     public async Task<TransactionPageDto?> GetTransactionsAsync(
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
-        TransactionDirection? direction = null, string? search = null, int page = 1, int pageSize = 50)
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false,
+        string? search = null, string? sort = null, bool desc = true, int page = 1, int pageSize = 50)
     {
         var url = $"api/transactions?page={page}&pageSize={pageSize}";
-        if (accountId is { } id)
-            url += $"&accountId={id}";
-        if (categoryId is { } cid)
-            url += $"&categoryId={cid}";
-        if (dateFrom is { } from)
-            url += $"&dateFrom={from:yyyy-MM-dd}";
-        if (dateTo is { } to)
-            url += $"&dateTo={to:yyyy-MM-dd}";
-        if (direction is { } dir)
-            url += $"&direction={dir}";
-        if (!string.IsNullOrWhiteSpace(search))
-            url += $"&search={Uri.EscapeDataString(search)}";
-        return await http.GetFromJsonAsync<TransactionPageDto>(url);
+        var filter = TxFilterQuery(accountId, categoryId, dateFrom, dateTo, direction, batchId, unbatched, search);
+        if (filter.Length > 0)
+            url += "&" + filter;
+        if (!string.IsNullOrEmpty(sort))
+            url += $"&sort={sort}&desc={(desc ? "true" : "false")}";
+        var resp = await http.GetAsync(url);
+        return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<TransactionPageDto>() : null;
+    }
+
+    public async Task<TransactionSummaryDto> GetTransactionSummaryAsync(
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false, string? search = null)
+    {
+        var filter = TxFilterQuery(accountId, categoryId, dateFrom, dateTo, direction, batchId, unbatched, search);
+        var url = "api/transactions/summary" + (filter.Length > 0 ? "?" + filter : "");
+        var resp = await http.GetAsync(url);
+        return resp.IsSuccessStatusCode
+            ? await resp.Content.ReadFromJsonAsync<TransactionSummaryDto>() ?? new TransactionSummaryDto()
+            : new TransactionSummaryDto();
+    }
+
+    /// <summary>Downloads the filtered set as CSV bytes (server-streamed), for the export button.</summary>
+    public async Task<byte[]?> ExportTransactionsAsync(
+        Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
+        TransactionDirection? direction = null, Guid? batchId = null, bool unbatched = false, string? search = null)
+    {
+        var filter = TxFilterQuery(accountId, categoryId, dateFrom, dateTo, direction, batchId, unbatched, search);
+        var url = "api/transactions/export" + (filter.Length > 0 ? "?" + filter : "");
+        var resp = await http.GetAsync(url);
+        return resp.IsSuccessStatusCode ? await resp.Content.ReadAsByteArrayAsync() : null;
+    }
+
+    // Shared "&"-joined filter query (no leading ? or &) for the transaction list/summary/export endpoints.
+    private static string TxFilterQuery(
+        Guid? accountId, Guid? categoryId, DateOnly? dateFrom, DateOnly? dateTo,
+        TransactionDirection? direction, Guid? batchId, bool unbatched, string? search)
+    {
+        var qs = new List<string>();
+        if (accountId is { } a) qs.Add($"accountId={a}");
+        if (categoryId is { } c) qs.Add($"categoryId={c}");
+        if (dateFrom is { } f) qs.Add($"dateFrom={f:yyyy-MM-dd}");
+        if (dateTo is { } t) qs.Add($"dateTo={t:yyyy-MM-dd}");
+        if (direction is { } d) qs.Add($"direction={d}");
+        if (batchId is { } b) qs.Add($"batchId={b}");
+        if (unbatched) qs.Add("unbatched=true");
+        if (!string.IsNullOrWhiteSpace(search)) qs.Add($"search={Uri.EscapeDataString(search)}");
+        return string.Join("&", qs);
     }
 
     public async Task<ImportResultDto?> ImportStatementAsync(
