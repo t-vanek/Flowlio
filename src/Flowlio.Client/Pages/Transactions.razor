@@ -441,6 +441,7 @@ else
     // (Re)builds the grid in the right mode: eager+grouped for a bounded set, otherwise lazy/remote.
     private async Task RenderGridAsync()
     {
+        await JS.InvokeAsync<bool>("flowlioGrid.ensure"); // load Tabulator on demand (kept out of the startup bundle)
         _gridLocal = ShouldGroupLocally();
         if (_gridLocal)
         {
@@ -551,7 +552,7 @@ else
                 Toasts.ShowError("Export se nezdařil.");
                 return;
             }
-            await JS.InvokeVoidAsync("flowlioDownload", "transakce.csv", bytes, "text/csv;charset=utf-8");
+            await JS.InvokeVoidAsync("flowlioDownload.fromBytes", "transakce.csv", Convert.ToBase64String(bytes), "text/csv;charset=utf-8");
         }
         finally
         {
