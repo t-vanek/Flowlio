@@ -51,6 +51,7 @@ public static class ApiEndpoints
         api.MapGet("/dashboard", GetDashboard);
         api.MapGet("/dashboard/categories", GetCategorySpend);
         api.MapGet("/dashboard/flow", GetCashFlow);
+        api.MapGet("/dashboard/rates", GetExchangeRates);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         // Open Banking endpoints are mapped only when the (paid) feature is switched on.
         if (app.ServiceProvider.GetRequiredService<IConfiguration>().OpenBankingEnabled())
@@ -689,6 +690,53 @@ public static class ApiEndpoints
             Income = decimal.Round(income, 2),
             Expense = decimal.Round(-expense, 2),
             Net = decimal.Round(income + expense, 2),
+        });
+    }
+
+    /// <summary>Latest ČNB rates for the family's key currencies (the common pair plus any the family's
+    /// accounts use), expressed as how many units of the base currency equal one unit of each.</summary>
+    private static async Task<IResult> GetExchangeRates(IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
+        var baseUpper = baseCurrency.ToUpperInvariant();
+
+        var asOf = await db.ExchangeRates
+            .OrderByDescending(e => e.Date)
+            .Select(e => (DateOnly?)e.Date)
+            .FirstOrDefaultAsync(ct);
+
+        var accountCurrencies = await db.BankAccounts
+            .Where(a => a.FamilyId == familyId)
+            .Select(a => a.Currency)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // The common headline pair plus whatever the family's accounts actually use, minus the base itself.
+        var currencies = new[] { "EUR", "USD" }
+            .Concat(accountCurrencies)
+            .Select(c => c.ToUpperInvariant())
+            .Where(c => c != baseUpper)
+            .Distinct()
+            .ToList();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var rows = new List<ExchangeRateRowDto>();
+        foreach (var c in currencies)
+        {
+            // 1 unit of c expressed in the base currency, using the latest fixing on or before today.
+            if (converter.Convert(1m, c, baseCurrency, today) is { } perUnit)
+                rows.Add(new ExchangeRateRowDto { Currency = c, PerUnitInBase = decimal.Round(perUnit, 4) });
+        }
+
+        return Results.Ok(new ExchangeRatesDto
+        {
+            BaseCurrency = baseCurrency,
+            AsOf = asOf,
+            Rates = rows.OrderBy(r => r.Currency).ToList(),
         });
     }
 
