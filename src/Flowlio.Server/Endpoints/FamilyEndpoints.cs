@@ -361,6 +361,8 @@ public static class FamilyEndpoints
         Guid accountId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
         var account = await db.BankAccounts
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)
@@ -468,6 +470,8 @@ public static class FamilyEndpoints
         Guid accountId, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
     {
         var me = await family.RequireMemberAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
         var account = await db.BankAccounts
             .FirstOrDefaultAsync(a => a.Id == accountId && a.FamilyId == me.FamilyId, ct);
         if (account is null)

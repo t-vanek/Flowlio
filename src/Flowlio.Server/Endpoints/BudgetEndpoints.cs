@@ -74,8 +74,6 @@ public static class BudgetEndpoints
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
-        if (request.Amount <= 0)
-            return Results.BadRequest("Částka musí být kladná.");
 
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == request.CategoryId && c.FamilyId == familyId, ct);
         if (category is null)
@@ -105,8 +103,6 @@ public static class BudgetEndpoints
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
-        if (request.Amount <= 0)
-            return Results.BadRequest("Částka musí být kladná.");
 
         var budget = await db.Budgets.FirstOrDefaultAsync(x => x.Id == id && x.FamilyId == familyId, ct);
         if (budget is null)
@@ -188,8 +184,6 @@ public static class BudgetEndpoints
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
-        if (request.TargetAmount <= 0)
-            return Results.BadRequest("Cílová částka musí být kladná.");
 
         var account = await db.BankAccounts.FirstOrDefaultAsync(a => a.Id == request.BankAccountId && a.FamilyId == familyId, ct);
         if (account is null)
@@ -218,8 +212,6 @@ public static class BudgetEndpoints
         var familyId = await family.RequireAsync(ct);
         if (!await family.CanAsync(Permission.ManageTransactions, ct))
             return Forbidden();
-        if (request.TargetAmount <= 0)
-            return Results.BadRequest("Cílová částka musí být kladná.");
 
         var goal = await db.Goals.FirstOrDefaultAsync(g => g.Id == id && g.FamilyId == familyId, ct);
         if (goal is null)
