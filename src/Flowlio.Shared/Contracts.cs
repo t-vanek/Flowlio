@@ -245,8 +245,13 @@ public sealed record CategorizationRuleRequest
     public string? Pattern { get; set; }
 
     /// <summary>Optional amount condition (inclusive, absolute value); needs <see cref="AmountCurrency"/>.</summary>
+    [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Částka je mimo povolený rozsah.")]
     public decimal? MinAmount { get; set; }
+
+    [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Částka je mimo povolený rozsah.")]
     public decimal? MaxAmount { get; set; }
+
+    [RegularExpression(ValidationRules.CurrencyRegex, ErrorMessage = "Měna musí být třípísmenný kód (např. CZK).")]
     public string? AmountCurrency { get; set; }
 
     public Guid CategoryId { get; set; }
@@ -539,7 +544,10 @@ public sealed record BudgetDto
 public sealed record BudgetRequest
 {
     public Guid CategoryId { get; set; }
+
+    [Range(0, ValidationRules.MaxMoney, MinimumIsExclusive = true, ErrorMessage = "Částka musí být kladná.")]
     public decimal Amount { get; set; }
+
     public BudgetPeriod Period { get; set; } = BudgetPeriod.Monthly;
 }
 
@@ -570,10 +578,14 @@ public sealed record GoalRequest
     public string Name { get; set; } = "";
 
     public Guid BankAccountId { get; set; }
+
+    [Range(0, ValidationRules.MaxMoney, MinimumIsExclusive = true, ErrorMessage = "Cílová částka musí být kladná.")]
     public decimal TargetAmount { get; set; }
+
     public DateOnly? TargetDate { get; set; }
 
     /// <summary>Optional starting balance; defaults to the account's current balance at creation.</summary>
+    [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Počáteční částka je mimo povolený rozsah.")]
     public decimal? BaselineAmount { get; set; }
 }
 
