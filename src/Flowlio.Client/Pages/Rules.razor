@@ -641,10 +641,9 @@ else
 
     private async Task DeleteAsync(CategorizationRuleDto r)
     {
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu smazat pravidlo {r.Pattern}? Už zařazené pohyby zůstanou beze změny a pravidlo lze později obnovit.",
-            "Smazat", "Zrušit", "Smazání pravidla");
-        if ((await dialog.Result).Cancelled)
+            "Smazat", "Smazání pravidla"))
             return;
 
         if (await Api.DeleteRuleAsync(r.Id))

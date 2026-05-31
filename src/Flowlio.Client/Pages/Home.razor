@@ -52,12 +52,7 @@ else
         <FluentCard Class="panel">
             <div class="panel-head">
                 <h2 class="panel-title">Výdaje podle kategorií</h2>
-                <div class="seg">
-                    <button type="button" class="seg-btn @(_catPeriod == "month" ? "active" : "")" @onclick='() => SetCatPeriodAsync("month")'>Měsíc</button>
-                    <button type="button" class="seg-btn @(_catPeriod == "quarter" ? "active" : "")" @onclick='() => SetCatPeriodAsync("quarter")'>Čtvrtletí</button>
-                    <button type="button" class="seg-btn @(_catPeriod == "year" ? "active" : "")" @onclick='() => SetCatPeriodAsync("year")'>Rok</button>
-                    <button type="button" class="seg-btn @(_catPeriod == "all" ? "active" : "")" @onclick='() => SetCatPeriodAsync("all")'>Celé období</button>
-                </div>
+                <PeriodSelector Value="_catPeriod" ValueChanged="SetCatPeriodAsync" />
             </div>
             @if (_catLoading)
             {
@@ -93,12 +88,7 @@ else
         <FluentCard Class="panel">
             <div class="panel-head">
                 <h2 class="panel-title">Příjmy vs. výdaje</h2>
-                <div class="seg">
-                    <button type="button" class="seg-btn @(_flowPeriod == "month" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("month")'>Měsíc</button>
-                    <button type="button" class="seg-btn @(_flowPeriod == "quarter" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("quarter")'>Čtvrtletí</button>
-                    <button type="button" class="seg-btn @(_flowPeriod == "year" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("year")'>Rok</button>
-                    <button type="button" class="seg-btn @(_flowPeriod == "all" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("all")'>Celé období</button>
-                </div>
+                <PeriodSelector Value="_flowPeriod" ValueChanged="SetFlowPeriodAsync" />
             </div>
             @if (_flowLoading)
             {

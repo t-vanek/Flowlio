@@ -255,10 +255,9 @@ else
             return;
 
         var name = TransferCandidates.FirstOrDefault(m => m.Id == id)?.DisplayName ?? "vybraného člena";
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu převést vlastnictví rodiny na: {name}? Stanete se dospělým členem a nový vlastník získá plnou kontrolu.",
-            "Převést", "Zrušit", "Převod vlastnictví");
-        if ((await dialog.Result).Cancelled)
+            "Převést", "Převod vlastnictví"))
             return;
 
         var ok = await Api.TransferOwnershipAsync(id);

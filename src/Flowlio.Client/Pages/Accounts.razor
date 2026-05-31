@@ -344,10 +344,9 @@ else
     private async Task ArchiveAsync(Guid accountId)
     {
         var name = _accounts?.FirstOrDefault(a => a.Id == accountId)?.Name ?? "účet";
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu archivovat účet: {name}? Skryje se z přehledů, ale historie zůstane a lze ho obnovit.",
-            "Archivovat", "Zrušit", "Archivace účtu");
-        if ((await dialog.Result).Cancelled)
+            "Archivovat", "Archivace účtu"))
             return;
 
         if (await Api.ArchiveAccountAsync(accountId))
@@ -445,10 +444,9 @@ else
     private async Task RevokeAccessAsync(Guid accountId, Guid memberId)
     {
         var who = _access?.Grants.FirstOrDefault(g => g.FamilyMemberId == memberId)?.MemberName ?? "člena";
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu odebrat sdílení účtu pro: {who}?",
-            "Odebrat", "Zrušit", "Odebrání sdílení");
-        if ((await dialog.Result).Cancelled)
+            "Odebrat", "Odebrání sdílení"))
             return;
 
         if (await Api.RevokeAccessAsync(accountId, memberId))
@@ -509,10 +507,9 @@ else
 
     private async Task DeleteCardAsync(Guid cardId)
     {
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             "Opravdu smazat tuto kartu?",
-            "Smazat", "Zrušit", "Smazání karty");
-        if ((await dialog.Result).Cancelled)
+            "Smazat", "Smazání karty"))
             return;
 
         if (await Api.DeleteCardAsync(cardId))

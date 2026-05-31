@@ -666,11 +666,8 @@ else
         await LoadUsersAsync();
     }
 
-    private async Task<bool> ConfirmAsync(string message, string confirm, string title)
-    {
-        var dialog = await Dialogs.ShowConfirmationAsync(message, confirm, "Zrušit", title);
-        return !(await dialog.Result).Cancelled;
-    }
+    private Task<bool> ConfirmAsync(string message, string confirm, string title) =>
+        Dialogs.ConfirmAsync(message, confirm, title);
 
     private static string UserName(AdminUserDto u) =>
         string.IsNullOrWhiteSpace(u.DisplayName) ? (u.Email ?? "uživatel") : u.DisplayName;

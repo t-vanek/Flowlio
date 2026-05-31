@@ -276,10 +276,9 @@
     {
         _error = null;
         var name = _members?.FirstOrDefault(x => x.Id == memberId)?.DisplayName ?? "člena";
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu odebrat člena: {name}? Tuto akci nelze vrátit zpět.",
-            "Odebrat", "Zrušit", "Odebrání člena");
-        if ((await dialog.Result).Cancelled)
+            "Odebrat", "Odebrání člena"))
             return;
 
         if (await Api.DeleteMemberAsync(memberId))
@@ -295,10 +294,9 @@
     private async Task RevokeAsync(Guid invitationId)
     {
         var who = _invitations?.FirstOrDefault(i => i.Id == invitationId)?.MemberName ?? "pozvánku";
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu zrušit pozvánku pro: {who}?",
-            "Zrušit pozvánku", "Zpět", "Zrušení pozvánky");
-        if ((await dialog.Result).Cancelled)
+            "Zrušit pozvánku", "Zrušení pozvánky", cancelLabel: "Zpět"))
             return;
 
         if (await Api.RevokeInvitationAsync(invitationId))
@@ -365,10 +363,9 @@
         _error = null;
         if (!active)
         {
-            var dialog = await Dialogs.ShowConfirmationAsync(
+            if (!await Dialogs.ConfirmAsync(
                 $"Opravdu deaktivovat člena: {m.DisplayName}? Ztratí přístup, dokud ho znovu neaktivujete.",
-                "Deaktivovat", "Zrušit", "Deaktivace člena");
-            if ((await dialog.Result).Cancelled)
+                "Deaktivovat", "Deaktivace člena"))
                 return;
         }
 

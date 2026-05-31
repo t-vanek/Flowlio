@@ -1,0 +1,25 @@
+@* Segmented period switcher (Měsíc / Čtvrtletí / Rok / Celé období) used by the dashboard charts.
+   Emits the selected period key via ValueChanged; the parent owns the value and reloads its data. *@
+
+<div class="seg">
+    @foreach (var (key, label) in _periods)
+    {
+        <button type="button" class="seg-btn @(Value == key ? "active" : "")" @onclick="() => SelectAsync(key)">@label</button>
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "month";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private static readonly (string Key, string Label)[] _periods =
+    [
+        ("month", "Měsíc"),
+        ("quarter", "Čtvrtletí"),
+        ("year", "Rok"),
+        ("all", "Celé období"),
+    ];
+
+    private Task SelectAsync(string key) =>
+        key == Value ? Task.CompletedTask : ValueChanged.InvokeAsync(key);
+}

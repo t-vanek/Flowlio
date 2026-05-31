@@ -248,7 +248,7 @@ public static class BudgetEndpoints
             decimal? requiredMonthly = null;
             if (goal.TargetDate is { } due && remaining > 0)
             {
-                var months = MonthsUntil(today, due);
+                var months = DatePeriods.MonthsUntil(today, due);
                 requiredMonthly = months > 0 ? decimal.Round(remaining / months, 2) : remaining;
             }
 
@@ -429,22 +429,8 @@ public static class BudgetEndpoints
 
     private static (DateOnly Start, DateOnly End) PeriodWindow(BudgetPeriod period, DateOnly today) => period switch
     {
-        BudgetPeriod.Weekly => WeekWindow(today),
-        BudgetPeriod.Yearly => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year + 1, 1, 1)),
-        _ => (new DateOnly(today.Year, today.Month, 1), new DateOnly(today.Year, today.Month, 1).AddMonths(1)),
+        BudgetPeriod.Weekly => DatePeriods.WeekWindow(today),
+        BudgetPeriod.Yearly => DatePeriods.YearWindow(today),
+        _ => DatePeriods.MonthWindow(today),
     };
-
-    private static (DateOnly Start, DateOnly End) WeekWindow(DateOnly today)
-    {
-        // ISO week: Monday-based.
-        var offset = ((int)today.DayOfWeek + 6) % 7;
-        var monday = today.AddDays(-offset);
-        return (monday, monday.AddDays(7));
-    }
-
-    private static int MonthsUntil(DateOnly today, DateOnly target)
-    {
-        var months = (target.Year - today.Year) * 12 + (target.Month - today.Month);
-        return Math.Max(months, 1);
-    }
 }
