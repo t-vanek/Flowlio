@@ -118,6 +118,8 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<CashFlowDto> GetCashFlowAsync(string period) =>
         await http.GetFromJsonAsync<CashFlowDto>($"api/dashboard/flow?period={period}") ?? new CashFlowDto();
 
+    public Task<ExchangeRatesDto?> GetExchangeRatesAsync() => GetOrNullAsync<ExchangeRatesDto>("api/dashboard/rates");
+
     // ---- Accounts ----------------------------------------------------------
 
     public Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() => GetListAsync<BankAccountDto>("api/accounts");

@@ -507,6 +507,22 @@ public sealed record CashFlowDto
     public decimal Net { get; init; }
 }
 
+/// <summary>Latest foreign-exchange rates relative to the family's base currency, for the dashboard.</summary>
+public sealed record ExchangeRatesDto
+{
+    public string BaseCurrency { get; init; } = "CZK";
+    /// <summary>The fixing date the rates are from (ČNB doesn't publish on weekends/holidays); null if none.</summary>
+    public DateOnly? AsOf { get; init; }
+    public IReadOnlyList<ExchangeRateRowDto> Rates { get; init; } = [];
+}
+
+/// <summary>One currency's rate: how many units of the base currency equal one unit of it.</summary>
+public sealed record ExchangeRateRowDto
+{
+    public string Currency { get; init; } = "";
+    public decimal PerUnitInBase { get; init; }
+}
+
 public sealed record UpcomingPaymentDto
 {
     public string Name { get; init; } = "";

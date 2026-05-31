@@ -126,6 +126,24 @@ else
             }
         </FluentCard>
 
+        @if (_rates is { Rates.Count: > 0 })
+        {
+            <FluentCard Class="panel">
+                <h2 class="panel-title">Kurzy měn</h2>
+                @if (_rates.AsOf is { } asOf)
+                {
+                    <p class="muted">ČNB k @Formatting.Date(asOf)</p>
+                }
+                @foreach (var r in _rates.Rates)
+                {
+                    <div class="bar-row">
+                        <span class="bar-name">1 @r.Currency</span>
+                        <span class="bar-amount">@Formatting.Money(r.PerUnitInBase, _rates.BaseCurrency)</span>
+                    </div>
+                }
+            </FluentCard>
+        }
+
         @if (_budgets is { Count: > 0 } || _goals is { Count: > 0 })
         {
             <FluentCard Class="panel">
@@ -157,6 +175,7 @@ else
     private DashboardSummaryDto? _summary;
     private IReadOnlyList<BudgetDto>? _budgets;
     private IReadOnlyList<GoalDto>? _goals;
+    private ExchangeRatesDto? _rates;
     private bool _canView;
     private ApexChartOptions<CategorySpendDto> _donutOptions = new();
     private ApexChartOptions<FlowPoint> _barOptions = new();
@@ -180,6 +199,7 @@ else
         _summary = await Api.GetDashboardAsync();
         _budgets = await Api.GetBudgetsAsync();
         _goals = await Api.GetGoalsAsync();
+        _rates = await Api.GetExchangeRatesAsync();
 
         var effective = await JS.InvokeAsync<string>("flowlioTheme.effective");
         var mode = effective == "dark" ? Mode.Dark : Mode.Light;
