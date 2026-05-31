@@ -28,8 +28,7 @@ public static class AuditEndpoints
         if (!await sys.CanAsync(SystemPermission.ViewAuditLog, ct))
             return Forbidden();
 
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
+        (page, pageSize) = Paging.Normalize(page, pageSize);
 
         var query = ApplyFilters(db.AuditEntries.AsQueryable(), action, search, from, to);
 

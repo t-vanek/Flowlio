@@ -266,8 +266,7 @@ public static class ApiEndpoints
         if (!await family.CanAsync(Permission.ViewFinances, ct))
             return Forbidden();
 
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
+        (page, pageSize) = Paging.Normalize(page, pageSize);
 
         var query = db.Transactions
             .Include(t => t.Category)

@@ -90,8 +90,7 @@ public static class AdminEndpoints
         IQueryable<ApplicationUser> source, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole<Guid>> roleManager,
         IAppDbContext db, ICurrentUser current, int page, int pageSize, CancellationToken ct)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 200);
+        (page, pageSize) = Paging.Normalize(page, pageSize);
 
         var ordered = source.OrderBy(u => u.Email);
         var total = await ordered.CountAsync(ct);
