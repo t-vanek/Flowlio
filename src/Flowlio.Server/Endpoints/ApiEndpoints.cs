@@ -46,6 +46,7 @@ public static class ApiEndpoints
         api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
         api.MapGet("/dashboard/categories", GetCategorySpend);
+        api.MapGet("/dashboard/flow", GetCashFlow);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         // Open Banking endpoints are mapped only when the (paid) feature is switched on.
         if (app.ServiceProvider.GetRequiredService<IConfiguration>().OpenBankingEnabled())
@@ -502,7 +503,7 @@ public static class ApiEndpoints
             return Forbidden();
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var (from, to) = ResolveCategoryPeriod(period, today);
+        var (from, to) = ResolvePeriod(period, today);
 
         var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
 
@@ -534,8 +535,50 @@ public static class ApiEndpoints
         return Results.Ok(categories);
     }
 
-    // Calendar period [from, to) for the category chart; (null, null) means all time.
-    private static (DateOnly? From, DateOnly? To) ResolveCategoryPeriod(string? period, DateOnly today) =>
+    /// <summary>Income, expense and net for the dashboard's income-vs-expense chart over the chosen
+    /// calendar period (this month / quarter / year / all time), converted to the family base currency.</summary>
+    private static async Task<IResult> GetCashFlow(
+        string? period, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var (from, to) = ResolvePeriod(period, today);
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
+
+        var query = db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null);
+        if (from is { } f)
+            query = query.Where(t => t.BookingDate >= f);
+        if (to is { } t2)
+            query = query.Where(t => t.BookingDate < t2);
+
+        var rows = await query
+            .Select(t => new { t.Amount, t.Currency, t.BookingDate })
+            .ToListAsync(ct);
+
+        decimal income = 0m, expense = 0m;
+        foreach (var r in rows)
+        {
+            var inBase = converter.Convert(r.Amount, r.Currency, baseCurrency, r.BookingDate) ?? 0m;
+            if (inBase > 0)
+                income += inBase;
+            else
+                expense += inBase;
+        }
+
+        return Results.Ok(new CashFlowDto
+        {
+            Income = decimal.Round(income, 2),
+            Expense = decimal.Round(-expense, 2),
+            Net = decimal.Round(income + expense, 2),
+        });
+    }
+
+    // Calendar period [from, to) for the dashboard period charts; (null, null) means all time.
+    private static (DateOnly? From, DateOnly? To) ResolvePeriod(string? period, DateOnly today) =>
         period?.ToLowerInvariant() switch
         {
             "all" => (null, null),

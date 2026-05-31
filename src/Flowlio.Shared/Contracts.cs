@@ -488,6 +488,15 @@ public sealed record CategorySpendDto
     public decimal Amount { get; init; }
 }
 
+/// <summary>Income, expense (both reported as positive magnitudes) and net for a period — drives the
+/// dashboard's income-vs-expense chart with its period switcher.</summary>
+public sealed record CashFlowDto
+{
+    public decimal Income { get; init; }
+    public decimal Expense { get; init; }
+    public decimal Net { get; init; }
+}
+
 public sealed record UpcomingPaymentDto
 {
     public string Name { get; init; } = "";
