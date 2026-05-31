@@ -21,6 +21,80 @@ public sealed record MeResult(CurrentUserDto? User, bool Forbidden);
 /// <summary>Typed wrapper over the Flowlio HTTP API used by the Blazor components.</summary>
 public sealed class FlowlioApi(HttpClient http)
 {
+    // ---- Shared request helpers --------------------------------------------
+    // These collapse the repeated "call + inspect IsSuccessStatusCode" idioms. Each preserves the exact
+    // HTTP call it wraps: success → value, failure → empty/false/null. (Note GetListAsync uses
+    // GetFromJsonAsync, which THROWS on a non-success status; the few endpoints that must stay quiet on
+    // failure keep their own GetAsync + check below.)
+
+    /// <summary>GET a JSON list; a null body becomes an empty list.</summary>
+    private async Task<IReadOnlyList<T>> GetListAsync<T>(string url) =>
+        await http.GetFromJsonAsync<List<T>>(url) ?? [];
+
+    /// <summary>GET and read the body on success, or null on a failure status (does not throw).</summary>
+    private async Task<T?> GetOrNullAsync<T>(string url) where T : class
+    {
+        var response = await http.GetAsync(url);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>() : null;
+    }
+
+    /// <summary>POST a JSON body, returning whether it succeeded.</summary>
+    private async Task<bool> PostOkAsync(string url, object request) =>
+        (await http.PostAsJsonAsync(url, request)).IsSuccessStatusCode;
+
+    /// <summary>POST with no body (a command), returning whether it succeeded.</summary>
+    private async Task<bool> PostOkAsync(string url) =>
+        (await http.PostAsync(url, null)).IsSuccessStatusCode;
+
+    /// <summary>PUT a JSON body, returning whether it succeeded.</summary>
+    private async Task<bool> PutOkAsync(string url, object request) =>
+        (await http.PutAsJsonAsync(url, request)).IsSuccessStatusCode;
+
+    /// <summary>DELETE, returning whether it succeeded.</summary>
+    private async Task<bool> DeleteOkAsync(string url) =>
+        (await http.DeleteAsync(url)).IsSuccessStatusCode;
+
+    /// <summary>POST a JSON body and read the response on success, or null on failure.</summary>
+    private async Task<T?> PostReadAsync<T>(string url, object request) where T : class
+    {
+        var response = await http.PostAsJsonAsync(url, request);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>() : null;
+    }
+
+    /// <summary>POST with no body and read the response on success, or null on failure.</summary>
+    private async Task<T?> PostReadAsync<T>(string url) where T : class
+    {
+        var response = await http.PostAsync(url, null);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>() : null;
+    }
+
+    /// <summary>PUT a JSON body and read the response on success, or null on failure.</summary>
+    private async Task<T?> PutReadAsync<T>(string url, object request) where T : class
+    {
+        var response = await http.PutAsJsonAsync(url, request);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>() : null;
+    }
+
+    /// <summary>PUT a JSON body and map the result to a concurrency-aware <see cref="SaveStatus"/>.</summary>
+    private async Task<SaveStatus> PutStatusAsync(string url, object request) =>
+        ToStatus(await http.PutAsJsonAsync(url, request));
+
+    private static SaveStatus ToStatus(HttpResponseMessage response) =>
+        response.IsSuccessStatusCode ? SaveStatus.Success
+        : response.StatusCode == HttpStatusCode.Conflict ? SaveStatus.Conflict
+        : SaveStatus.Failed;
+
+    private async Task<int> BulkAsync(string url, object request)
+    {
+        var response = await http.PostAsJsonAsync(url, request);
+        if (!response.IsSuccessStatusCode)
+            return 0;
+        var result = await response.Content.ReadFromJsonAsync<BulkResultDto>();
+        return result?.Count ?? 0;
+    }
+
+    // ---- Current user ------------------------------------------------------
+
     /// <summary>Loads the current user, distinguishing a suspended membership (403) from other
     /// failures so the UI can explain it instead of silently failing.</summary>
     public async Task<MeResult> GetMeAsync()
@@ -33,77 +107,64 @@ public sealed class FlowlioApi(HttpClient http)
         return new MeResult(await response.Content.ReadFromJsonAsync<CurrentUserDto>(), Forbidden: false);
     }
 
+    // ---- Dashboard ---------------------------------------------------------
+
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");
 
-    public async Task<IReadOnlyList<CategorySpendDto>> GetCategorySpendAsync(string period) =>
-        await http.GetFromJsonAsync<List<CategorySpendDto>>($"api/dashboard/categories?period={period}") ?? [];
+    public Task<IReadOnlyList<CategorySpendDto>> GetCategorySpendAsync(string period) =>
+        GetListAsync<CategorySpendDto>($"api/dashboard/categories?period={period}");
 
     public async Task<CashFlowDto> GetCashFlowAsync(string period) =>
         await http.GetFromJsonAsync<CashFlowDto>($"api/dashboard/flow?period={period}") ?? new CashFlowDto();
 
-    public async Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() =>
-        await http.GetFromJsonAsync<List<BankAccountDto>>("api/accounts") ?? [];
+    // ---- Accounts ----------------------------------------------------------
 
-    public async Task<BankAccountDto?> CreateAccountAsync(CreateBankAccountRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/accounts", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<BankAccountDto>()
-            : null;
-    }
+    public Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() => GetListAsync<BankAccountDto>("api/accounts");
 
-    public async Task<IReadOnlyList<ArchivedAccountDto>> GetArchivedAccountsAsync() =>
-        await http.GetFromJsonAsync<List<ArchivedAccountDto>>("api/accounts/archived") ?? [];
+    public Task<BankAccountDto?> CreateAccountAsync(CreateBankAccountRequest request) =>
+        PostReadAsync<BankAccountDto>("api/accounts", request);
 
-    public async Task<bool> ArchiveAccountAsync(Guid accountId) =>
-        (await http.DeleteAsync($"api/accounts/{accountId}")).IsSuccessStatusCode;
+    public Task<IReadOnlyList<ArchivedAccountDto>> GetArchivedAccountsAsync() =>
+        GetListAsync<ArchivedAccountDto>("api/accounts/archived");
 
-    public async Task<bool> RestoreAccountAsync(Guid accountId) =>
-        (await http.PostAsync($"api/accounts/{accountId}/restore", null)).IsSuccessStatusCode;
+    public Task<bool> ArchiveAccountAsync(Guid accountId) => DeleteOkAsync($"api/accounts/{accountId}");
 
-    public async Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() =>
-        await http.GetFromJsonAsync<List<CategoryDto>>("api/categories") ?? [];
+    public Task<bool> RestoreAccountAsync(Guid accountId) => PostOkAsync($"api/accounts/{accountId}/restore");
+
+    public Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync() => GetListAsync<CategoryDto>("api/categories");
 
     // --- Budgets & goals ---
 
-    public async Task<IReadOnlyList<BudgetDto>> GetBudgetsAsync() =>
-        await http.GetFromJsonAsync<List<BudgetDto>>("api/budgets") ?? [];
+    public Task<IReadOnlyList<BudgetDto>> GetBudgetsAsync() => GetListAsync<BudgetDto>("api/budgets");
 
     /// <summary>Soft-deleted budgets, for the "deleted budgets" panel.</summary>
-    public async Task<IReadOnlyList<BudgetDto>> GetDeletedBudgetsAsync() =>
-        await http.GetFromJsonAsync<List<BudgetDto>>("api/budgets/deleted") ?? [];
+    public Task<IReadOnlyList<BudgetDto>> GetDeletedBudgetsAsync() => GetListAsync<BudgetDto>("api/budgets/deleted");
 
-    public async Task<bool> CreateBudgetAsync(BudgetRequest request) =>
-        (await http.PostAsJsonAsync("api/budgets", request)).IsSuccessStatusCode;
+    public Task<bool> CreateBudgetAsync(BudgetRequest request) => PostOkAsync("api/budgets", request);
 
-    public async Task<SaveStatus> UpdateBudgetAsync(Guid id, BudgetRequest request) =>
-        ToStatus(await http.PutAsJsonAsync($"api/budgets/{id}", request));
+    public Task<SaveStatus> UpdateBudgetAsync(Guid id, BudgetRequest request) =>
+        PutStatusAsync($"api/budgets/{id}", request);
 
-    public async Task<bool> DeleteBudgetAsync(Guid id) =>
-        (await http.DeleteAsync($"api/budgets/{id}")).IsSuccessStatusCode;
+    public Task<bool> DeleteBudgetAsync(Guid id) => DeleteOkAsync($"api/budgets/{id}");
 
-    public async Task<bool> RestoreBudgetAsync(Guid id) =>
-        (await http.PostAsync($"api/budgets/{id}/restore", null)).IsSuccessStatusCode;
+    public Task<bool> RestoreBudgetAsync(Guid id) => PostOkAsync($"api/budgets/{id}/restore");
 
-    public async Task<IReadOnlyList<GoalDto>> GetGoalsAsync() =>
-        await http.GetFromJsonAsync<List<GoalDto>>("api/goals") ?? [];
+    public Task<IReadOnlyList<GoalDto>> GetGoalsAsync() => GetListAsync<GoalDto>("api/goals");
 
     /// <summary>Soft-deleted goals, for the "deleted goals" panel.</summary>
-    public async Task<IReadOnlyList<GoalDto>> GetDeletedGoalsAsync() =>
-        await http.GetFromJsonAsync<List<GoalDto>>("api/goals/deleted") ?? [];
+    public Task<IReadOnlyList<GoalDto>> GetDeletedGoalsAsync() => GetListAsync<GoalDto>("api/goals/deleted");
 
-    public async Task<bool> CreateGoalAsync(GoalRequest request) =>
-        (await http.PostAsJsonAsync("api/goals", request)).IsSuccessStatusCode;
+    public Task<bool> CreateGoalAsync(GoalRequest request) => PostOkAsync("api/goals", request);
 
-    public async Task<SaveStatus> UpdateGoalAsync(Guid id, GoalRequest request) =>
-        ToStatus(await http.PutAsJsonAsync($"api/goals/{id}", request));
+    public Task<SaveStatus> UpdateGoalAsync(Guid id, GoalRequest request) =>
+        PutStatusAsync($"api/goals/{id}", request);
 
-    public async Task<bool> DeleteGoalAsync(Guid id) =>
-        (await http.DeleteAsync($"api/goals/{id}")).IsSuccessStatusCode;
+    public Task<bool> DeleteGoalAsync(Guid id) => DeleteOkAsync($"api/goals/{id}");
 
-    public async Task<bool> RestoreGoalAsync(Guid id) =>
-        (await http.PostAsync($"api/goals/{id}/restore", null)).IsSuccessStatusCode;
+    public Task<bool> RestoreGoalAsync(Guid id) => PostOkAsync($"api/goals/{id}/restore");
+
+    // --- Transactions ---
 
     public async Task<TransactionPageDto?> GetTransactionsAsync(
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,
@@ -181,68 +242,47 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<EnableBankingCredentialStatusDto?> GetBankCredentialStatusAsync() =>
         http.GetFromJsonAsync<EnableBankingCredentialStatusDto>("api/bank-connections/credentials");
 
-    public async Task<bool> SaveBankCredentialAsync(SaveEnableBankingCredentialRequest request) =>
-        (await http.PutAsJsonAsync("api/bank-connections/credentials", request)).IsSuccessStatusCode;
+    public Task<bool> SaveBankCredentialAsync(SaveEnableBankingCredentialRequest request) =>
+        PutOkAsync("api/bank-connections/credentials", request);
 
-    public async Task<bool> DeleteBankCredentialAsync() =>
-        (await http.DeleteAsync("api/bank-connections/credentials")).IsSuccessStatusCode;
+    public Task<bool> DeleteBankCredentialAsync() => DeleteOkAsync("api/bank-connections/credentials");
 
     public async Task<IReadOnlyList<BankAspspDto>> GetAvailableBanksAsync(string country)
     {
+        // Stays quiet on failure (returns []) rather than throwing, since the bank list is best-effort.
         var response = await http.GetAsync($"api/bank-connections/banks?country={Uri.EscapeDataString(country)}");
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<List<BankAspspDto>>() ?? []
             : [];
     }
 
-    public async Task<IReadOnlyList<BankConnectionDto>> GetBankConnectionsAsync() =>
-        await http.GetFromJsonAsync<List<BankConnectionDto>>("api/bank-connections") ?? [];
+    public Task<IReadOnlyList<BankConnectionDto>> GetBankConnectionsAsync() =>
+        GetListAsync<BankConnectionDto>("api/bank-connections");
 
-    public async Task<StartBankConnectionResultDto?> StartBankConnectionAsync(StartBankConnectionRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/bank-connections", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<StartBankConnectionResultDto>()
-            : null;
-    }
+    public Task<StartBankConnectionResultDto?> StartBankConnectionAsync(StartBankConnectionRequest request) =>
+        PostReadAsync<StartBankConnectionResultDto>("api/bank-connections", request);
 
-    public async Task<ImportResultDto?> SyncBankConnectionAsync(Guid id)
-    {
-        var response = await http.PostAsync($"api/bank-connections/{id}/sync", null);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<ImportResultDto>()
-            : null;
-    }
+    public Task<ImportResultDto?> SyncBankConnectionAsync(Guid id) =>
+        PostReadAsync<ImportResultDto>($"api/bank-connections/{id}/sync");
 
-    public async Task<bool> DisconnectBankAsync(Guid id) =>
-        (await http.DeleteAsync($"api/bank-connections/{id}")).IsSuccessStatusCode;
+    public Task<bool> DisconnectBankAsync(Guid id) => DeleteOkAsync($"api/bank-connections/{id}");
 
     // --- Manual transactions & movement batches ---
-    public async Task<TransactionDto?> CreateTransactionAsync(CreateTransactionRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/transactions", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<TransactionDto>()
-            : null;
-    }
 
-    public async Task<TransactionDto?> UpdateTransactionAsync(Guid id, UpdateTransactionRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/transactions/{id}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<TransactionDto>()
-            : null;
-    }
+    public Task<TransactionDto?> CreateTransactionAsync(CreateTransactionRequest request) =>
+        PostReadAsync<TransactionDto>("api/transactions", request);
 
-    public async Task<bool> DeleteTransactionAsync(Guid id) =>
-        (await http.DeleteAsync($"api/transactions/{id}")).IsSuccessStatusCode;
+    public Task<TransactionDto?> UpdateTransactionAsync(Guid id, UpdateTransactionRequest request) =>
+        PutReadAsync<TransactionDto>($"api/transactions/{id}", request);
+
+    public Task<bool> DeleteTransactionAsync(Guid id) => DeleteOkAsync($"api/transactions/{id}");
 
     public Task<int> BulkDeleteTransactionsAsync(IReadOnlyList<Guid> ids) =>
         BulkAsync("api/transactions/bulk-delete", new BulkTransactionRequest { Ids = ids });
 
     /// <summary>Uncategorized transactions grouped by counterparty, for the triage inbox.</summary>
-    public async Task<IReadOnlyList<UncategorizedGroupDto>> GetUncategorizedAsync() =>
-        await http.GetFromJsonAsync<List<UncategorizedGroupDto>>("api/transactions/uncategorized") ?? [];
+    public Task<IReadOnlyList<UncategorizedGroupDto>> GetUncategorizedAsync() =>
+        GetListAsync<UncategorizedGroupDto>("api/transactions/uncategorized");
 
     public Task<int> BulkCategorizeAsync(IReadOnlyList<Guid> ids, Guid? categoryId) =>
         BulkAsync("api/transactions/bulk-categorize", new BulkCategorizeRequest { Ids = ids, CategoryId = categoryId });
@@ -250,209 +290,138 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<int> RestoreTransactionsAsync(IReadOnlyList<Guid> ids) =>
         BulkAsync("api/transactions/restore", new BulkTransactionRequest { Ids = ids });
 
-    private async Task<int> BulkAsync(string url, object request)
-    {
-        var response = await http.PostAsJsonAsync(url, request);
-        if (!response.IsSuccessStatusCode)
-            return 0;
-        var result = await response.Content.ReadFromJsonAsync<BulkResultDto>();
-        return result?.Count ?? 0;
-    }
+    public Task<MovementBatchResultDto?> CreateMovementBatchAsync(CreateMovementBatchRequest request) =>
+        PostReadAsync<MovementBatchResultDto>("api/movement-batches", request);
 
-    public async Task<MovementBatchResultDto?> CreateMovementBatchAsync(CreateMovementBatchRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/movement-batches", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<MovementBatchResultDto>()
-            : null;
-    }
+    public Task<IReadOnlyList<ImportBatchDto>> GetMovementBatchesAsync() =>
+        GetListAsync<ImportBatchDto>("api/movement-batches");
 
-    public async Task<IReadOnlyList<ImportBatchDto>> GetMovementBatchesAsync() =>
-        await http.GetFromJsonAsync<List<ImportBatchDto>>("api/movement-batches") ?? [];
+    public Task<bool> UpdateMovementBatchAsync(Guid id, string? label) =>
+        PutOkAsync($"api/movement-batches/{id}", new UpdateBatchRequest { Label = label });
 
-    public async Task<bool> UpdateMovementBatchAsync(Guid id, string? label) =>
-        (await http.PutAsJsonAsync($"api/movement-batches/{id}", new UpdateBatchRequest { Label = label })).IsSuccessStatusCode;
-
-    public async Task<bool> DeleteMovementBatchAsync(Guid id) =>
-        (await http.DeleteAsync($"api/movement-batches/{id}")).IsSuccessStatusCode;
+    public Task<bool> DeleteMovementBatchAsync(Guid id) => DeleteOkAsync($"api/movement-batches/{id}");
 
     // --- Categorization rules ---
 
-    public async Task<IReadOnlyList<CategorizationRuleDto>> GetRulesAsync() =>
-        await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules") ?? [];
+    public Task<IReadOnlyList<CategorizationRuleDto>> GetRulesAsync() =>
+        GetListAsync<CategorizationRuleDto>("api/rules");
 
     /// <summary>Rules learned from repeated manual categorization, offered for one-click confirmation.</summary>
-    public async Task<IReadOnlyList<RuleSuggestionDto>> GetRuleSuggestionsAsync() =>
-        await http.GetFromJsonAsync<List<RuleSuggestionDto>>("api/rules/suggestions") ?? [];
+    public Task<IReadOnlyList<RuleSuggestionDto>> GetRuleSuggestionsAsync() =>
+        GetListAsync<RuleSuggestionDto>("api/rules/suggestions");
 
     /// <summary>Permanently dismisses a learned suggestion so it isn't offered again.</summary>
-    public async Task<bool> DismissRuleSuggestionAsync(string pattern, Guid categoryId)
-    {
-        var response = await http.PostAsJsonAsync("api/rules/suggestions/dismiss",
+    public Task<bool> DismissRuleSuggestionAsync(string pattern, Guid categoryId) =>
+        PostOkAsync("api/rules/suggestions/dismiss",
             new RuleSuggestionDismissRequest { Pattern = pattern, CategoryId = categoryId });
-        return response.IsSuccessStatusCode;
-    }
 
     /// <summary>Dry-run impact of a rule before saving (match count + sample transactions).</summary>
-    public async Task<RulePreviewDto?> PreviewRuleAsync(CategorizationRuleRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/rules/preview", request);
-        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<RulePreviewDto>() : null;
-    }
+    public Task<RulePreviewDto?> PreviewRuleAsync(CategorizationRuleRequest request) =>
+        PostReadAsync<RulePreviewDto>("api/rules/preview", request);
 
-    public async Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/rules", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CategorizationRuleDto>()
-            : null;
-    }
+    public Task<CategorizationRuleDto?> CreateRuleAsync(CategorizationRuleRequest request) =>
+        PostReadAsync<CategorizationRuleDto>("api/rules", request);
 
-    public async Task<CategorizationRuleDto?> UpdateRuleAsync(Guid id, CategorizationRuleRequest request)
-    {
-        var response = await http.PutAsJsonAsync($"api/rules/{id}", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CategorizationRuleDto>()
-            : null;
-    }
+    public Task<CategorizationRuleDto?> UpdateRuleAsync(Guid id, CategorizationRuleRequest request) =>
+        PutReadAsync<CategorizationRuleDto>($"api/rules/{id}", request);
 
     /// <summary>Persists a new priority order (highest first) for the given rules.</summary>
-    public async Task<bool> ReorderRulesAsync(IReadOnlyList<Guid> orderedIds) =>
-        (await http.PostAsJsonAsync("api/rules/reorder", new ReorderRulesRequest { OrderedIds = orderedIds })).IsSuccessStatusCode;
+    public Task<bool> ReorderRulesAsync(IReadOnlyList<Guid> orderedIds) =>
+        PostOkAsync("api/rules/reorder", new ReorderRulesRequest { OrderedIds = orderedIds });
 
     /// <summary>Exports the visible rules as portable definitions (category/account by name).</summary>
-    public async Task<IReadOnlyList<RuleExportDto>> ExportRulesAsync() =>
-        await http.GetFromJsonAsync<List<RuleExportDto>>("api/rules/export") ?? [];
+    public Task<IReadOnlyList<RuleExportDto>> ExportRulesAsync() =>
+        GetListAsync<RuleExportDto>("api/rules/export");
 
-    public async Task<RuleImportResultDto?> ImportRulesAsync(IReadOnlyList<RuleExportDto> items)
-    {
-        var response = await http.PostAsJsonAsync("api/rules/import", items);
-        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<RuleImportResultDto>() : null;
-    }
+    public Task<RuleImportResultDto?> ImportRulesAsync(IReadOnlyList<RuleExportDto> items) =>
+        PostReadAsync<RuleImportResultDto>("api/rules/import", items);
 
-    public async Task<bool> DeleteRuleAsync(Guid id) =>
-        (await http.DeleteAsync($"api/rules/{id}")).IsSuccessStatusCode;
+    public Task<bool> DeleteRuleAsync(Guid id) => DeleteOkAsync($"api/rules/{id}");
 
     /// <summary>Soft-deleted rules, for the "deleted rules" panel.</summary>
-    public async Task<IReadOnlyList<CategorizationRuleDto>> GetDeletedRulesAsync() =>
-        await http.GetFromJsonAsync<List<CategorizationRuleDto>>("api/rules/deleted") ?? [];
+    public Task<IReadOnlyList<CategorizationRuleDto>> GetDeletedRulesAsync() =>
+        GetListAsync<CategorizationRuleDto>("api/rules/deleted");
 
-    public async Task<bool> RestoreRuleAsync(Guid id) =>
-        (await http.PostAsync($"api/rules/{id}/restore", null)).IsSuccessStatusCode;
+    public Task<bool> RestoreRuleAsync(Guid id) => PostOkAsync($"api/rules/{id}/restore");
 
     /// <summary>Re-runs the family's rules over existing transactions; returns how many were categorized.</summary>
-    public async Task<int> RecategorizeAsync(bool onlyUncategorized)
-    {
-        var response = await http.PostAsJsonAsync("api/rules/recategorize",
-            new RecategorizeRequest { OnlyUncategorized = onlyUncategorized });
-        if (!response.IsSuccessStatusCode)
-            return 0;
-        var result = await response.Content.ReadFromJsonAsync<BulkResultDto>();
-        return result?.Count ?? 0;
-    }
+    public Task<int> RecategorizeAsync(bool onlyUncategorized) =>
+        BulkAsync("api/rules/recategorize", new RecategorizeRequest { OnlyUncategorized = onlyUncategorized });
 
     // --- Family members & invitations ---
 
-    public async Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync() =>
-        await http.GetFromJsonAsync<List<FamilyMemberDto>>("api/members") ?? [];
+    public Task<IReadOnlyList<FamilyMemberDto>> GetMembersAsync() => GetListAsync<FamilyMemberDto>("api/members");
 
-    public async Task<CreateMemberResultDto?> CreateMemberAsync(CreateMemberRequest request)
-    {
-        var response = await http.PostAsJsonAsync("api/members", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CreateMemberResultDto>()
-            : null;
-    }
+    public Task<CreateMemberResultDto?> CreateMemberAsync(CreateMemberRequest request) =>
+        PostReadAsync<CreateMemberResultDto>("api/members", request);
 
-    public async Task<SaveStatus> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request) =>
-        ToStatus(await http.PutAsJsonAsync($"api/members/{memberId}", request));
+    public Task<SaveStatus> UpdateMemberAsync(Guid memberId, UpdateMemberRequest request) =>
+        PutStatusAsync($"api/members/{memberId}", request);
 
-    public async Task<bool> DeleteMemberAsync(Guid memberId) =>
-        (await http.DeleteAsync($"api/members/{memberId}")).IsSuccessStatusCode;
+    public Task<bool> DeleteMemberAsync(Guid memberId) => DeleteOkAsync($"api/members/{memberId}");
 
-    public async Task<bool> SetMemberActiveAsync(Guid memberId, bool active) =>
-        (await http.PostAsync($"api/members/{memberId}/{(active ? "activate" : "deactivate")}", null)).IsSuccessStatusCode;
+    public Task<bool> SetMemberActiveAsync(Guid memberId, bool active) =>
+        PostOkAsync($"api/members/{memberId}/{(active ? "activate" : "deactivate")}");
 
-    public async Task<InvitationDto?> ReinviteMemberAsync(Guid memberId)
-    {
-        var response = await http.PostAsync($"api/members/{memberId}/invite", null);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<InvitationDto>()
-            : null;
-    }
+    public Task<InvitationDto?> ReinviteMemberAsync(Guid memberId) =>
+        PostReadAsync<InvitationDto>($"api/members/{memberId}/invite");
 
     public async Task<IReadOnlyList<InvitationDto>> GetInvitationsAsync()
     {
+        // Quiet on failure (returns []) — invitations are a secondary panel that shouldn't error the page.
         var response = await http.GetAsync("api/invitations");
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<List<InvitationDto>>() ?? []
             : [];
     }
 
-    public async Task<bool> RevokeInvitationAsync(Guid invitationId) =>
-        (await http.PostAsync($"api/invitations/{invitationId}/revoke", null)).IsSuccessStatusCode;
+    public Task<bool> RevokeInvitationAsync(Guid invitationId) =>
+        PostOkAsync($"api/invitations/{invitationId}/revoke");
 
     // --- Per-account access (disponents) ---
 
     public Task<AccountAccessOverviewDto?> GetAccountAccessAsync(Guid accountId) =>
         http.GetFromJsonAsync<AccountAccessOverviewDto>($"api/accounts/{accountId}/access");
 
-    public async Task<AccountAccessDto?> GrantAccessAsync(Guid accountId, GrantAccessRequest request)
-    {
-        var response = await http.PostAsJsonAsync($"api/accounts/{accountId}/access", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<AccountAccessDto>()
-            : null;
-    }
+    public Task<AccountAccessDto?> GrantAccessAsync(Guid accountId, GrantAccessRequest request) =>
+        PostReadAsync<AccountAccessDto>($"api/accounts/{accountId}/access", request);
 
-    public async Task<bool> RevokeAccessAsync(Guid accountId, Guid memberId) =>
-        (await http.DeleteAsync($"api/accounts/{accountId}/access/{memberId}")).IsSuccessStatusCode;
+    public Task<bool> RevokeAccessAsync(Guid accountId, Guid memberId) =>
+        DeleteOkAsync($"api/accounts/{accountId}/access/{memberId}");
 
     // --- Cards ---
 
-    public async Task<IReadOnlyList<BankCardDto>> GetCardsAsync(Guid accountId) =>
-        await http.GetFromJsonAsync<List<BankCardDto>>($"api/accounts/{accountId}/cards") ?? [];
+    public Task<IReadOnlyList<BankCardDto>> GetCardsAsync(Guid accountId) =>
+        GetListAsync<BankCardDto>($"api/accounts/{accountId}/cards");
 
-    public async Task<BankCardDto?> CreateCardAsync(Guid accountId, CreateCardRequest request)
-    {
-        var response = await http.PostAsJsonAsync($"api/accounts/{accountId}/cards", request);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<BankCardDto>()
-            : null;
-    }
+    public Task<BankCardDto?> CreateCardAsync(Guid accountId, CreateCardRequest request) =>
+        PostReadAsync<BankCardDto>($"api/accounts/{accountId}/cards", request);
 
-    public async Task<SaveStatus> UpdateCardAsync(Guid cardId, UpdateCardRequest request) =>
-        ToStatus(await http.PutAsJsonAsync($"api/cards/{cardId}", request));
+    public Task<SaveStatus> UpdateCardAsync(Guid cardId, UpdateCardRequest request) =>
+        PutStatusAsync($"api/cards/{cardId}", request);
 
-    public async Task<bool> DeleteCardAsync(Guid cardId) =>
-        (await http.DeleteAsync($"api/cards/{cardId}")).IsSuccessStatusCode;
+    public Task<bool> DeleteCardAsync(Guid cardId) => DeleteOkAsync($"api/cards/{cardId}");
 
     // --- Roles & permissions (per family) ---
 
-    public Task<FamilyRolesDto?> GetRolesAsync() =>
-        http.GetFromJsonAsync<FamilyRolesDto>("api/roles");
+    public Task<FamilyRolesDto?> GetRolesAsync() => http.GetFromJsonAsync<FamilyRolesDto>("api/roles");
 
-    public async Task<bool> UpdateRoleAsync(MemberRole role, IReadOnlyList<Permission> permissions) =>
-        (await http.PutAsJsonAsync($"api/roles/{role}", new UpdateRolePermissionsRequest { Permissions = permissions })).IsSuccessStatusCode;
+    public Task<bool> UpdateRoleAsync(MemberRole role, IReadOnlyList<Permission> permissions) =>
+        PutOkAsync($"api/roles/{role}", new UpdateRolePermissionsRequest { Permissions = permissions });
 
     // --- Family management ---
 
-    public Task<FamilyDto?> GetFamilyAsync() =>
-        http.GetFromJsonAsync<FamilyDto>("api/family");
+    public Task<FamilyDto?> GetFamilyAsync() => http.GetFromJsonAsync<FamilyDto>("api/family");
 
-    public async Task<SaveStatus> UpdateFamilyAsync(UpdateFamilyRequest request) =>
-        ToStatus(await http.PutAsJsonAsync("api/family", request));
+    public Task<SaveStatus> UpdateFamilyAsync(UpdateFamilyRequest request) =>
+        PutStatusAsync("api/family", request);
 
-    private static SaveStatus ToStatus(HttpResponseMessage response) =>
-        response.IsSuccessStatusCode ? SaveStatus.Success
-        : response.StatusCode == HttpStatusCode.Conflict ? SaveStatus.Conflict
-        : SaveStatus.Failed;
-
-    public async Task<bool> TransferOwnershipAsync(Guid newOwnerMemberId) =>
-        (await http.PostAsJsonAsync("api/family/transfer-ownership", new TransferOwnershipRequest { NewOwnerMemberId = newOwnerMemberId })).IsSuccessStatusCode;
+    public Task<bool> TransferOwnershipAsync(Guid newOwnerMemberId) =>
+        PostOkAsync("api/family/transfer-ownership", new TransferOwnershipRequest { NewOwnerMemberId = newOwnerMemberId });
 
     public async Task<bool> DeleteFamilyAsync(string confirmName)
     {
+        // DELETE with a body needs a hand-built request message (DeleteAsync takes no content).
         var request = new HttpRequestMessage(HttpMethod.Delete, "api/family")
         {
             Content = JsonContent.Create(new DeleteFamilyRequest { ConfirmName = confirmName }),
@@ -462,57 +431,47 @@ public sealed class FlowlioApi(HttpClient http)
 
     // --- System administration (admin only) ---
 
-    public async Task<AdminUserPageDto?> GetAdminUsersAsync(int page = 1, int pageSize = 25, string? search = null, string? status = null)
+    public Task<AdminUserPageDto?> GetAdminUsersAsync(int page = 1, int pageSize = 25, string? search = null, string? status = null)
     {
         var url = $"api/admin/users?page={page}&pageSize={pageSize}";
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search)}";
         if (!string.IsNullOrWhiteSpace(status))
             url += $"&status={Uri.EscapeDataString(status)}";
-        var response = await http.GetAsync(url);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
-            : null;
+        return GetOrNullAsync<AdminUserPageDto>(url);
     }
 
-    public async Task<bool> CreateUserAsync(CreateUserRequest request) =>
-        (await http.PostAsJsonAsync("api/admin/users", request)).IsSuccessStatusCode;
+    public Task<bool> CreateUserAsync(CreateUserRequest request) => PostOkAsync("api/admin/users", request);
 
-    public async Task<bool> SetUserRolesAsync(Guid userId, IReadOnlyList<string> roleNames) =>
-        (await http.PutAsJsonAsync($"api/admin/users/{userId}/roles", new SetUserRolesRequest { RoleNames = roleNames })).IsSuccessStatusCode;
+    public Task<bool> SetUserRolesAsync(Guid userId, IReadOnlyList<string> roleNames) =>
+        PutOkAsync($"api/admin/users/{userId}/roles", new SetUserRolesRequest { RoleNames = roleNames });
 
     // --- System roles & permissions ---
 
-    public Task<SystemRolesDto?> GetSystemRolesAsync() =>
-        http.GetFromJsonAsync<SystemRolesDto>("api/admin/system-roles");
+    public Task<SystemRolesDto?> GetSystemRolesAsync() => http.GetFromJsonAsync<SystemRolesDto>("api/admin/system-roles");
 
-    public async Task<bool> CreateSystemRoleAsync(string name) =>
-        (await http.PostAsJsonAsync("api/admin/system-roles", new CreateSystemRoleRequest { Name = name })).IsSuccessStatusCode;
+    public Task<bool> CreateSystemRoleAsync(string name) =>
+        PostOkAsync("api/admin/system-roles", new CreateSystemRoleRequest { Name = name });
 
-    public async Task<bool> RenameSystemRoleAsync(Guid roleId, string name) =>
-        (await http.PutAsJsonAsync($"api/admin/system-roles/{roleId}", new RenameSystemRoleRequest { Name = name })).IsSuccessStatusCode;
+    public Task<bool> RenameSystemRoleAsync(Guid roleId, string name) =>
+        PutOkAsync($"api/admin/system-roles/{roleId}", new RenameSystemRoleRequest { Name = name });
 
-    public async Task<bool> SetSystemRolePermissionsAsync(Guid roleId, IReadOnlyList<SystemPermission> permissions) =>
-        (await http.PutAsJsonAsync($"api/admin/system-roles/{roleId}/permissions", new UpdateSystemRolePermissionsRequest { Permissions = permissions })).IsSuccessStatusCode;
+    public Task<bool> SetSystemRolePermissionsAsync(Guid roleId, IReadOnlyList<SystemPermission> permissions) =>
+        PutOkAsync($"api/admin/system-roles/{roleId}/permissions", new UpdateSystemRolePermissionsRequest { Permissions = permissions });
 
-    public async Task<bool> DeleteSystemRoleAsync(Guid roleId) =>
-        (await http.DeleteAsync($"api/admin/system-roles/{roleId}")).IsSuccessStatusCode;
+    public Task<bool> DeleteSystemRoleAsync(Guid roleId) => DeleteOkAsync($"api/admin/system-roles/{roleId}");
 
     // --- Audit log ---
 
-    public async Task<AuditPageDto?> GetAuditAsync(
+    public Task<AuditPageDto?> GetAuditAsync(
         string? search = null, string? action = null,
         DateTimeOffset? from = null, DateTimeOffset? to = null,
-        int page = 1)
-    {
-        var response = await http.GetAsync(BuildAuditUrl("api/admin/audit", search, action, from, to, page));
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<AuditPageDto>()
-            : null;
-    }
+        int page = 1) =>
+        GetOrNullAsync<AuditPageDto>(BuildAuditUrl("api/admin/audit", search, action, from, to, page));
 
     public async Task<IReadOnlyList<string>> GetAuditActionsAsync()
     {
+        // Quiet on failure (returns []) — the action filter is optional sugar.
         var response = await http.GetAsync("api/admin/audit/actions");
         if (!response.IsSuccessStatusCode) return [];
         return await response.Content.ReadFromJsonAsync<List<string>>() ?? [];
@@ -542,48 +501,37 @@ public sealed class FlowlioApi(HttpClient http)
         return qs.Count == 0 ? path : $"{path}?{string.Join('&', qs)}";
     }
 
-    public async Task<bool> LockUserAsync(Guid userId, int minutes) =>
-        (await http.PostAsJsonAsync($"api/admin/users/{userId}/lock", new LockUserRequest { Minutes = minutes })).IsSuccessStatusCode;
+    public Task<bool> LockUserAsync(Guid userId, int minutes) =>
+        PostOkAsync($"api/admin/users/{userId}/lock", new LockUserRequest { Minutes = minutes });
 
-    public async Task<bool> BlockUserAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/block", null)).IsSuccessStatusCode;
+    public Task<bool> BlockUserAsync(Guid userId) => PostOkAsync($"api/admin/users/{userId}/block");
 
-    public async Task<bool> RestoreUserAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/restore", null)).IsSuccessStatusCode;
+    public Task<bool> RestoreUserAsync(Guid userId) => PostOkAsync($"api/admin/users/{userId}/restore");
 
-    public async Task<bool> SetUserPasswordAsync(Guid userId, AdminSetPasswordRequest request) =>
-        (await http.PostAsJsonAsync($"api/admin/users/{userId}/password", request)).IsSuccessStatusCode;
+    public Task<bool> SetUserPasswordAsync(Guid userId, AdminSetPasswordRequest request) =>
+        PostOkAsync($"api/admin/users/{userId}/password", request);
 
-    public async Task<bool> ForcePasswordChangeAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/force-password-change", null)).IsSuccessStatusCode;
+    public Task<bool> ForcePasswordChangeAsync(Guid userId) =>
+        PostOkAsync($"api/admin/users/{userId}/force-password-change");
 
-    public async Task<bool> DisableUser2faAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/disable-2fa", null)).IsSuccessStatusCode;
+    public Task<bool> DisableUser2faAsync(Guid userId) => PostOkAsync($"api/admin/users/{userId}/disable-2fa");
 
-    public async Task<bool> Require2faAsync(Guid userId, DateTimeOffset? deadlineUtc) =>
-        (await http.PostAsJsonAsync($"api/admin/users/{userId}/require-2fa-by",
-            new Require2faRequest { DeadlineUtc = deadlineUtc })).IsSuccessStatusCode;
+    public Task<bool> Require2faAsync(Guid userId, DateTimeOffset? deadlineUtc) =>
+        PostOkAsync($"api/admin/users/{userId}/require-2fa-by", new Require2faRequest { DeadlineUtc = deadlineUtc });
 
-    public async Task<bool> ForceLogoutAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/force-logout", null)).IsSuccessStatusCode;
+    public Task<bool> ForceLogoutAsync(Guid userId) => PostOkAsync($"api/admin/users/{userId}/force-logout");
 
-    public async Task<bool> DeleteUserAsync(Guid userId) =>
-        (await http.DeleteAsync($"api/admin/users/{userId}")).IsSuccessStatusCode;
+    public Task<bool> DeleteUserAsync(Guid userId) => DeleteOkAsync($"api/admin/users/{userId}");
 
-    public async Task<AdminUserPageDto?> GetDeletedUsersAsync(int page = 1, int pageSize = 25, string? search = null)
+    public Task<AdminUserPageDto?> GetDeletedUsersAsync(int page = 1, int pageSize = 25, string? search = null)
     {
         var url = $"api/admin/users/deleted?page={page}&pageSize={pageSize}";
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search)}";
-        var response = await http.GetAsync(url);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<AdminUserPageDto>()
-            : null;
+        return GetOrNullAsync<AdminUserPageDto>(url);
     }
 
-    public async Task<bool> UndeleteUserAsync(Guid userId) =>
-        (await http.PostAsync($"api/admin/users/{userId}/undelete", null)).IsSuccessStatusCode;
+    public Task<bool> UndeleteUserAsync(Guid userId) => PostOkAsync($"api/admin/users/{userId}/undelete");
 
-    public async Task<bool> PurgeUserAsync(Guid userId) =>
-        (await http.DeleteAsync($"api/admin/users/{userId}/purge")).IsSuccessStatusCode;
+    public Task<bool> PurgeUserAsync(Guid userId) => DeleteOkAsync($"api/admin/users/{userId}/purge");
 }
