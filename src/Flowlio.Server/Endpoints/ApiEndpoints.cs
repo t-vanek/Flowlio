@@ -6,6 +6,7 @@ using Flowlio.Application.Statements;
 using Flowlio.Domain;
 using Flowlio.Infrastructure.Identity;
 using Flowlio.Infrastructure.Persistence;
+using Flowlio.Server;
 using Flowlio.Server.Auth;
 using Flowlio.Server.Validation;
 using Flowlio.Shared;
@@ -45,7 +46,9 @@ public static class ApiEndpoints
         api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
-        api.MapBankConnectionEndpoints();
+        // Open Banking endpoints are mapped only when the (paid) feature is switched on.
+        if (app.ServiceProvider.GetRequiredService<IConfiguration>().OpenBankingEnabled())
+            api.MapBankConnectionEndpoints();
         api.MapRuleEndpoints();
         api.MapBudgetEndpoints();
         api.MapFamilyEndpoints();
@@ -89,6 +92,7 @@ public static class ApiEndpoints
             PollIntervalSeconds = config.GetValue("Auth:PollIntervalSeconds", 60),
             TwoFactorEnabled = twoFactorEnabled,
             Require2faByUtc = require2faBy,
+            OpenBankingEnabled = config.OpenBankingEnabled(),
         };
     }
 

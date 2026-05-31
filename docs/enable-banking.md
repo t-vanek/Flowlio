@@ -5,6 +5,13 @@ přímo z banky** přes Open Banking (PSD2). Připojení zprostředkovává agre
 [Enable Banking](https://enablebanking.com), který má potřebnou AISP licenci a pokrývá
 2500+ bank ve 29 evropských zemích (včetně českých).
 
+> **Ve výchozím stavu je tato funkce vypnutá.** Připojení banky / Open Banking je schované za
+> konfiguračním přepínačem `Features:OpenBanking` (default `false`), protože plný provoz je placený.
+> Dokud je vypnutý, Flowlio používá **výhradně import výpisů** a celý povrch připojení banky je skrytý
+> (navigace „Připojení banky", stránka `/bank-connect`, `/bank-connections` API, callback i automatická
+> synchronizace na pozadí). Zapneš ho nastavením `Features:OpenBanking=true` v `appsettings.json` (nebo
+> proměnnou prostředí `Features__OpenBanking=true`) a restartem serveru.
+
 ## Jak to funguje (a proč „vlastní přístupy")
 
 Enable Banking nabízí **bezplatný „restricted" režim**, ve kterém aplikace vidí **jen účty,

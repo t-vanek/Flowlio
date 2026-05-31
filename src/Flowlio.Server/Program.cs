@@ -38,6 +38,10 @@ var rabbitConnectionString = builder.Configuration.GetConnectionString("RabbitMq
 var accessTokenLifetime = TimeSpan.FromMinutes(builder.Configuration.GetValue("Auth:AccessTokenMinutes", 15));
 var refreshTokenLifetime = TimeSpan.FromDays(builder.Configuration.GetValue("Auth:RefreshTokenDays", 14));
 
+// Open Banking (Enable Banking) is a paid integration, so its whole surface is gated behind this flag
+// (off by default). Statement import stays available regardless. See FeatureFlags.OpenBankingEnabled.
+var openBankingEnabled = builder.Configuration.OpenBankingEnabled();
+
 var redis = ConnectionMultiplexer.Connect(redisConnectionString);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
@@ -52,7 +56,9 @@ builder.Services.AddScoped<AccountNotifier>();
 builder.Services.AddSingleton<Flowlio.Application.Abstractions.ISecretProtector, Flowlio.Server.Banking.DataProtectionSecretProtector>();
 
 // Background "automatic import": periodically pulls new transactions for active Open Banking connections.
-builder.Services.AddHostedService<Flowlio.Server.Banking.BankSyncService>();
+// Skipped unless Open Banking is enabled — otherwise it would issue paid Enable Banking calls on a timer.
+if (openBankingEnabled)
+    builder.Services.AddHostedService<Flowlio.Server.Banking.BankSyncService>();
 
 // Redis-backed distributed cache (read-through views) and shared Data Protection key ring so
 // auth/antiforgery cookies stay valid across restarts and multiple instances.
@@ -226,7 +232,8 @@ app.Use(async (context, next) =>
 app.MapControllers();
 app.MapRazorPages();
 app.MapApiEndpoints();
-app.MapBankConnectionCallback();
+if (openBankingEnabled)
+    app.MapBankConnectionCallback();
 app.MapHub<NotificationsHub>("/hubs/notifications");
 app.MapFallbackToFile("index.html");
 

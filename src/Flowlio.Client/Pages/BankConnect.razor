@@ -9,7 +9,11 @@
 
 <h1 class="page-title">Připojení banky</h1>
 
-@if (!_canImport)
+@if (!_openBankingEnabled)
+{
+    <FluentMessageBar Intent="MessageIntent.Info">Připojení banky je vypnuté. Tato instance Flowlia používá výhradně import výpisu.</FluentMessageBar>
+}
+else if (!_canImport)
 {
     <FluentMessageBar Intent="MessageIntent.Warning">Na připojení banky nemáte oprávnění.</FluentMessageBar>
 }
@@ -161,6 +165,7 @@ else
     public string? BankResult { get; set; }
 
     private bool _canImport;
+    private bool _openBankingEnabled;
     private bool _loading = true;
     private bool _busy;
     private bool _loadingBanks;
@@ -183,8 +188,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _canImport = await CurrentUser.CanAsync(Permission.ImportStatements);
-        if (!_canImport)
+        var me = await CurrentUser.GetAsync();
+        _canImport = me?.Can(Permission.ImportStatements) ?? false;
+        _openBankingEnabled = me?.OpenBankingEnabled ?? false;
+        // When Open Banking is off the API endpoints aren't even mapped, so don't call them — show the notice.
+        if (!_openBankingEnabled || !_canImport)
         {
             _loading = false;
             return;

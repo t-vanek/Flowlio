@@ -601,6 +601,10 @@ public sealed record CurrentUserDto
     /// <summary>Admin-set deadline by which the user must enable 2FA, if any. Drives the in-app reminder.</summary>
     public DateTimeOffset? Require2faByUtc { get; init; }
 
+    /// <summary>Whether Open Banking (bank connections + automatic sync via Enable Banking) is switched on
+    /// server-side. Off by default because it is a paid integration; gates the "Připojení banky" UI.</summary>
+    public bool OpenBankingEnabled { get; init; }
+
     public bool Can(Permission permission) => Permissions.Contains(permission);
 
     public bool CanSystem(SystemPermission permission) => SystemPermissions.Contains(permission);
