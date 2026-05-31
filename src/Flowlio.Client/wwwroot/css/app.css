@@ -272,7 +272,8 @@ code { color: #c02d76; }
    ===================================================================== */
 .page {
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     background: var(--flowlio-bg);
 }
 
@@ -291,6 +292,7 @@ code { color: #c02d76; }
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
 }
 
 .topbar {
@@ -301,6 +303,7 @@ code { color: #c02d76; }
     background: var(--flowlio-surface);
     border-bottom: 1px solid var(--flowlio-border);
     color: var(--flowlio-text);
+    flex-shrink: 0;
 }
 
 /* Breadcrumb in the top bar (replaces the old duplicate page title). */
@@ -314,7 +317,20 @@ code { color: #c02d76; }
 .topbar-link:hover { text-decoration: underline; }
 .spacer { flex: 1; }
 
-.content { padding: 24px 28px; color: var(--flowlio-text); }
+/* The shell is fixed to the viewport (.page height:100vh, overflow hidden); only .content scrolls,
+   so the sidebar and topbar stay put instead of scrolling away with the page. */
+.content {
+    padding: 24px 28px;
+    color: var(--flowlio-text);
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Data grids that should fill the remaining scroll area (no empty band below the pager). */
+.fill-grid { flex: 1 1 auto; min-height: 320px; }
 
 .page-title { font-size: 26px; margin: 0 0 20px; color: var(--flowlio-text); }
 
@@ -949,7 +965,7 @@ mark.fts-hit {
 /* Tablet AND desktop: ensure the sidebar is always visible regardless of
    the mobile slide-over state (in case the user resized while open). */
 @media (min-width: 768px) {
-    .sidebar { transform: none; position: sticky; top: 0; height: 100vh; }
+    .sidebar { transform: none; position: static; height: 100%; overflow-y: auto; }
     .sidebar-backdrop { display: none !important; }
 }
 

@@ -200,9 +200,7 @@ else
         <span class="summary-item"><span class="summary-label">Bilance</span><span class="summary-value @(_sumNet >= 0 ? "income" : "expense")">@Formatting.Money(_sumNet)</span></span>
         <span class="summary-item summary-count"><span class="summary-label">Pohybů</span><span class="summary-value">@_sumCount</span></span>
     </div>
-    <FluentCard Class="panel no-pad">
-        <div id="tx-grid"></div>
-    </FluentCard>
+    <div id="tx-grid" class="fill-grid"></div>
 }
 
 @if (_detailTx is { } d)
@@ -503,7 +501,7 @@ else
         var categories = _categories.Select(c => new { id = c.Id.ToString(), name = c.Name, color = c.Color });
 
         await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
-            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50, search = _search ?? "", categories }, _gridRef);
+            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50, search = _search ?? "", categories, height = "100%" }, _gridRef);
 
         // Re-applies any active filters after a (re)render, e.g. after save/delete.
         if (HasActiveFilters)
