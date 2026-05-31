@@ -31,8 +31,13 @@ public static class TransactionPersister
         // All rows land on this one account, so resolve the applicable, scope-ordered rules once.
         var rules = TransactionCategorizer.ForAccount(familyRules, account.Id, account.OwnerMemberId);
 
+        // Compute the batch's dedup hashes up front and load only those already on the account (the
+        // intersection) instead of pulling every historical hash for the account into memory. On Npgsql
+        // the Contains translates to `= ANY(@hashes)` (a single array parameter), so the batch size — not
+        // the account's full history — bounds both the query and the working set.
+        var batchHashes = transactions.Select(parsed => DedupHasher.Compute(account.Id, parsed)).ToList();
         var existingHashes = await db.Transactions
-            .Where(t => t.BankAccountId == account.Id)
+            .Where(t => t.BankAccountId == account.Id && batchHashes.Contains(t.DedupHash))
             .Select(t => t.DedupHash)
             .ToHashSetAsync(ct);
 
@@ -40,9 +45,10 @@ public static class TransactionPersister
         var duplicates = 0;
         var seenInFile = new HashSet<string>();
 
-        foreach (var parsed in transactions)
+        for (var i = 0; i < transactions.Count; i++)
         {
-            var hash = DedupHasher.Compute(account.Id, parsed);
+            var parsed = transactions[i];
+            var hash = batchHashes[i];
             if (!existingHashes.Add(hash) || !seenInFile.Add(hash))
             {
                 duplicates++;
