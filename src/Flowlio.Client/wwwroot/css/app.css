@@ -356,8 +356,10 @@ code { color: #c02d76; }
 .legal p, .legal li { line-height: 1.6; }
 .legal p { margin: 0 0 10px; }
 
-/* Panel header with a segmented period switcher (dashboard category chart). */
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+/* Panel header with a segmented period switcher (dashboard charts). Title stacked above the switcher (a
+   column) so both panels line up identically regardless of title length — otherwise the switcher only
+   wraps below the title when the title is long (e.g. "Výdaje podle kategorií"), looking inconsistent. */
+.panel-head { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
 .panel-head .panel-title { margin: 0; }
 .seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--flowlio-border); border-radius: 8px; background: var(--flowlio-surface-2); }
 .seg-btn { border: 0; background: transparent; color: var(--flowlio-text-muted); font: inherit; font-size: 12px; line-height: 1; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
