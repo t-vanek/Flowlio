@@ -39,6 +39,9 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<CategorySpendDto>> GetCategorySpendAsync(string period) =>
         await http.GetFromJsonAsync<List<CategorySpendDto>>($"api/dashboard/categories?period={period}") ?? [];
 
+    public async Task<CashFlowDto> GetCashFlowAsync(string period) =>
+        await http.GetFromJsonAsync<CashFlowDto>($"api/dashboard/flow?period={period}") ?? new CashFlowDto();
+
     public async Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() =>
         await http.GetFromJsonAsync<List<BankAccountDto>>("api/accounts") ?? [];
 
@@ -67,26 +70,40 @@ public sealed class FlowlioApi(HttpClient http)
     public async Task<IReadOnlyList<BudgetDto>> GetBudgetsAsync() =>
         await http.GetFromJsonAsync<List<BudgetDto>>("api/budgets") ?? [];
 
+    /// <summary>Soft-deleted budgets, for the "deleted budgets" panel.</summary>
+    public async Task<IReadOnlyList<BudgetDto>> GetDeletedBudgetsAsync() =>
+        await http.GetFromJsonAsync<List<BudgetDto>>("api/budgets/deleted") ?? [];
+
     public async Task<bool> CreateBudgetAsync(BudgetRequest request) =>
         (await http.PostAsJsonAsync("api/budgets", request)).IsSuccessStatusCode;
 
-    public async Task<bool> UpdateBudgetAsync(Guid id, BudgetRequest request) =>
-        (await http.PutAsJsonAsync($"api/budgets/{id}", request)).IsSuccessStatusCode;
+    public async Task<SaveStatus> UpdateBudgetAsync(Guid id, BudgetRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/budgets/{id}", request));
 
     public async Task<bool> DeleteBudgetAsync(Guid id) =>
         (await http.DeleteAsync($"api/budgets/{id}")).IsSuccessStatusCode;
 
+    public async Task<bool> RestoreBudgetAsync(Guid id) =>
+        (await http.PostAsync($"api/budgets/{id}/restore", null)).IsSuccessStatusCode;
+
     public async Task<IReadOnlyList<GoalDto>> GetGoalsAsync() =>
         await http.GetFromJsonAsync<List<GoalDto>>("api/goals") ?? [];
+
+    /// <summary>Soft-deleted goals, for the "deleted goals" panel.</summary>
+    public async Task<IReadOnlyList<GoalDto>> GetDeletedGoalsAsync() =>
+        await http.GetFromJsonAsync<List<GoalDto>>("api/goals/deleted") ?? [];
 
     public async Task<bool> CreateGoalAsync(GoalRequest request) =>
         (await http.PostAsJsonAsync("api/goals", request)).IsSuccessStatusCode;
 
-    public async Task<bool> UpdateGoalAsync(Guid id, GoalRequest request) =>
-        (await http.PutAsJsonAsync($"api/goals/{id}", request)).IsSuccessStatusCode;
+    public async Task<SaveStatus> UpdateGoalAsync(Guid id, GoalRequest request) =>
+        ToStatus(await http.PutAsJsonAsync($"api/goals/{id}", request));
 
     public async Task<bool> DeleteGoalAsync(Guid id) =>
         (await http.DeleteAsync($"api/goals/{id}")).IsSuccessStatusCode;
+
+    public async Task<bool> RestoreGoalAsync(Guid id) =>
+        (await http.PostAsync($"api/goals/{id}/restore", null)).IsSuccessStatusCode;
 
     public async Task<TransactionPageDto?> GetTransactionsAsync(
         Guid? accountId = null, Guid? categoryId = null, DateOnly? dateFrom = null, DateOnly? dateTo = null,

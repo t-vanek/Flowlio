@@ -91,15 +91,30 @@ else
         </FluentCard>
 
         <FluentCard Class="panel">
-            <h2 class="panel-title">Příjmy vs. výdaje (tento měsíc)</h2>
-            <ApexChart TItem="FlowPoint" Options="_barOptions" Height="260">
-                <ApexPointSeries TItem="FlowPoint"
-                                 Items="_flow"
-                                 Name="Částka"
-                                 SeriesType="SeriesType.Bar"
-                                 XValue="@(p => p.Label)"
-                                 YValue="@(p => (decimal?)p.Value)" />
-            </ApexChart>
+            <div class="panel-head">
+                <h2 class="panel-title">Příjmy vs. výdaje</h2>
+                <div class="seg">
+                    <button type="button" class="seg-btn @(_flowPeriod == "month" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("month")'>Měsíc</button>
+                    <button type="button" class="seg-btn @(_flowPeriod == "quarter" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("quarter")'>Čtvrtletí</button>
+                    <button type="button" class="seg-btn @(_flowPeriod == "year" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("year")'>Rok</button>
+                    <button type="button" class="seg-btn @(_flowPeriod == "all" ? "active" : "")" @onclick='() => SetFlowPeriodAsync("all")'>Celé období</button>
+                </div>
+            </div>
+            @if (_flowLoading)
+            {
+                <FluentProgressRing />
+            }
+            else
+            {
+                <ApexChart @key="_flowPeriod" TItem="FlowPoint" Options="_barOptions" Height="260">
+                    <ApexPointSeries TItem="FlowPoint"
+                                     Items="_flow"
+                                     Name="Částka"
+                                     SeriesType="SeriesType.Bar"
+                                     XValue="@(p => p.Label)"
+                                     YValue="@(p => (decimal?)p.Value)" />
+                </ApexChart>
+            }
         </FluentCard>
 
         <FluentCard Class="panel">
@@ -161,6 +176,9 @@ else
     private IReadOnlyList<CategorySpendDto> _catData = [];
     private bool _catLoading;
 
+    private string _flowPeriod = "month";
+    private bool _flowLoading;
+
     private sealed record FlowPoint(string Label, decimal Value);
 
     protected override async Task OnInitializedAsync()
@@ -185,12 +203,7 @@ else
         };
         await LoadCategoriesAsync();
 
-        _flow =
-        [
-            new FlowPoint("Příjmy", Math.Abs(_summary?.IncomeThisMonth ?? 0)),
-            new FlowPoint("Výdaje", Math.Abs(_summary?.ExpenseThisMonth ?? 0)),
-            new FlowPoint("Bilance", _summary?.NetThisMonth ?? 0),
-        ];
+        await LoadFlowAsync();
 
         _barOptions = new ApexChartOptions<FlowPoint>
         {
@@ -219,6 +232,30 @@ else
         _catData = await Api.GetCategorySpendAsync(_catPeriod);
         _donutOptions.Colors = _catData.Select(c => c.Color).ToList();
         _catLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task SetFlowPeriodAsync(string period)
+    {
+        if (_flowPeriod == period)
+            return;
+        _flowPeriod = period;
+        await LoadFlowAsync();
+    }
+
+    // Loads income/expense/net for the selected period and rebuilds the bar chart's points.
+    private async Task LoadFlowAsync()
+    {
+        _flowLoading = true;
+        StateHasChanged();
+        var f = await Api.GetCashFlowAsync(_flowPeriod);
+        _flow =
+        [
+            new FlowPoint("Příjmy", f.Income),
+            new FlowPoint("Výdaje", f.Expense),
+            new FlowPoint("Bilance", f.Net),
+        ];
+        _flowLoading = false;
         StateHasChanged();
     }
 }

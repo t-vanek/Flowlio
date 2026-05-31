@@ -7,7 +7,7 @@ namespace Flowlio.Domain;
 /// <see cref="Amount"/> is in the family's base currency; actual spend is computed per <see cref="Period"/>
 /// window from the categorized transactions, FX-converted to the base currency.
 /// </summary>
-public class Budget : AuditableEntity
+public class Budget : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
 
@@ -18,4 +18,7 @@ public class Budget : AuditableEntity
     public decimal Amount { get; set; }
 
     public BudgetPeriod Period { get; set; } = BudgetPeriod.Monthly;
+
+    /// <summary>When set, the budget is soft-deleted (hidden from lists) and can be restored.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

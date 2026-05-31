@@ -7,7 +7,7 @@ namespace Flowlio.Domain;
 /// <see cref="BaselineAmount"/> (the balance captured when the goal was created), measured against
 /// <see cref="TargetAmount"/>. Amounts are in the linked account's currency.
 /// </summary>
-public class Goal : AuditableEntity
+public class Goal : AuditableEntity, ISoftDeletable
 {
     public Guid FamilyId { get; set; }
 
@@ -24,4 +24,7 @@ public class Goal : AuditableEntity
 
     /// <summary>Optional deadline, used to derive the required monthly contribution.</summary>
     public DateOnly? TargetDate { get; set; }
+
+    /// <summary>When set, the goal is soft-deleted (hidden from lists) and can be restored.</summary>
+    public DateTimeOffset? DeletedAt { get; set; }
 }

@@ -309,8 +309,10 @@ public class BudgetConfiguration : IEntityTypeConfiguration<Budget>
         b.Property(x => x.Amount).HasPrecision(18, 2);
         b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
-        // One budget per category per family.
-        b.HasIndex(x => new { x.FamilyId, x.CategoryId }).IsUnique();
+        // One LIVE budget per category per family — a soft-deleted budget doesn't block a new one.
+        b.HasIndex(x => new { x.FamilyId, x.CategoryId }).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
+        // Optimistic concurrency via the Postgres xmin system column (same as rule/transaction/card).
+        b.Property<uint>("xmin").IsRowVersion();
         b.ToTable(t => t.HasCheckConstraint("CK_Budget_Amount", "\"Amount\" > 0"));
     }
 }
@@ -325,6 +327,8 @@ public class GoalConfiguration : IEntityTypeConfiguration<Goal>
         b.HasOne(x => x.BankAccount).WithMany().HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Family>().WithMany().HasForeignKey(x => x.FamilyId).OnDelete(DeleteBehavior.Cascade);
         b.HasIndex(x => x.FamilyId);
+        // Optimistic concurrency via the Postgres xmin system column (same as rule/transaction/card).
+        b.Property<uint>("xmin").IsRowVersion();
         b.ToTable(t =>
         {
             t.HasCheckConstraint("CK_Goal_Name", "char_length(btrim(\"Name\")) > 0");
