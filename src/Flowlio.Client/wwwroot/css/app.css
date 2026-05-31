@@ -332,6 +332,30 @@ code { color: #c02d76; }
 /* Data grids that should fill the remaining scroll area (no empty band below the pager). */
 .fill-grid { flex: 1 1 auto; min-height: 320px; }
 
+/* Slim app footer (legal links), pinned below the scrolling content. */
+.appfooter {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    flex-wrap: wrap;
+    padding: 10px 28px;
+    border-top: 1px solid var(--flowlio-border);
+    background: var(--flowlio-surface);
+    color: var(--flowlio-text-muted);
+    font-size: 13px;
+}
+.appfooter-links { display: flex; gap: 16px; flex-wrap: wrap; }
+.appfooter a { color: var(--flowlio-text-muted); text-decoration: none; }
+.appfooter a:hover { color: var(--flowlio-link); text-decoration: underline; }
+
+/* Legal pages (terms, privacy, GDPR). */
+.legal { max-width: 820px; }
+.legal h2 { font-size: 18px; margin: 22px 0 8px; color: var(--flowlio-text); }
+.legal p, .legal li { line-height: 1.6; }
+.legal p { margin: 0 0 10px; }
+
 .page-title { font-size: 26px; margin: 0 0 20px; color: var(--flowlio-text); }
 
 /* =====================================================================
