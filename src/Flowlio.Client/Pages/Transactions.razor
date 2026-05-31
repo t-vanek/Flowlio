@@ -637,10 +637,9 @@ else
     {
         if (_selectedIds.Count == 0)
             return;
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu smazat {_selectedIds.Count} vybraných pohybů?",
-            "Smazat", "Zrušit", "Hromadné smazání");
-        if ((await dialog.Result).Cancelled)
+            "Smazat", "Hromadné smazání"))
             return;
 
         var ids = _selectedIds.ToList();
@@ -727,10 +726,9 @@ else
     private async Task DeleteBatchAsync(ImportBatchDto b)
     {
         var name = _batchLabels.GetValueOrDefault(b.Id, "dávku");
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu smazat dávku: {name}? Smažou se i všechny její pohyby (lze je vrátit zpět).",
-            "Smazat", "Zrušit", "Smazání dávky");
-        if ((await dialog.Result).Cancelled)
+            "Smazat", "Smazání dávky"))
             return;
 
         // Capture the batch's movements up front (bounded by one batch) so the undo bar can restore them.
@@ -776,11 +774,9 @@ else
     private async Task DeleteAsync(TransactionDto t)
     {
         var label = string.IsNullOrWhiteSpace(t.CounterpartyName) ? Formatting.Money(t.Amount) : t.CounterpartyName!;
-        var dialog = await Dialogs.ShowConfirmationAsync(
+        if (!await Dialogs.ConfirmAsync(
             $"Opravdu smazat tento pohyb: {label}?",
-            "Smazat", "Zrušit", "Smazání pohybu");
-        var result = await dialog.Result;
-        if (result.Cancelled)
+            "Smazat", "Smazání pohybu"))
             return;
 
         if (await Api.DeleteTransactionAsync(t.Id))
