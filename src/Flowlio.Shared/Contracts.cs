@@ -113,6 +113,16 @@ public sealed record TransactionPageDto
     public int PageSize { get; init; }
 }
 
+/// <summary>Income/expense/net/count over a filtered transaction set, for the summary bar. Sums are of
+/// raw amounts across currencies (no FX conversion), matching the previous client-side footer.</summary>
+public sealed record TransactionSummaryDto
+{
+    public decimal Income { get; init; }
+    public decimal Expense { get; init; }
+    public decimal Net { get; init; }
+    public int Count { get; init; }
+}
+
 /// <summary>Editable fields shared by single-transaction create/edit and manual batch rows.</summary>
 public sealed record TransactionFields
 {

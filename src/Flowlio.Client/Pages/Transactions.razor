@@ -115,21 +115,7 @@ else if (_loadError)
         <div class="empty-state">
             <div class="empty-state-icon">⚠️</div>
             <p>Načtení transakcí se nezdařilo.</p>
-            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => LoadAsync())">Zkusit znovu</FluentButton>
-        </div>
-    </FluentCard>
-}
-else if (_rows.Count == 0)
-{
-    <FluentCard Class="panel">
-        <div class="empty-state">
-            <div class="empty-state-icon">🗒️</div>
-            <p>Žádné transakce k zobrazení.</p>
-            <p class="hint">Naimportujte výpis nebo přidejte pohyb ručně.</p>
-            @if (_canManage && _accounts.Count > 0)
-            {
-                <FluentButton Appearance="Appearance.Accent" OnClick="OpenCreate">+ Přidat pohyb</FluentButton>
-            }
+            <FluentButton Appearance="Appearance.Accent" OnClick="InitAsync">Zkusit znovu</FluentButton>
         </div>
     </FluentCard>
 }
@@ -142,12 +128,16 @@ else
             <FluentOption TOption="string" Value="month">Podle měsíce</FluentOption>
             <FluentOption TOption="string" Value="batch">Podle dávky</FluentOption>
         </FluentSelect>
+        @if (GroupBlocked)
+        {
+            <span class="filter-label" style="color:#b45309">Pro seskupení zúžit filtr (max @GroupEagerLimit pohybů, teď @_sumCount).</span>
+        }
         <div class="toolbar-actions">
             @if (HasActiveFilters)
             {
                 <FluentButton Appearance="Appearance.Stealth" OnClick="ClearFiltersAsync">Zrušit filtry</FluentButton>
             }
-            <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync">Export CSV</FluentButton>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="ExportCsvAsync" Loading="_exporting">Export CSV</FluentButton>
         </div>
     </div>
     @if (_canManage && _selectedIds.Count > 0)
@@ -211,7 +201,6 @@ else
 }
 
 @code {
-    private List<TransactionDto> _rows = [];
     private Dictionary<Guid, TransactionDto> _byId = [];
     private IReadOnlyList<BankAccountDto> _accounts = [];
     private IReadOnlyList<CategoryDto> _categories = [];
@@ -229,22 +218,28 @@ else
     private bool _canManage;
     private bool _loading = true;
     private bool _loadError;
-    private int _loadSeq;
+    private bool _exporting;
 
-    // Summary over the currently filtered rows (pushed from Tabulator via UpdateSummary).
+    // Filtered-set summary (income/expense/net/count), fetched from the server so it stays correct without
+    // the client holding every row.
     private int _sumCount;
     private decimal _sumIncome;
     private decimal _sumExpense;
     private decimal _sumNet;
 
-    // Grid (Tabulator) state
+    // Grid (Tabulator) state. The grid loads lazily (infinite scroll) by default; it switches to an eager,
+    // client-side mode only when grouping a bounded filtered set.
     private DotNetObjectReference<Transactions>? _gridRef;
-    private bool _renderPending;
+    private bool _gridPending;
+    private bool _gridLocal;
     private string _groupValue = "";
+
+    // Grouping needs all rows client-side; only allow the eager path when the filtered set is this small.
+    private const int GroupEagerLimit = 2000;
 
     private static readonly System.Globalization.CultureInfo Cz = new("cs-CZ");
 
-    // Filters (applied client-side via Tabulator)
+    // Filters (now applied server-side).
     private string _search = "";
     private string _accountValue = "";
     private string _categoryValue = "";
@@ -273,7 +268,7 @@ else
         _accountNames = _accounts.ToDictionary(a => a.Id, a => a.Name);
         _batchLabels = _batches.ToDictionary(b => b.Id, BatchLabel);
         ReadUrl();
-        await LoadAsync();
+        await InitAsync();
     }
 
     // --- URL state (shareable / survives refresh) ---------------------------
@@ -315,99 +310,63 @@ else
         Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(q), replace: true);
     }
 
-    // Structured-filter change from a select: sync the URL and re-apply client-side.
-    private Task FilterChangedAsync()
-    {
-        SyncUrl();
-        return ApplyClientFiltersAsync();
-    }
-
-    // Loads the matching transaction set from the server. The text search is a real PostgreSQL
-    // full-text query (diacritics-insensitive, ranked); the structured filters below stay
-    // client-side in Tabulator for instant feedback. The server caps pageSize at 200, so we page
-    // through to load the whole matching set for client-side pagination/grouping/footer sums.
-    private async Task LoadAsync(bool keepUndo = false)
-    {
-        if (!keepUndo)
-            _undoIds = [];
-        // Each load takes a sequence number; a slower earlier request that finishes after a newer
-        // one (e.g. while typing in search) is discarded instead of clobbering fresher results.
-        var seq = ++_loadSeq;
-        _loading = true;
-        _loadError = false;
-        StateHasChanged();
-
-        var all = new List<TransactionDto>();
-        var failed = false;
-        const int size = 200;
-        for (var page = 1; page <= 200; page++)
-        {
-            var result = await Api.GetTransactionsAsync(search: _search, page: page, pageSize: size);
-            if (result is null)
-            {
-                failed = true; // null means a non-success response, not an empty page
-                break;
-            }
-            if (result.Items.Count == 0)
-                break;
-            all.AddRange(result.Items);
-            if (all.Count >= result.TotalCount)
-                break;
-        }
-
-        if (seq != _loadSeq)
-            return; // superseded by a newer load — drop these stale results
-
-        if (failed)
-        {
-            _loadError = true;
-            _loading = false;
-            Toasts.ShowError("Načtení transakcí se nezdařilo.");
-            StateHasChanged();
-            return;
-        }
-
-        _rows = all;
-        _byId = all.ToDictionary(t => t.Id);
-        _loading = false;
-        _renderPending = true;
-        StateHasChanged();
-    }
-
-    // The search term runs server-side (FTS), so changing it reloads from the server.
-    private Task SearchChangedAsync()
-    {
-        SyncUrl();
-        return LoadAsync();
-    }
+    // --- Typed filter values from the bound select/date fields ---------------
+    private Guid? AccountFilter => Guid.TryParse(_accountValue, out var g) ? g : null;
+    private Guid? CategoryFilter => Guid.TryParse(_categoryValue, out var g) ? g : null;
+    private Guid? BatchFilter => Guid.TryParse(_batchValue, out var g) ? g : null;
+    private bool UnbatchedFilter => _batchValue == "none";
+    private DateOnly? DateFromFilter => _dateFrom is { } d ? DateOnly.FromDateTime(d) : null;
+    private DateOnly? DateToFilter => _dateTo is { } d ? DateOnly.FromDateTime(d) : null;
+    private TransactionDirection? DirectionFilter =>
+        _typeValue == ((int)TransactionDirection.Incoming).ToString() ? TransactionDirection.Incoming
+        : _typeValue == ((int)TransactionDirection.Outgoing).ToString() ? TransactionDirection.Outgoing
+        : null;
 
     private bool HasActiveFilters =>
         !string.IsNullOrEmpty(_search) || _accountValue != "" || _categoryValue != ""
         || _typeValue != "" || _batchValue != "" || _dateFrom is not null || _dateTo is not null;
 
-    // Pushes the structured filters into Tabulator — no server round-trip, and the footer sum /
-    // pagination follow the filtered set instantly. (Text search is handled server-side in LoadAsync.)
-    private async Task ApplyClientFiltersAsync()
+    // Initial load (and the error "retry"): fetch the summary, then let the grid render and pull its pages.
+    private async Task InitAsync()
     {
-        var type = _typeValue == ((int)TransactionDirection.Incoming).ToString() ? "in"
-            : _typeValue == ((int)TransactionDirection.Outgoing).ToString() ? "out" : "";
-
-        await JS.InvokeVoidAsync("flowlioGrid.setFilters", "tx-grid", new
-        {
-            accountId = _accountValue,
-            categoryId = _categoryValue,
-            batchId = _batchValue,
-            type,
-            dateFrom = _dateFrom is { } f ? f.ToString("yyyy-MM-dd") : "",
-            dateTo = _dateTo is { } t ? t.ToString("yyyy-MM-dd") : "",
-        });
+        _loading = true;
+        _loadError = false;
+        StateHasChanged();
+        await RefreshSummaryAsync();
+        _loading = false;
+        _gridPending = true;
+        StateHasChanged();
     }
+
+    // Fetches income/expense/net/count for the current filters and updates the summary bar.
+    private async Task RefreshSummaryAsync()
+    {
+        var s = await Api.GetTransactionSummaryAsync(
+            AccountFilter, CategoryFilter, DateFromFilter, DateToFilter, DirectionFilter,
+            BatchFilter, UnbatchedFilter, _search);
+        _sumIncome = s.Income;
+        _sumExpense = s.Expense;
+        _sumNet = s.Net;
+        _sumCount = s.Count;
+        StateHasChanged();
+    }
+
+    // A filter or search change: persist to the URL, refresh the summary, then reload (or re-render) the grid.
+    private async Task ApplyAsync()
+    {
+        SyncUrl();
+        _undoIds = [];
+        await RefreshSummaryAsync();
+        await RenderOrReloadGridAsync();
+    }
+
+    private Task SearchChangedAsync() => ApplyAsync();
+    private Task FilterChangedAsync() => ApplyAsync();
 
     private Task OnDateEditedAsync()
     {
         _periodValue = _dateFrom is null && _dateTo is null ? "" : "custom";
-        SyncUrl();
-        return ApplyClientFiltersAsync();
+        return ApplyAsync();
     }
 
     private Task OnPeriodChangedAsync()
@@ -440,13 +399,11 @@ else
                 }
                 break;
         }
-        SyncUrl();
-        return ApplyClientFiltersAsync();
+        return ApplyAsync();
     }
 
     private async Task ClearFiltersAsync()
     {
-        var hadSearch = !string.IsNullOrEmpty(_search);
         _search = "";
         _accountValue = "";
         _categoryValue = "";
@@ -455,67 +412,153 @@ else
         _periodValue = "";
         _dateFrom = null;
         _dateTo = null;
-        SyncUrl();
-
-        if (hadSearch)
-            await LoadAsync(); // reloads the unfiltered set and re-applies (now empty) client filters
-        else
-            await ApplyClientFiltersAsync();
+        await ApplyAsync();
     }
+
+    // Grouping only changes how rows are shown, not the filtered set, so skip the summary refetch.
+    private async Task GroupChangedAsync()
+    {
+        SyncUrl();
+        await RenderOrReloadGridAsync();
+    }
+
+    // Grouping needs every row client-side; allow it only when the filtered set is small enough.
+    private bool ShouldGroupLocally() => _groupValue != "" && _sumCount > 0 && _sumCount <= GroupEagerLimit;
+    private bool GroupBlocked => _groupValue != "" && _sumCount > GroupEagerLimit;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
             _gridRef ??= DotNetObjectReference.Create(this);
 
-        if (_renderPending && !_loading)
+        if (_gridPending && !_loading)
         {
-            _renderPending = false;
-            if (_rows.Count > 0)
-                await RenderGridAsync();
-            else
-                await JS.InvokeVoidAsync("flowlioGrid.destroy", "tx-grid");
+            _gridPending = false;
+            await RenderGridAsync();
         }
     }
 
+    // (Re)builds the grid in the right mode: eager+grouped for a bounded set, otherwise lazy/remote.
     private async Task RenderGridAsync()
     {
-        var data = _rows.Select(t => new
+        _gridLocal = ShouldGroupLocally();
+        if (_gridLocal)
         {
-            id = t.Id.ToString(),
-            accountId = t.BankAccountId.ToString(),
-            accountName = _accountNames.GetValueOrDefault(t.BankAccountId, ""),
-            batchId = t.ImportBatchId?.ToString() ?? "",
-            batchName = t.ImportBatchId is { } bid ? _batchLabels.GetValueOrDefault(bid, "") : "",
-            categoryId = t.CategoryId?.ToString() ?? "",
-            bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
-            counterparty = t.CounterpartyName ?? "",
-            categoryName = t.CategoryName ?? "",
-            categoryColor = CategoryColor(t.CategoryId),
-            description = t.Description ?? "",
-            vs = t.VariableSymbol ?? "",
-            amount = (double)t.Amount,
-            currency = t.Currency,
-        });
-
-        var categories = _categories.Select(c => new { id = c.Id.ToString(), name = c.Name, color = c.Color });
-
-        await JS.InvokeVoidAsync("flowlioGrid.render", "tx-grid", data,
-            new { canManage = _canManage, groupBy = _groupValue, pageSize = 50, search = _search ?? "", categories, height = "100%" }, _gridRef);
-
-        // Re-applies any active filters after a (re)render, e.g. after save/delete.
-        if (HasActiveFilters)
-            await ApplyClientFiltersAsync();
+            var all = await LoadAllFilteredAsync();
+            await JS.InvokeVoidAsync("flowlioGrid.renderLocal", "tx-grid", all.Select(ToGridRow), GridOpts(), _gridRef);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("flowlioGrid.renderRemote", "tx-grid", GridOpts(), _gridRef);
+        }
     }
 
-    private async Task GroupChangedAsync()
+    // After a change: a mode switch (or local mode) rebuilds the grid; a remote grid just re-fetches page 1.
+    private async Task RenderOrReloadGridAsync()
     {
-        SyncUrl();
-        await JS.InvokeVoidAsync("flowlioGrid.setGroup", "tx-grid", _groupValue);
+        var local = ShouldGroupLocally();
+        if (local || local != _gridLocal)
+            await RenderGridAsync();
+        else
+            await JS.InvokeVoidAsync("flowlioGrid.reload", "tx-grid");
     }
 
-    private async Task ExportCsvAsync() =>
-        await JS.InvokeVoidAsync("flowlioGrid.exportCsv", "tx-grid");
+    private object GridOpts() => new
+    {
+        canManage = _canManage,
+        groupBy = _groupValue,
+        pageSize = 100,
+        search = _search ?? "",
+        categories = _categories.Select(c => new { id = c.Id.ToString(), name = c.Name, color = c.Color }),
+        height = "100%",
+    };
+
+    // Called by Tabulator (remote/infinite scroll) for each page. Returns the rows plus the last page index.
+    [JSInvokable]
+    public async Task<object> GridFetchPage(int page, int size, string? sortField, bool sortDesc)
+    {
+        var result = await Api.GetTransactionsAsync(
+            AccountFilter, CategoryFilter, DateFromFilter, DateToFilter, DirectionFilter,
+            BatchFilter, UnbatchedFilter, _search, sortField, sortDesc, page, size);
+        if (result is null)
+            return new { data = Array.Empty<object>(), last_page = 1 };
+
+        if (page <= 1)
+            _byId.Clear();
+        foreach (var t in result.Items)
+            _byId[t.Id] = t;
+
+        var lastPage = result.PageSize > 0 ? (int)Math.Ceiling((double)result.TotalCount / result.PageSize) : 1;
+        return new { data = result.Items.Select(ToGridRow).ToList(), last_page = Math.Max(1, lastPage) };
+    }
+
+    // Loads the whole filtered set (only used for the bounded eager/grouping path).
+    private async Task<List<TransactionDto>> LoadAllFilteredAsync()
+    {
+        var all = new List<TransactionDto>();
+        const int size = 200;
+        for (var page = 1; page <= 100; page++)
+        {
+            var result = await Api.GetTransactionsAsync(
+                AccountFilter, CategoryFilter, DateFromFilter, DateToFilter, DirectionFilter,
+                BatchFilter, UnbatchedFilter, _search, page: page, pageSize: size);
+            if (result is null || result.Items.Count == 0)
+                break;
+            all.AddRange(result.Items);
+            if (all.Count >= result.TotalCount)
+                break;
+        }
+        _byId = all.ToDictionary(t => t.Id);
+        return all;
+    }
+
+    private object ToGridRow(TransactionDto t) => new
+    {
+        id = t.Id.ToString(),
+        accountId = t.BankAccountId.ToString(),
+        accountName = _accountNames.GetValueOrDefault(t.BankAccountId, ""),
+        batchId = t.ImportBatchId?.ToString() ?? "",
+        batchName = t.ImportBatchId is { } bid ? _batchLabels.GetValueOrDefault(bid, "") : "",
+        categoryId = t.CategoryId?.ToString() ?? "",
+        bookingDate = t.BookingDate.ToString("yyyy-MM-dd"),
+        counterparty = t.CounterpartyName ?? "",
+        categoryName = t.CategoryName ?? "",
+        categoryColor = CategoryColor(t.CategoryId),
+        description = t.Description ?? "",
+        vs = t.VariableSymbol ?? "",
+        amount = (double)t.Amount,
+        currency = t.Currency,
+    };
+
+    // Refresh after an edit/delete: update the summary and reload the grid (keeps any pending undo).
+    private async Task RefreshAsync()
+    {
+        await RefreshSummaryAsync();
+        await RenderOrReloadGridAsync();
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        _exporting = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = await Api.ExportTransactionsAsync(
+                AccountFilter, CategoryFilter, DateFromFilter, DateToFilter, DirectionFilter,
+                BatchFilter, UnbatchedFilter, _search);
+            if (bytes is null)
+            {
+                Toasts.ShowError("Export se nezdařil.");
+                return;
+            }
+            await JS.InvokeVoidAsync("flowlioDownload", "transakce.csv", bytes, "text/csv;charset=utf-8");
+        }
+        finally
+        {
+            _exporting = false;
+            StateHasChanged();
+        }
+    }
 
     [JSInvokable]
     public void GridEdit(string id)
@@ -576,7 +619,7 @@ else
             Toasts.ShowSuccess("Kategorie změněna.");
         else
             Toasts.ShowError("Změnu kategorie se nepodařilo uložit.");
-        await LoadAsync();
+        await RefreshAsync();
     }
 
     [JSInvokable]
@@ -611,7 +654,7 @@ else
             Toasts.ShowError("Pohyby se nepodařilo smazat.");
         }
         _selectedIds = [];
-        await LoadAsync(keepUndo: true);
+        await RefreshAsync();
     }
 
     private async Task BulkSetCategoryAsync()
@@ -624,7 +667,7 @@ else
         Toasts.ShowSuccess($"Kategorie nastavena u {count} pohybů.");
         _bulkCategory = "";
         _selectedIds = [];
-        await LoadAsync();
+        await RefreshAsync();
     }
 
     private async Task ClearSelectionAsync()
@@ -632,17 +675,6 @@ else
         _selectedIds = [];
         _bulkCategory = "";
         await JS.InvokeVoidAsync("flowlioGrid.clearSelection", "tx-grid");
-    }
-
-    // Pushed by the grid whenever the filtered set changes; drives the summary bar.
-    [JSInvokable]
-    public void UpdateSummary(int count, double income, double expense, double net)
-    {
-        _sumCount = count;
-        _sumIncome = (decimal)income;
-        _sumExpense = (decimal)expense;
-        _sumNet = (decimal)net;
-        StateHasChanged();
     }
 
     // Open the editor for a new movement (null) or an existing one. A fresh @key per open makes
@@ -661,7 +693,7 @@ else
     {
         _showEditor = false;
         await RefreshBatchesAsync();
-        await LoadAsync();
+        await RefreshAsync();
     }
 
     private async Task RefreshBatchesAsync()
@@ -688,7 +720,7 @@ else
             Toasts.ShowError("Přejmenování se nepodařilo uložit.");
         _renamingBatch = false;
         await RefreshBatchesAsync();
-        _renderPending = true; // batch label changed → re-render so grouping reflects it
+        await RenderOrReloadGridAsync(); // batch label changed → re-render so grouping/labels reflect it
     }
 
     private async Task DeleteBatchAsync(ImportBatchDto b)
@@ -700,8 +732,8 @@ else
         if ((await dialog.Result).Cancelled)
             return;
 
-        // Capture the affected movements up front so the same undo bar can restore them.
-        var ids = _rows.Where(r => r.ImportBatchId == b.Id).Select(r => r.Id).ToList();
+        // Capture the batch's movements up front (bounded by one batch) so the undo bar can restore them.
+        var ids = await LoadAllForBatchAsync(b.Id);
         if (await Api.DeleteMovementBatchAsync(b.Id))
         {
             _undoIds = ids;
@@ -710,12 +742,28 @@ else
             _renamingBatch = false;
             SyncUrl();
             await RefreshBatchesAsync();
-            await LoadAsync(keepUndo: true);
+            await RefreshAsync();
         }
         else
         {
             Toasts.ShowError("Dávku se nepodařilo smazat.");
         }
+    }
+
+    private async Task<List<Guid>> LoadAllForBatchAsync(Guid batchId)
+    {
+        var ids = new List<Guid>();
+        const int size = 200;
+        for (var page = 1; page <= 100; page++)
+        {
+            var result = await Api.GetTransactionsAsync(batchId: batchId, page: page, pageSize: size);
+            if (result is null || result.Items.Count == 0)
+                break;
+            ids.AddRange(result.Items.Select(t => t.Id));
+            if (ids.Count >= result.TotalCount)
+                break;
+        }
+        return ids;
     }
 
     private void DetailEdit(TransactionDto t)
@@ -738,7 +786,7 @@ else
         {
             _undoIds = [t.Id];
             Toasts.ShowSuccess("Pohyb byl smazán.");
-            await LoadAsync(keepUndo: true);
+            await RefreshAsync();
         }
         else
         {
@@ -753,7 +801,7 @@ else
         var count = await Api.RestoreTransactionsAsync(_undoIds);
         Toasts.ShowSuccess($"Obnoveno {count} pohybů.");
         _undoIds = [];
-        await LoadAsync();
+        await RefreshAsync();
     }
 
     private string CategoryColor(Guid? categoryId) =>
