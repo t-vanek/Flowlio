@@ -33,10 +33,14 @@
             <span class="nav-icon">📥</span>
             <span class="nav-link-label">Import výpisu</span>
         </NavLink>
-        <NavLink class="nav-link" href="bank-connect" title="Připojení banky">
-            <span class="nav-icon">🔗</span>
-            <span class="nav-link-label">Připojení banky</span>
-        </NavLink>
+        @* Bank connection (Open Banking) is a paid feature gated server-side; show it only when enabled. *@
+        @if (_openBankingEnabled)
+        {
+            <NavLink class="nav-link" href="bank-connect" title="Připojení banky">
+                <span class="nav-icon">🔗</span>
+                <span class="nav-link-label">Připojení banky</span>
+            </NavLink>
+        }
     }
     @if (_canManageRules)
     {
@@ -94,6 +98,7 @@
     private bool _canManageRules;
     private bool _canFamilyAdmin;
     private bool _canAdminister;
+    private bool _openBankingEnabled;
 
     private bool _hasFinance => _canViewFinances || _canImport || _canManageRules;
     private bool _hasFamily => _canManageMembers || _canFamilyAdmin;
@@ -111,6 +116,7 @@
         _canManageMembers = me?.Can(Permission.ManageMembers) ?? false;
         _canImport = me?.Can(Permission.ImportStatements) ?? false;
         _canManageRules = me?.Can(Permission.ManageTransactions) ?? false;
+        _openBankingEnabled = me?.OpenBankingEnabled ?? false;
         _canFamilyAdmin = (me?.Can(Permission.ManageRoles) ?? false)
                        || (me?.Can(Permission.ManageFamily) ?? false);
         _canAdminister = me?.SystemPermissions.Count > 0;
