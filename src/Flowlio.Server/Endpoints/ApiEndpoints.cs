@@ -697,12 +697,10 @@ public static class ApiEndpoints
         period?.ToLowerInvariant() switch
         {
             "all" => (null, null),
-            "year" => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year + 1, 1, 1)),
-            "quarter" => (QuarterStart(today), QuarterStart(today).AddMonths(3)),
-            _ => (new DateOnly(today.Year, today.Month, 1), new DateOnly(today.Year, today.Month, 1).AddMonths(1)),
+            "year" => DatePeriods.YearWindow(today),
+            "quarter" => (DatePeriods.QuarterStart(today), DatePeriods.QuarterStart(today).AddMonths(3)),
+            _ => DatePeriods.MonthWindow(today),
         };
-
-    private static DateOnly QuarterStart(DateOnly d) => new(d.Year, (d.Month - 1) / 3 * 3 + 1, 1);
 
     private static async Task<IResult> ImportStatement(
         IFormFile file,
