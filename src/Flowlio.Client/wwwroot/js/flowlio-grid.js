@@ -213,7 +213,30 @@ window.flowlioGrid = (function () {
         return el;
     }
 
+    let _tabulatorReady = null;
+
+    // Loads Tabulator's JS + CSS on demand — kept out of the startup bundle, since only the transactions
+    // page needs it. Returns a cached promise so it loads at most once.
+    function ensureTabulator() {
+        if (_tabulatorReady) return _tabulatorReady;
+        if (typeof Tabulator !== "undefined") { _tabulatorReady = Promise.resolve(true); return _tabulatorReady; }
+        _tabulatorReady = new Promise((resolve) => {
+            const link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = "lib/tabulator.min.css";
+            document.head.appendChild(link);
+            const script = document.createElement("script");
+            script.src = "lib/tabulator.min.js";
+            script.onload = () => resolve(true);
+            script.onerror = () => resolve(false);
+            document.head.appendChild(script);
+        });
+        return _tabulatorReady;
+    }
+
     return {
+        // Loads Tabulator on demand; the page awaits this before rendering the grid.
+        ensure: ensureTabulator,
         // Lazy / infinite-scroll mode: the server filters, sorts and pages; rows load in chunks on scroll.
         renderRemote(id, opts, dotNetRef) {
             const el = reset(id, opts, dotNetRef);
@@ -261,16 +284,3 @@ window.flowlioGrid = (function () {
         },
     };
 })();
-
-// Triggers a browser download of in-memory bytes (the server-streamed CSV export).
-window.flowlioDownload = function (filename, bytes, mime) {
-    const blob = new Blob([bytes], { type: mime || "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-};
