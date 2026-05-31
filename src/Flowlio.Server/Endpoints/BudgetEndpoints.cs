@@ -34,8 +34,7 @@ public static class BudgetEndpoints
         if (!await family.CanAsync(Permission.ViewFinances, ct))
             return Forbidden();
 
-        var baseCurrency = await BaseCurrency(db, familyId, ct);
-        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+        var (baseCurrency, converter) = await db.LoadCurrencyContextAsync(familyId, ct);
         var childrenByParent = await ChildrenMap(db, familyId, ct);
 
         var budgets = await db.Budgets
@@ -44,26 +43,45 @@ public static class BudgetEndpoints
             .ToListAsync(ct);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var result = new List<BudgetDto>(budgets.Count);
-        foreach (var budget in budgets)
+
+        // Each budget has its own category set (rolled up to sub-categories) and period window. Compute
+        // those once, then fetch the union of relevant expense transactions in a single query and total
+        // each budget's spend in memory — instead of one query per budget.
+        var specs = budgets
+            .Select(b => (Budget: b, Categories: Descendants(b.CategoryId, childrenByParent), Window: PeriodWindow(b.Period, today)))
+            .ToList();
+
+        var allCategoryIds = specs.SelectMany(s => s.Categories).ToHashSet();
+        var minStart = specs.Count > 0 ? specs.Min(s => s.Window.Start) : today;
+        var maxEnd = specs.Count > 0 ? specs.Max(s => s.Window.End) : today;
+
+        var rows = await db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
+                        && t.Amount < 0 && t.CategoryId != null && allCategoryIds.Contains(t.CategoryId!.Value)
+                        && t.BookingDate >= minStart && t.BookingDate < maxEnd)
+            .Select(t => new { t.Amount, t.Currency, t.BookingDate, CategoryId = t.CategoryId!.Value })
+            .ToListAsync(ct);
+
+        var result = specs.Select(s =>
         {
-            var (start, end) = PeriodWindow(budget.Period, today);
-            var categoryIds = Descendants(budget.CategoryId, childrenByParent);
-            var spent = await SpentAsync(db, converter, baseCurrency, familyId, categoryIds, start, end, ct);
-            result.Add(new BudgetDto
+            var spent = 0m;
+            foreach (var r in rows)
+                if (s.Categories.Contains(r.CategoryId) && r.BookingDate >= s.Window.Start && r.BookingDate < s.Window.End)
+                    spent += converter.Convert(Math.Abs(r.Amount), r.Currency, baseCurrency, r.BookingDate) ?? 0m;
+            return new BudgetDto
             {
-                Id = budget.Id,
-                CategoryId = budget.CategoryId,
-                CategoryName = budget.Category?.Name ?? "—",
-                Color = budget.Category?.Color,
-                Period = budget.Period,
-                Amount = budget.Amount,
-                Spent = spent,
+                Id = s.Budget.Id,
+                CategoryId = s.Budget.CategoryId,
+                CategoryName = s.Budget.Category?.Name ?? "—",
+                Color = s.Budget.Category?.Color,
+                Period = s.Budget.Period,
+                Amount = s.Budget.Amount,
+                Spent = decimal.Round(spent, 2),
                 Currency = baseCurrency,
-                PeriodStart = start,
-                PeriodEnd = end,
-            });
-        }
+                PeriodStart = s.Window.Start,
+                PeriodEnd = s.Window.End,
+            };
+        }).ToList();
 
         return Results.Ok(result.OrderByDescending(b => b.Amount == 0 ? 0 : b.Spent / b.Amount).ToList());
     }
@@ -146,11 +164,20 @@ public static class BudgetEndpoints
             .Where(g => g.FamilyId == familyId)
             .ToListAsync(ct);
 
+        // Sum each goal account's movements in one grouped query (opening balances come from the Include
+        // above), instead of two queries per goal.
+        var accountIds = goals.Select(g => g.BankAccountId).Distinct().ToList();
+        var movementByAccount = await db.Transactions
+            .Where(t => accountIds.Contains(t.BankAccountId))
+            .GroupBy(t => t.BankAccountId)
+            .Select(g => new { AccountId = g.Key, Sum = g.Sum(x => x.Amount) })
+            .ToDictionaryAsync(x => x.AccountId, x => x.Sum, ct);
+
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var result = new List<GoalDto>(goals.Count);
         foreach (var goal in goals)
         {
-            var balance = await AccountBalanceAsync(db, goal.BankAccountId, ct);
+            var balance = (goal.BankAccount?.OpeningBalance ?? 0m) + movementByAccount.GetValueOrDefault(goal.BankAccountId);
             var saved = balance - goal.BaselineAmount;
             var remaining = goal.TargetAmount - saved;
             decimal? requiredMonthly = null;
@@ -247,9 +274,6 @@ public static class BudgetEndpoints
 
     // ---- Helpers ------------------------------------------------------------
 
-    private static async Task<string> BaseCurrency(IAppDbContext db, Guid familyId, CancellationToken ct) =>
-        await db.Families.Where(f => f.Id == familyId).Select(f => f.BaseCurrency).FirstAsync(ct);
-
     /// <summary>Maps each category to its direct children, so a budget rolls up its sub-categories' spend.</summary>
     private static async Task<ILookup<Guid, Guid>> ChildrenMap(IAppDbContext db, Guid familyId, CancellationToken ct)
     {
@@ -272,23 +296,6 @@ public static class BudgetEndpoints
                     queue.Enqueue(child);
         }
         return set;
-    }
-
-    private static async Task<decimal> SpentAsync(
-        IAppDbContext db, CurrencyConverter converter, string baseCurrency, Guid familyId,
-        HashSet<Guid> categoryIds, DateOnly start, DateOnly end, CancellationToken ct)
-    {
-        var rows = await db.Transactions
-            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
-                        && t.Amount < 0 && t.CategoryId != null && categoryIds.Contains(t.CategoryId!.Value)
-                        && t.BookingDate >= start && t.BookingDate < end)
-            .Select(t => new { t.Amount, t.Currency, t.BookingDate })
-            .ToListAsync(ct);
-
-        var spent = 0m;
-        foreach (var r in rows)
-            spent += converter.Convert(Math.Abs(r.Amount), r.Currency, baseCurrency, r.BookingDate) ?? 0m;
-        return decimal.Round(spent, 2);
     }
 
     private static async Task<decimal> AccountBalanceAsync(IAppDbContext db, Guid accountId, CancellationToken ct)
