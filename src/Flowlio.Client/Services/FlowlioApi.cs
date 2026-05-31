@@ -36,6 +36,9 @@ public sealed class FlowlioApi(HttpClient http)
     public Task<DashboardSummaryDto?> GetDashboardAsync() =>
         http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard");
 
+    public async Task<IReadOnlyList<CategorySpendDto>> GetCategorySpendAsync(string period) =>
+        await http.GetFromJsonAsync<List<CategorySpendDto>>($"api/dashboard/categories?period={period}") ?? [];
+
     public async Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync() =>
         await http.GetFromJsonAsync<List<BankAccountDto>>("api/accounts") ?? [];
 
