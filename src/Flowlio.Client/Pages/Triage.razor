@@ -43,7 +43,12 @@ else
                         </div>
                     </div>
                     <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
-                        <FluentSelect TOption="string" @bind-Value="_selected[g.Counterparty]" Style="width:200px">
+                        @* Value/ValueChanged, NOT @bind-Value: @bind-Value would make Blazor derive a
+                           FieldIdentifier from "_selected[g.Counterparty]", and ExpressionFormatter throws on a
+                           property-indexed accessor ("Unable to evaluate index expressions of type
+                           'PropertyExpression'") — which crashed the whole SPA with the global error UI. *@
+                        <FluentSelect TOption="string" Value="@(_selected.GetValueOrDefault(g.Counterparty, string.Empty))"
+                                      ValueChanged="@(v => _selected[g.Counterparty] = v ?? string.Empty)" Style="width:200px">
                             <FluentOption TOption="string" Value="">— kategorie —</FluentOption>
                             @foreach (var c in _categories ?? [])
                             {
