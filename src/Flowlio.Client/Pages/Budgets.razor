@@ -58,23 +58,45 @@ else
             {
                 var pct = b.Amount == 0 ? 0 : (double)(b.Spent / b.Amount);
                 <div class="account-row">
-                    <div style="flex:1">
-                        <div class="account-name">
-                            <span class="cat-dot" style="background:@(b.Color ?? "#64748b")"></span> @b.CategoryName
-                            <span class="muted">· @PeriodLabel(b.Period)</span>
-                        </div>
-                        <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
-                            <div style="height:100%;width:@(Math.Min(pct,1)*100)%;background:@BarColor(pct)"></div>
-                        </div>
-                        <div class="muted">
-                            @Formatting.Money(b.Spent, b.Currency) / @Formatting.Money(b.Amount, b.Currency)
-                            (@((pct*100).ToString("0", Cz)) %)
-                            @if (pct > 1) { <span style="color:#dc2626"> · přečerpáno</span> }
-                        </div>
-                    </div>
-                    @if (_canManage)
+                    @if (_editBudgetId == b.Id)
                     {
-                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteBudgetAsync(b))">Smazat</FluentButton>
+                        <div style="flex:1">
+                            <div class="account-name">
+                                <span class="cat-dot" style="background:@(b.Color ?? "#64748b")"></span> @b.CategoryName
+                            </div>
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
+                                <div style="width:140px"><label class="field-label">Limit</label><MoneyField @bind-Value="_editBudgetAmount" /></div>
+                                <FluentSelect TOption="string" @bind-Value="_editBudgetPeriod" Label="Období" Style="width:120px">
+                                    <FluentOption TOption="string" Value="1">Měsíc</FluentOption>
+                                    <FluentOption TOption="string" Value="0">Týden</FluentOption>
+                                    <FluentOption TOption="string" Value="2">Rok</FluentOption>
+                                </FluentSelect>
+                            </FluentStack>
+                        </div>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveBudgetAsync(b))" Loading="_busy">Uložit</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                    }
+                    else
+                    {
+                        <div style="flex:1">
+                            <div class="account-name">
+                                <span class="cat-dot" style="background:@(b.Color ?? "#64748b")"></span> @b.CategoryName
+                                <span class="muted">· @PeriodLabel(b.Period)</span>
+                            </div>
+                            <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
+                                <div style="height:100%;width:@(Math.Min(pct,1)*100)%;background:@BarColor(pct)"></div>
+                            </div>
+                            <div class="muted">
+                                @Formatting.Money(b.Spent, b.Currency) / @Formatting.Money(b.Amount, b.Currency)
+                                (@((pct*100).ToString("0", Cz)) %)
+                                @if (pct > 1) { <span style="color:#dc2626"> · přečerpáno</span> }
+                            </div>
+                        </div>
+                        @if (_canManage)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => BeginBudgetEdit(b))">Upravit</FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteBudgetAsync(b))">Smazat</FluentButton>
+                        }
                     }
                 </div>
             }
@@ -121,29 +143,74 @@ else
             {
                 var pct = g.TargetAmount == 0 ? 0 : (double)(g.Saved / g.TargetAmount);
                 <div class="account-row">
-                    <div style="flex:1">
-                        <div class="account-name">@g.Name <span class="muted">· @g.AccountName</span></div>
-                        <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
-                            <div style="height:100%;width:@(Math.Clamp(pct,0,1)*100)%;background:#16a34a"></div>
-                        </div>
-                        <div class="muted">
-                            @Formatting.Money(Math.Max(g.Saved, 0), g.Currency) / @Formatting.Money(g.TargetAmount, g.Currency)
-                            (@((Math.Clamp(pct,0,1)*100).ToString("0", Cz)) %)
-                            @if (g.RequiredMonthly is { } rm && g.TargetDate is { } d)
-                            {
-                                <span> · ~@Formatting.Money(rm, g.Currency)/měsíc do @Formatting.Date(d)</span>
-                            }
-                        </div>
-                    </div>
-                    @if (_canManage)
+                    @if (_editGoalId == g.Id)
                     {
-                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteGoalAsync(g))">Smazat</FluentButton>
+                        <div style="flex:1">
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom" Wrap="true">
+                                <FluentTextField @bind-Value="_editGoalName" Label="Název" Style="width:160px" />
+                                <div style="width:140px"><label class="field-label">Cílová částka</label><MoneyField @bind-Value="_editGoalTarget" /></div>
+                                <div><label class="field-label">Termín</label><input type="date" class="date-input" @bind="_editGoalDate" /></div>
+                            </FluentStack>
+                        </div>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveGoalAsync(g))" Loading="_busy">Uložit</FluentButton>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEdit">Zrušit</FluentButton>
+                    }
+                    else
+                    {
+                        <div style="flex:1">
+                            <div class="account-name">@g.Name <span class="muted">· @g.AccountName</span></div>
+                            <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;margin:4px 0;max-width:360px">
+                                <div style="height:100%;width:@(Math.Clamp(pct,0,1)*100)%;background:#16a34a"></div>
+                            </div>
+                            <div class="muted">
+                                @Formatting.Money(Math.Max(g.Saved, 0), g.Currency) / @Formatting.Money(g.TargetAmount, g.Currency)
+                                (@((Math.Clamp(pct,0,1)*100).ToString("0", Cz)) %)
+                                @if (g.RequiredMonthly is { } rm && g.TargetDate is { } d)
+                                {
+                                    <span> · ~@Formatting.Money(rm, g.Currency)/měsíc do @Formatting.Date(d)</span>
+                                }
+                            </div>
+                        </div>
+                        @if (_canManage)
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => BeginGoalEdit(g))">Upravit</FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteGoalAsync(g))">Smazat</FluentButton>
+                        }
                     }
                 </div>
             }
         }
     </FluentCard>
 </div>
+
+@if (_canManage && (_deletedBudgets is { Count: > 0 } || _deletedGoals is { Count: > 0 }))
+{
+    <FluentCard Class="panel" Style="margin-top:16px">
+        <h2 class="panel-title">Smazané rozpočty a cíle</h2>
+        <p class="muted">Smazané položky lze obnovit. Rozpočet nelze obnovit, pokud pro jeho kategorii mezitím vznikl nový.</p>
+        @foreach (var b in _deletedBudgets ?? [])
+        {
+            <div class="account-row">
+                <div style="flex:1">
+                    <div class="account-name">
+                        <span class="cat-dot" style="background:@(b.Color ?? "#64748b")"></span> @b.CategoryName
+                        <span class="muted">· @PeriodLabel(b.Period) · limit @Formatting.Money(b.Amount, b.Currency)</span>
+                    </div>
+                </div>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreBudgetAsync(b))">Obnovit</FluentButton>
+            </div>
+        }
+        @foreach (var g in _deletedGoals ?? [])
+        {
+            <div class="account-row">
+                <div style="flex:1">
+                    <div class="account-name">🎯 @g.Name <span class="muted">· @g.AccountName · cíl @Formatting.Money(g.TargetAmount, g.Currency)</span></div>
+                </div>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => RestoreGoalAsync(g))">Obnovit</FluentButton>
+            </div>
+        }
+    </FluentCard>
+}
 }
 
 @code {
@@ -151,6 +218,8 @@ else
 
     private IReadOnlyList<BudgetDto>? _budgets;
     private IReadOnlyList<GoalDto>? _goals;
+    private IReadOnlyList<BudgetDto>? _deletedBudgets;
+    private IReadOnlyList<GoalDto>? _deletedGoals;
     private IReadOnlyList<CategoryDto>? _categories;
     private IReadOnlyList<BankAccountDto>? _accounts;
     private bool _canView;
@@ -165,6 +234,18 @@ else
     private string _goalAccount = "";
     private decimal _goalTarget;
     private DateOnly? _goalDate;
+
+    // Inline-edit buffers. The Version is carried from the loaded DTO so a concurrent change is detected (409).
+    private Guid? _editBudgetId;
+    private decimal _editBudgetAmount;
+    private string _editBudgetPeriod = "1";
+    private uint _editBudgetVersion;
+
+    private Guid? _editGoalId;
+    private string _editGoalName = "";
+    private decimal _editGoalTarget;
+    private DateOnly? _editGoalDate;
+    private uint _editGoalVersion;
 
     private IEnumerable<CategoryDto> BudgetableCategories =>
         (_categories ?? []).Where(c => c.Kind == CategoryKind.Expense
@@ -187,6 +268,12 @@ else
     {
         _budgets = await Api.GetBudgetsAsync();
         _goals = await Api.GetGoalsAsync();
+        // The deleted-items panel and restore are manager-only, so only managers pay for the extra fetches.
+        if (_canManage)
+        {
+            _deletedBudgets = await Api.GetDeletedBudgetsAsync();
+            _deletedGoals = await Api.GetDeletedGoalsAsync();
+        }
     }
 
     private async Task AddBudgetAsync()
@@ -212,8 +299,14 @@ else
 
     private async Task DeleteBudgetAsync(BudgetDto b)
     {
-        if (await Api.DeleteBudgetAsync(b.Id)) { Toasts.ShowSuccess("Rozpočet smazán."); await LoadAsync(); }
+        if (await Api.DeleteBudgetAsync(b.Id)) { Toasts.ShowSuccess("Rozpočet smazán (lze obnovit)."); await LoadAsync(); }
         else Toasts.ShowError("Smazání se nezdařilo.");
+    }
+
+    private async Task RestoreBudgetAsync(BudgetDto b)
+    {
+        if (await Api.RestoreBudgetAsync(b.Id)) { Toasts.ShowSuccess("Rozpočet obnoven."); await LoadAsync(); }
+        else Toasts.ShowError("Rozpočet nelze obnovit — pro jeho kategorii už nejspíš existuje jiný.");
     }
 
     private async Task AddGoalAsync()
@@ -241,8 +334,99 @@ else
 
     private async Task DeleteGoalAsync(GoalDto g)
     {
-        if (await Api.DeleteGoalAsync(g.Id)) { Toasts.ShowSuccess("Cíl smazán."); await LoadAsync(); }
+        if (await Api.DeleteGoalAsync(g.Id)) { Toasts.ShowSuccess("Cíl smazán (lze obnovit)."); await LoadAsync(); }
         else Toasts.ShowError("Smazání se nezdařilo.");
+    }
+
+    private async Task RestoreGoalAsync(GoalDto g)
+    {
+        if (await Api.RestoreGoalAsync(g.Id)) { Toasts.ShowSuccess("Cíl obnoven."); await LoadAsync(); }
+        else Toasts.ShowError("Obnovení se nezdařilo.");
+    }
+
+    private void BeginBudgetEdit(BudgetDto b)
+    {
+        _editGoalId = null;
+        _editBudgetId = b.Id;
+        _editBudgetAmount = b.Amount;
+        _editBudgetPeriod = ((int)b.Period).ToString();
+        _editBudgetVersion = b.Version;
+    }
+
+    private async Task SaveBudgetAsync(BudgetDto b)
+    {
+        if (_editBudgetAmount <= 0) { Toasts.ShowError("Zadejte kladný limit."); return; }
+        _busy = true;
+        try
+        {
+            var status = await Api.UpdateBudgetAsync(b.Id, new BudgetRequest
+            {
+                CategoryId = b.CategoryId,
+                Amount = _editBudgetAmount,
+                Period = (BudgetPeriod)int.Parse(_editBudgetPeriod),
+                Version = _editBudgetVersion,
+            });
+            await HandleSaveAsync(status, "Rozpočet upraven.");
+        }
+        finally { _busy = false; }
+    }
+
+    private void BeginGoalEdit(GoalDto g)
+    {
+        _editBudgetId = null;
+        _editGoalId = g.Id;
+        _editGoalName = g.Name;
+        _editGoalTarget = g.TargetAmount;
+        _editGoalDate = g.TargetDate;
+        _editGoalVersion = g.Version;
+    }
+
+    private async Task SaveGoalAsync(GoalDto g)
+    {
+        if (string.IsNullOrWhiteSpace(_editGoalName)) { Toasts.ShowError("Zadejte název."); return; }
+        if (_editGoalTarget <= 0) { Toasts.ShowError("Zadejte kladnou cílovou částku."); return; }
+        _busy = true;
+        try
+        {
+            var status = await Api.UpdateGoalAsync(g.Id, new GoalRequest
+            {
+                Name = _editGoalName,
+                BankAccountId = g.BankAccountId,
+                TargetAmount = _editGoalTarget,
+                TargetDate = _editGoalDate,
+                Version = _editGoalVersion,
+            });
+            await HandleSaveAsync(status, "Cíl upraven.");
+        }
+        finally { _busy = false; }
+    }
+
+    private void CancelEdit()
+    {
+        _editBudgetId = null;
+        _editGoalId = null;
+    }
+
+    // Shared result handling for an optimistic-concurrency save. On success or conflict we reload and leave
+    // edit mode; a conflict means someone else changed the row, so the user sees fresh values to retry from.
+    private async Task HandleSaveAsync(SaveStatus status, string successMessage)
+    {
+        switch (status)
+        {
+            case SaveStatus.Success:
+                Toasts.ShowSuccess(successMessage);
+                CancelEdit();
+                await LoadAsync();
+                break;
+            case SaveStatus.Conflict:
+                Toasts.ShowError("Položku mezitím změnil někdo jiný. Načítám aktuální stav.");
+                CancelEdit();
+                await LoadAsync();
+                break;
+            default:
+                Toasts.ShowError("Uložení se nezdařilo.");
+                break;
+        }
     }
 
     private static string PeriodLabel(BudgetPeriod p) => p switch

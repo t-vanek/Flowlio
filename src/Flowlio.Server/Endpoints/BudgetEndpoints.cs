@@ -16,14 +16,18 @@ public static class BudgetEndpoints
     public static void MapBudgetEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapGet("/budgets", GetBudgets);
+        api.MapGet("/budgets/deleted", GetDeletedBudgets);
         api.MapPost("/budgets", CreateBudget);
         api.MapPut("/budgets/{id:guid}", UpdateBudget);
         api.MapDelete("/budgets/{id:guid}", DeleteBudget);
+        api.MapPost("/budgets/{id:guid}/restore", RestoreBudget);
 
         api.MapGet("/goals", GetGoals);
+        api.MapGet("/goals/deleted", GetDeletedGoals);
         api.MapPost("/goals", CreateGoal);
         api.MapPut("/goals/{id:guid}", UpdateGoal);
         api.MapDelete("/goals/{id:guid}", DeleteGoal);
+        api.MapPost("/goals/{id:guid}/restore", RestoreGoal);
     }
 
     // ---- Budgets ------------------------------------------------------------
@@ -80,6 +84,7 @@ public static class BudgetEndpoints
                 Currency = baseCurrency,
                 PeriodStart = s.Window.Start,
                 PeriodEnd = s.Window.End,
+                Version = db.GetRowVersion(s.Budget),
             };
         }).ToList();
 
@@ -129,6 +134,8 @@ public static class BudgetEndpoints
         budget.Amount = request.Amount;
         budget.Period = request.Period;
         budget.UpdatedAt = DateTimeOffset.UtcNow;
+        // Optimistic concurrency: a stale Version makes SaveChanges throw, turned into HTTP 409 (Program.cs).
+        db.SetOriginalRowVersion(budget, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("budget.update", "Budget", budget.Id.ToString(), null, familyId, "Upraven rozpočet", ct);
         return Results.NoContent();
@@ -145,9 +152,67 @@ public static class BudgetEndpoints
         if (budget is null)
             return Results.NotFound();
 
-        db.Budgets.Remove(budget);
+        // Soft delete: recoverable via restore; the partial unique index lets a new budget reuse the category.
+        budget.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("budget.delete", "Budget", id.ToString(), null, familyId, "Smazán rozpočet", ct);
+        return Results.NoContent();
+    }
+
+    /// <summary>Soft-deleted budgets, newest first, for the "deleted budgets" panel and restore.</summary>
+    private static async Task<IResult> GetDeletedBudgets(IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var (baseCurrency, _) = await db.LoadCurrencyContextAsync(familyId, ct);
+        var budgets = await db.Budgets
+            .IgnoreQueryFilters()
+            .Include(x => x.Category)
+            .Where(x => x.FamilyId == familyId && x.DeletedAt != null)
+            .OrderByDescending(x => x.DeletedAt)
+            .ToListAsync(ct);
+
+        // Actuals aren't meaningful for a deleted budget — the panel only shows the limit and a restore button.
+        var result = budgets.Select(b => new BudgetDto
+        {
+            Id = b.Id,
+            CategoryId = b.CategoryId,
+            CategoryName = b.Category?.Name ?? "—",
+            Color = b.Category?.Color,
+            Period = b.Period,
+            Amount = b.Amount,
+            Spent = 0m,
+            Currency = baseCurrency,
+            Version = db.GetRowVersion(b),
+        }).ToList();
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> RestoreBudget(
+        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var budget = await db.Budgets
+            .IgnoreQueryFilters()
+            .Include(x => x.Category)
+            .FirstOrDefaultAsync(x => x.Id == id && x.FamilyId == familyId && x.DeletedAt != null, ct);
+        if (budget is null)
+            return Results.NotFound();
+
+        // A live budget may have been created for the same category meanwhile; restoring would violate the
+        // one-budget-per-category rule, so block it with a clear message rather than a raw unique violation.
+        if (await db.Budgets.AnyAsync(x => x.FamilyId == familyId && x.CategoryId == budget.CategoryId, ct))
+            return Results.BadRequest("Pro tuto kategorii už rozpočet existuje.");
+
+        budget.DeletedAt = null;
+        budget.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("budget.restore", "Budget", id.ToString(), budget.Category?.Name, familyId, "Obnoven rozpočet", ct);
         return Results.NoContent();
     }
 
@@ -199,6 +264,7 @@ public static class BudgetEndpoints
                 Saved = saved,
                 TargetDate = goal.TargetDate,
                 RequiredMonthly = requiredMonthly,
+                Version = db.GetRowVersion(goal),
             });
         }
 
@@ -250,6 +316,8 @@ public static class BudgetEndpoints
         if (request.BaselineAmount is { } baseline)
             goal.BaselineAmount = baseline;
         goal.UpdatedAt = DateTimeOffset.UtcNow;
+        // Optimistic concurrency: a stale Version makes SaveChanges throw, turned into HTTP 409 (Program.cs).
+        db.SetOriginalRowVersion(goal, request.Version);
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("goal.update", "Goal", goal.Id.ToString(), goal.Name, familyId, "Upraven cíl", ct);
         return Results.NoContent();
@@ -266,9 +334,61 @@ public static class BudgetEndpoints
         if (goal is null)
             return Results.NotFound();
 
-        db.Goals.Remove(goal);
+        // Soft delete: recoverable via restore.
+        goal.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync("goal.delete", "Goal", id.ToString(), goal.Name, familyId, "Smazán cíl", ct);
+        return Results.NoContent();
+    }
+
+    /// <summary>Soft-deleted goals, newest first, for the "deleted goals" panel and restore.</summary>
+    private static async Task<IResult> GetDeletedGoals(IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var goals = await db.Goals
+            .IgnoreQueryFilters()
+            .Include(g => g.BankAccount)
+            .Where(g => g.FamilyId == familyId && g.DeletedAt != null)
+            .OrderByDescending(g => g.DeletedAt)
+            .ToListAsync(ct);
+
+        // Progress isn't meaningful for a deleted goal — the panel only shows the target and a restore button.
+        var result = goals.Select(g => new GoalDto
+        {
+            Id = g.Id,
+            Name = g.Name,
+            BankAccountId = g.BankAccountId,
+            AccountName = g.BankAccount?.Name ?? "—",
+            Currency = g.BankAccount?.Currency ?? "CZK",
+            TargetAmount = g.TargetAmount,
+            BaselineAmount = g.BaselineAmount,
+            Saved = 0m,
+            TargetDate = g.TargetDate,
+            Version = db.GetRowVersion(g),
+        }).ToList();
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> RestoreGoal(
+        Guid id, IAppDbContext db, ICurrentFamily family, IAuditLog audit, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ManageTransactions, ct))
+            return Forbidden();
+
+        var goal = await db.Goals
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(g => g.Id == id && g.FamilyId == familyId && g.DeletedAt != null, ct);
+        if (goal is null)
+            return Results.NotFound();
+
+        goal.DeletedAt = null;
+        goal.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync("goal.restore", "Goal", id.ToString(), goal.Name, familyId, "Obnoven cíl", ct);
         return Results.NoContent();
     }
 

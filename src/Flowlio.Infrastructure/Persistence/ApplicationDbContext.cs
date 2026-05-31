@@ -56,6 +56,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<Transaction>().HasQueryFilter(t => t.DeletedAt == null);
         builder.Entity<CategorizationRule>().HasQueryFilter(r => r.DeletedAt == null);
         builder.Entity<BankConnection>().HasQueryFilter(c => c.DeletedAt == null);
+        builder.Entity<Budget>().HasQueryFilter(b => b.DeletedAt == null);
+        builder.Entity<Goal>().HasQueryFilter(g => g.DeletedAt == null);
     }
 
     private const string RowVersion = "xmin";

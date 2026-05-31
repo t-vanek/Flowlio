@@ -548,6 +548,9 @@ public sealed record BudgetDto
 
     public DateOnly PeriodStart { get; init; }
     public DateOnly PeriodEnd { get; init; }
+
+    /// <summary>Concurrency token (Postgres xmin) echoed back on update to detect concurrent edits.</summary>
+    public uint Version { get; init; }
 }
 
 public sealed record BudgetRequest
@@ -558,6 +561,9 @@ public sealed record BudgetRequest
     public decimal Amount { get; set; }
 
     public BudgetPeriod Period { get; set; } = BudgetPeriod.Monthly;
+
+    /// <summary>Concurrency token loaded with the budget; the update is rejected (409) if it no longer matches.</summary>
+    public uint Version { get; set; }
 }
 
 /// <summary>A savings goal tied to an account, with computed progress and the contribution needed to hit it.</summary>
@@ -578,6 +584,9 @@ public sealed record GoalDto
 
     /// <summary>Contribution per month needed to reach the target by <see cref="TargetDate"/>, when set.</summary>
     public decimal? RequiredMonthly { get; init; }
+
+    /// <summary>Concurrency token (Postgres xmin) echoed back on update to detect concurrent edits.</summary>
+    public uint Version { get; init; }
 }
 
 public sealed record GoalRequest
@@ -596,6 +605,9 @@ public sealed record GoalRequest
     /// <summary>Optional starting balance; defaults to the account's current balance at creation.</summary>
     [Range(0, ValidationRules.MaxMoney, ErrorMessage = "Počáteční částka je mimo povolený rozsah.")]
     public decimal? BaselineAmount { get; set; }
+
+    /// <summary>Concurrency token loaded with the goal; the update is rejected (409) if it no longer matches.</summary>
+    public uint Version { get; set; }
 }
 
 /// <summary>The signed-in member together with the effective permissions their role grants.</summary>
