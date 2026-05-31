@@ -45,6 +45,7 @@ public static class ApiEndpoints
         api.MapPut("/movement-batches/{id:guid}", UpdateMovementBatch);
         api.MapDelete("/movement-batches/{id:guid}", DeleteMovementBatch);
         api.MapGet("/dashboard", GetDashboard);
+        api.MapGet("/dashboard/categories", GetCategorySpend);
         api.MapPost("/import", ImportStatement).DisableAntiforgery();
         // Open Banking endpoints are mapped only when the (paid) feature is switched on.
         if (app.ServiceProvider.GetRequiredService<IConfiguration>().OpenBankingEnabled())
@@ -496,6 +497,64 @@ public static class ApiEndpoints
             Upcoming = recurring.Concat(subs).OrderBy(u => u.DueDate).Take(5).ToList(),
         };
     }
+
+    /// <summary>Expense totals per category for the dashboard's category chart over the chosen calendar
+    /// period (this month / quarter / year / all time), converted to the family base currency.</summary>
+    private static async Task<IResult> GetCategorySpend(
+        string? period, IAppDbContext db, ICurrentFamily family, CancellationToken ct)
+    {
+        var familyId = await family.RequireAsync(ct);
+        if (!await family.CanAsync(Permission.ViewFinances, ct))
+            return Forbidden();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var (from, to) = ResolveCategoryPeriod(period, today);
+
+        var baseCurrency = await db.Families
+            .Where(f => f.Id == familyId)
+            .Select(f => f.BaseCurrency)
+            .FirstAsync(ct);
+        var converter = new CurrencyConverter(await db.ExchangeRates.ToListAsync(ct));
+
+        var query = db.Transactions
+            .Where(t => t.FamilyId == familyId && t.BankAccount!.DeletedAt == null
+                        && t.Amount < 0 && t.CategoryId != null);
+        if (from is { } f)
+            query = query.Where(t => t.BookingDate >= f);
+        if (to is { } t2)
+            query = query.Where(t => t.BookingDate < t2);
+
+        var rows = await query
+            .Select(t => new { t.Amount, t.Currency, t.BookingDate, Name = t.Category!.Name, t.Category.Color })
+            .ToListAsync(ct);
+
+        var categories = rows
+            .GroupBy(r => new { r.Name, r.Color })
+            .Select(g => new CategorySpendDto
+            {
+                CategoryName = g.Key.Name,
+                Color = g.Key.Color,
+                Amount = -g.Sum(x => converter.Convert(x.Amount, x.Currency, baseCurrency, x.BookingDate) ?? 0m),
+            })
+            .Where(c => c.Amount > 0)
+            .OrderByDescending(c => c.Amount)
+            .Take(10)
+            .ToList();
+
+        return Results.Ok(categories);
+    }
+
+    // Calendar period [from, to) for the category chart; (null, null) means all time.
+    private static (DateOnly? From, DateOnly? To) ResolveCategoryPeriod(string? period, DateOnly today) =>
+        period?.ToLowerInvariant() switch
+        {
+            "all" => (null, null),
+            "year" => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year + 1, 1, 1)),
+            "quarter" => (QuarterStart(today), QuarterStart(today).AddMonths(3)),
+            _ => (new DateOnly(today.Year, today.Month, 1), new DateOnly(today.Year, today.Month, 1).AddMonths(1)),
+        };
+
+    private static DateOnly QuarterStart(DateOnly d) => new(d.Year, (d.Month - 1) / 3 * 3 + 1, 1);
 
     private static async Task<IResult> ImportStatement(
         IFormFile file,

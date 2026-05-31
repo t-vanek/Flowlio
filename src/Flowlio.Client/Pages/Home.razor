@@ -50,23 +50,35 @@ else
 
     <div class="panel-grid">
         <FluentCard Class="panel">
-            <h2 class="panel-title">Největší výdaje (tento měsíc)</h2>
-            @if (_summary.TopExpenseCategories.Count == 0)
+            <div class="panel-head">
+                <h2 class="panel-title">Výdaje podle kategorií</h2>
+                <div class="seg">
+                    <button type="button" class="seg-btn @(_catPeriod == "month" ? "active" : "")" @onclick='() => SetCatPeriodAsync("month")'>Měsíc</button>
+                    <button type="button" class="seg-btn @(_catPeriod == "quarter" ? "active" : "")" @onclick='() => SetCatPeriodAsync("quarter")'>Čtvrtletí</button>
+                    <button type="button" class="seg-btn @(_catPeriod == "year" ? "active" : "")" @onclick='() => SetCatPeriodAsync("year")'>Rok</button>
+                    <button type="button" class="seg-btn @(_catPeriod == "all" ? "active" : "")" @onclick='() => SetCatPeriodAsync("all")'>Celé období</button>
+                </div>
+            </div>
+            @if (_catLoading)
             {
-                <p class="muted">Zatím žádné kategorizované výdaje.</p>
+                <FluentProgressRing />
+            }
+            else if (_catData.Count == 0)
+            {
+                <p class="muted">V tomto období žádné kategorizované výdaje.</p>
             }
             else
             {
-                <ApexChart TItem="CategorySpendDto" Options="_donutOptions" Height="260">
+                <ApexChart @key="_catPeriod" TItem="CategorySpendDto" Options="_donutOptions" Height="260">
                     <ApexPointSeries TItem="CategorySpendDto"
-                                     Items="_summary.TopExpenseCategories"
+                                     Items="_catData"
                                      Name="Výdaje"
                                      SeriesType="SeriesType.Donut"
                                      XValue="@(c => c.CategoryName)"
                                      YValue="@(c => (decimal?)Math.Abs(c.Amount))" />
                 </ApexChart>
                 <div class="chart-legend">
-                    @foreach (var c in _summary.TopExpenseCategories)
+                    @foreach (var c in _catData)
                     {
                         <div class="bar-row">
                             <span class="bar-dot" style="background:@c.Color"></span>
@@ -145,6 +157,10 @@ else
     private ApexChartOptions<FlowPoint> _barOptions = new();
     private List<FlowPoint> _flow = [];
 
+    private string _catPeriod = "month";
+    private IReadOnlyList<CategorySpendDto> _catData = [];
+    private bool _catLoading;
+
     private sealed record FlowPoint(string Label, decimal Value);
 
     protected override async Task OnInitializedAsync()
@@ -164,10 +180,10 @@ else
         {
             Chart = new Chart { Background = "transparent", FontFamily = "inherit" },
             Theme = new Theme { Mode = mode },
-            Colors = _summary?.TopExpenseCategories.Select(c => c.Color).ToList(),
             Legend = new Legend { Position = LegendPosition.Bottom },
             DataLabels = new DataLabels { Enabled = false },
         };
+        await LoadCategoriesAsync();
 
         _flow =
         [
@@ -185,5 +201,24 @@ else
             Legend = new Legend { Show = false },
             DataLabels = new DataLabels { Enabled = false },
         };
+    }
+
+    private async Task SetCatPeriodAsync(string period)
+    {
+        if (_catPeriod == period)
+            return;
+        _catPeriod = period;
+        await LoadCategoriesAsync();
+    }
+
+    // Loads expense-by-category for the selected period from the server and refreshes the donut's colours.
+    private async Task LoadCategoriesAsync()
+    {
+        _catLoading = true;
+        StateHasChanged();
+        _catData = await Api.GetCategorySpendAsync(_catPeriod);
+        _donutOptions.Colors = _catData.Select(c => c.Color).ToList();
+        _catLoading = false;
+        StateHasChanged();
     }
 }
