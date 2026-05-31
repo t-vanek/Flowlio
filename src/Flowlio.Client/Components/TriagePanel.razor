@@ -1,0 +1,135 @@
+@* "Pohyby k zařazení" as a tab inside the Rules page (Rules.razor): uncategorized movements grouped by
+   counterparty, assigned with one click — optionally creating a rule so they self-categorize next time. *@
+@inject FlowlioApi Api
+@inject CurrentUserState CurrentUser
+@inject IToastService Toasts
+
+@if (!_canManage)
+{
+    <FluentMessageBar Intent="MessageIntent.Warning">Nemáte oprávnění zařazovat pohyby.</FluentMessageBar>
+}
+else
+{
+    <FluentCard Class="panel">
+        <p class="muted">
+            Nezařazené pohyby seskupené podle protistrany. Vyber kategorii a zařaď je jedním klikem;
+            volitelně z toho rovnou vytvoříš pravidlo, aby se příště zařadily samy.
+        </p>
+
+        @if (_groups is null)
+        {
+            <FluentProgressRing />
+        }
+        else if (_groups.Count == 0)
+        {
+            <FluentMessageBar Intent="MessageIntent.Success">Hotovo — žádné nezařazené pohyby. 🎉</FluentMessageBar>
+        }
+        else
+        {
+            <p class="muted">Celkem @_groups.Sum(g => g.Count) nezařazených pohybů v @_groups.Count skupinách.</p>
+            @foreach (var g in _groups)
+            {
+                <div class="account-row">
+                    <div>
+                        <div class="account-name">@g.Counterparty</div>
+                        <div class="muted">
+                            @g.Count pohybů@(g.TotalAmount is { } sum && g.Currency is { } cur ? $" · {Formatting.Money(sum, cur)}" : "")
+                        </div>
+                    </div>
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
+                        @* Value/ValueChanged, NOT @bind-Value: @bind-Value would make Blazor derive a
+                           FieldIdentifier from "_selected[g.Counterparty]", and ExpressionFormatter throws on a
+                           property-indexed accessor ("Unable to evaluate index expressions of type
+                           'PropertyExpression'") — which crashed the whole SPA with the global error UI. *@
+                        <FluentSelect TOption="string" Value="@(_selected.GetValueOrDefault(g.Counterparty, string.Empty))"
+                                      ValueChanged="@(v => _selected[g.Counterparty] = v ?? string.Empty)" Style="width:200px">
+                            <FluentOption TOption="string" Value="">— kategorie —</FluentOption>
+                            @foreach (var c in _categories ?? [])
+                            {
+                                <FluentOption TOption="string" Value="@c.Id.ToString()">@c.Name</FluentOption>
+                            }
+                        </FluentSelect>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => AssignAsync(g, makeRule: false))" Loading="@(_busy == g.Counterparty)">
+                            Zařadit
+                        </FluentButton>
+                        @if (g.Counterparty != "(bez názvu)")
+                        {
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => AssignAsync(g, makeRule: true))" Loading="@(_busy == g.Counterparty)"
+                                          Title="Zařadit a vytvořit osobní pravidlo z této protistrany">
+                                Zařadit + pravidlo
+                            </FluentButton>
+                        }
+                    </FluentStack>
+                </div>
+            }
+        }
+    </FluentCard>
+}
+
+@code {
+    private IReadOnlyList<UncategorizedGroupDto>? _groups;
+    private IReadOnlyList<CategoryDto>? _categories;
+    private readonly Dictionary<string, string> _selected = new();
+    private bool _canManage;
+    private string? _busy; // counterparty currently being assigned
+
+    protected override async Task OnInitializedAsync()
+    {
+        var me = await CurrentUser.GetAsync();
+        _canManage = me?.Can(Permission.ManageTransactions) ?? false;
+        if (!_canManage)
+            return;
+
+        _categories = await Api.GetCategoriesAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _groups = await Api.GetUncategorizedAsync();
+        foreach (var g in _groups)
+            _selected.TryAdd(g.Counterparty, "");
+    }
+
+    private async Task AssignAsync(UncategorizedGroupDto group, bool makeRule)
+    {
+        if (!_selected.TryGetValue(group.Counterparty, out var value) || !Guid.TryParse(value, out var categoryId))
+        {
+            Toasts.ShowError("Vyberte kategorii.");
+            return;
+        }
+
+        _busy = group.Counterparty;
+        try
+        {
+            if (makeRule)
+            {
+                // Creating the rule backfills these (and future) uncategorized transactions.
+                var created = await Api.CreateRuleAsync(new CategorizationRuleRequest
+                {
+                    Scope = RuleScope.Personal,
+                    Field = RuleMatchField.Any,
+                    MatchMode = RuleMatchMode.Substring,
+                    Pattern = group.Counterparty,
+                    CategoryId = categoryId,
+                });
+                if (created is null)
+                {
+                    Toasts.ShowError("Pravidlo se nepodařilo vytvořit.");
+                    return;
+                }
+                Toasts.ShowSuccess($"Zařazeno a vytvořeno pravidlo „{group.Counterparty}“.");
+            }
+            else
+            {
+                var count = await Api.BulkCategorizeAsync(group.TransactionIds, categoryId);
+                Toasts.ShowSuccess($"Zařazeno {count} pohybů.");
+            }
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = null;
+        }
+    }
+}
