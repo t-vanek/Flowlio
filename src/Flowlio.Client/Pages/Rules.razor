@@ -21,6 +21,8 @@
 }
 else
 {
+<FluentTabs @bind-ActiveTabId="_activeTab">
+<FluentTab Label="Pravidla" Id="rules">
 @if (_suggestions.Count > 0)
 {
     <FluentCard Class="panel">
@@ -102,7 +104,12 @@ else
                     <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
                         <FluentTextField @bind-Value="_minAmount" Label="Od" Style="width:120px" Placeholder="0" />
                         <FluentTextField @bind-Value="_maxAmount" Label="Do" Style="width:120px" Placeholder="∞" />
-                        <FluentTextField @bind-Value="_amountCurrency" Label="Měna" Style="width:90px" Maxlength="3" />
+                        <FluentSelect TOption="string" @bind-Value="_amountCurrency" Label="Měna" Style="width:110px">
+                            @foreach (var c in Currencies.Codes)
+                            {
+                                <FluentOption TOption="string" Value="@c">@c</FluentOption>
+                            }
+                        </FluentSelect>
                     </FluentStack>
                     <span class="muted">Porovnává se velikost částky (kladně). Vyplňte vzor a/nebo částku.</span>
                 </div>
@@ -250,6 +257,11 @@ else
         }
     </FluentCard>
 }
+</FluentTab>
+<FluentTab Label="K zařazení" Id="triage">
+    <TriagePanel />
+</FluentTab>
+</FluentTabs>
 }
 
 @code {
@@ -284,6 +296,10 @@ else
     [SupplyParameterFromQuery] public string? Pattern { get; set; }
     [SupplyParameterFromQuery] public Guid? CategoryId { get; set; }
 
+    /// <summary>Active tab ("rules" default, or "triage"). Lets /triage redirect to /rules?tab=triage.</summary>
+    [SupplyParameterFromQuery] public string? Tab { get; set; }
+    private string _activeTab = "rules";
+
     protected override async Task OnInitializedAsync()
     {
         var me = await CurrentUser.GetAsync();
@@ -302,6 +318,11 @@ else
         // Prefill the category when arriving from a transaction's "Vytvořit pravidlo".
         if (CategoryId is { } cid && _categories.Any(c => c.Id == cid))
             _categoryValue = cid.ToString();
+
+        // Land on the triage tab when redirected from /triage — unless a "create rule from transaction"
+        // deep link supplied a pattern, in which case the prefilled rule form should stay visible.
+        if (string.Equals(Tab, "triage", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(Pattern))
+            _activeTab = "triage";
 
         await LoadRulesAsync();
     }

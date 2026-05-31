@@ -74,6 +74,15 @@ else
                 }
                 @Body
             </article>
+
+            <footer class="appfooter">
+                <span class="appfooter-copy">© @DateTime.Now.Year Flowlio</span>
+                <nav class="appfooter-links" aria-label="Právní informace">
+                    <a href="terms">Podmínky užívání</a>
+                    <a href="privacy">Ochrana soukromí</a>
+                    <a href="gdpr">GDPR</a>
+                </nav>
+            </footer>
         </main>
     </div>
 }
@@ -90,6 +99,9 @@ else
         ("/family",         "Rodina"),
         ("/import",         "Import výpisu"),
         ("/administration", "Systémová administrace"),
+        ("/terms",          "Podmínky užívání"),
+        ("/privacy",        "Ochrana soukromí"),
+        ("/gdpr",           "GDPR"),
     ];
 
     private CurrentUserDto? _me;
