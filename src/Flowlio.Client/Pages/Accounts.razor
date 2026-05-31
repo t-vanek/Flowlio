@@ -44,9 +44,14 @@ else
                     <MoneyField @bind-Value="_accountModel.OpeningBalance" />
                 </div>
                 <div>
-                    <FluentTextField @bind-Value="_accountModel.Currency" Label="Měna" Style="width:120px" Maxlength="3"
-                                     Title="Měnu účtu už později nezměníte" />
+                    <FluentSelect TOption="string" @bind-Value="_accountModel.Currency" Label="Měna" Style="width:120px">
+                        @foreach (var c in Currencies.Codes)
+                        {
+                            <FluentOption TOption="string" Value="@c">@c</FluentOption>
+                        }
+                    </FluentSelect>
                     <FluentValidationMessage For="@(() => _accountModel.Currency)" />
+                    <div class="muted" style="font-size:12px;margin-top:2px">Měnu už později nezměníte.</div>
                 </div>
 
                 <FluentSelect TOption="string" @bind-Value="_ownerValue" Label="Vlastník účtu" Style="width:100%">

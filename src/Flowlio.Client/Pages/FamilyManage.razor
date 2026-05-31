@@ -87,7 +87,12 @@ else
                             <FluentValidationMessage For="@(() => _familyModel.Name)" />
                         </div>
                         <div>
-                            <FluentTextField @bind-Value="_familyModel.BaseCurrency" Label="Základní měna (ISO)" Style="width:160px" />
+                            <FluentSelect TOption="string" @bind-Value="_familyModel.BaseCurrency" Label="Základní měna" Style="width:160px">
+                                @foreach (var c in Currencies.Codes)
+                                {
+                                    <FluentOption TOption="string" Value="@c">@c</FluentOption>
+                                }
+                            </FluentSelect>
                             <FluentValidationMessage For="@(() => _familyModel.BaseCurrency)" />
                         </div>
                         <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent">Uložit změny</FluentButton>

@@ -104,7 +104,12 @@ else
                     <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Bottom">
                         <FluentTextField @bind-Value="_minAmount" Label="Od" Style="width:120px" Placeholder="0" />
                         <FluentTextField @bind-Value="_maxAmount" Label="Do" Style="width:120px" Placeholder="∞" />
-                        <FluentTextField @bind-Value="_amountCurrency" Label="Měna" Style="width:90px" Maxlength="3" />
+                        <FluentSelect TOption="string" @bind-Value="_amountCurrency" Label="Měna" Style="width:110px">
+                            @foreach (var c in Currencies.Codes)
+                            {
+                                <FluentOption TOption="string" Value="@c">@c</FluentOption>
+                            }
+                        </FluentSelect>
                     </FluentStack>
                     <span class="muted">Porovnává se velikost částky (kladně). Vyplňte vzor a/nebo částku.</span>
                 </div>
